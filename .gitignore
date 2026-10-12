@@ -1,0 +1,32 @@
+# Derleme çıktıları
+bin/
+obj/
+build/
+dist/
+artifacts/
+*.user
+.vs/
+
+# Node / web
+node_modules/
+web/dist/
+
+# Tauri / Rust
+desktop-client/src-tauri/target/
+desktop-client/src-tauri/gen/
+
+# Installer bağımlılıkları (fetch betiğiyle indirilir, repoya konmaz)
+installer/vendor/
+installer/output/
+
+# Yerel veri, yedek, gizli değerler — ASLA commit edilmez
+*.hpbak
+*.hpbak.sha256
+*.pfx
+*.dat
+secrets.*
+.env
+.env.*
+setup-token.txt
+pgdata/
+*.log

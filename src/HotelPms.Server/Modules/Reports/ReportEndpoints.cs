@@ -1,0 +1,559 @@
+using System.Globalization;
+using System.Text;
+using ClosedXML.Excel;
+using Dapper;
+using HotelPms.Server.Auth;
+using HotelPms.Server.Infrastructure;
+using HotelPms.Server.Modules.NightAudit;
+
+namespace HotelPms.Server.Modules.Reports;
+
+public sealed record ReportColumn(string Key, string Header, string Type);
+public sealed record ReportParam(string Key, string Label, string Type, bool Required);
+public sealed record ReportInfo(string Name, string Title, string Category, IReadOnlyList<ReportParam> Params, IReadOnlyList<ReportColumn> Columns);
+public sealed record ReportResult(string Name, string Title, IReadOnlyList<ReportColumn> Columns, IReadOnlyList<IDictionary<string, object?>> Rows,
+    IDictionary<string, object?> Totals, DateTime GeneratedAt, DateOnly BusinessDate);
+
+public sealed class ReportDefinition
+{
+    public required string Name { get; init; }
+    public required string Title { get; init; }
+    public required string Category { get; init; }
+    public required string Permission { get; init; }
+    public required ReportColumn[] Columns { get; init; }
+    public ReportParam[] Params { get; init; } = [];
+    public required string Sql { get; init; }
+    /// <summary>Toplamı alınacak sayısal kolonlar.</summary>
+    public string[] SumColumns { get; init; } = [];
+}
+
+public sealed record DashboardDto(DateOnly BusinessDate, string HotelName, string Currency, int RoomsTotal, int Occupied, int VacantClean, int VacantDirty,
+    int OutOfOrder, int ArrivalsExpected, int ArrivalsCheckedIn, int DeparturesExpected, int DeparturesCheckedOut, int GuestsInHouse,
+    decimal OccupancyPct, decimal RoomRevenueToday, decimal OtherRevenueToday, decimal PaymentsToday, decimal OpenBalance, int OpenTickets,
+    int OpenHkTasks, int KbsPending, int PendingWakeups, DateOnly? LastNightAudit, IReadOnlyList<ForecastDay> Forecast);
+public sealed record ForecastDay(DateOnly Date, int Sold, int Available, decimal OccupancyPct);
+
+public sealed record AuditLogDto(long Id, DateTime At, string? Username, string? Hostname, string? Ip, string Action, string? EntityType, string? EntityId,
+    string? OldValue, string? NewValue, string? Reason);
+
+public static class ReportEndpoints
+{
+    static readonly ReportParam From = new("from", "Başlangıç", "date", true);
+    static readonly ReportParam To = new("to", "Bitiş", "date", true);
+    static readonly ReportParam Date = new("date", "Tarih", "date", false);
+
+    public static readonly ReportDefinition[] Definitions =
+    [
+        new()
+        {
+            Name = "occupancy", Title = "Doluluk, ADR ve RevPAR", Category = "Gelir", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("date", "Tarih", "date"), new("source", "Kaynak", "text"), new("roomsAvailable", "Satılabilir Oda", "int"),
+                new("roomsSold", "Satılan Oda", "int"), new("occupancyPct", "Doluluk %", "decimal"), new("roomRevenue", "Oda Geliri", "money"),
+                new("adr", "ADR", "money"), new("revpar", "RevPAR", "money")],
+            SumColumns = ["roomsSold", "roomRevenue"],
+            Sql = """
+                WITH days AS (SELECT d::date AS d FROM generate_series(@from::date, @to::date, interval '1 day') d),
+                     bd AS (SELECT business_date FROM pms.property LIMIT 1)
+                SELECT days.d AS date,
+                       CASE WHEN s.business_date IS NOT NULL THEN 'Gerçekleşen' ELSE 'Tahmin (OTB)' END AS source,
+                       COALESCE(s.rooms_available, f.avail) AS rooms_available,
+                       COALESCE(s.rooms_sold, f.sold) AS rooms_sold,
+                       COALESCE(s.occupancy_pct, CASE WHEN f.avail = 0 THEN 0 ELSE round(f.sold * 100.0 / f.avail, 2) END) AS occupancy_pct,
+                       COALESCE(s.room_revenue, f.rev) AS room_revenue,
+                       COALESCE(s.adr, CASE WHEN f.sold = 0 THEN 0 ELSE round(f.rev / f.sold, 2) END) AS adr,
+                       COALESCE(s.revpar, CASE WHEN f.avail = 0 THEN 0 ELSE round(f.rev / f.avail, 2) END) AS revpar
+                FROM days
+                LEFT JOIN pms.daily_statistics s ON s.business_date = days.d
+                LEFT JOIN LATERAL (
+                    SELECT (SELECT count(*) FROM pms.rooms WHERE is_active)
+                           - (SELECT count(DISTINCT b.room_id) FROM pms.room_blocks b WHERE b.is_active AND b.kind = 'out_of_order' AND b.date_from <= days.d AND b.date_to > days.d) AS avail,
+                           (SELECT count(*) FROM pms.reservations r WHERE r.status IN ('tentative','confirmed','checked_in') AND r.arrival <= days.d AND r.departure > days.d) AS sold,
+                           (SELECT COALESCE(sum(rr.rate), 0) FROM pms.reservation_rates rr JOIN pms.reservations r ON r.id = rr.reservation_id
+                             WHERE rr.stay_date = days.d AND r.status IN ('tentative','confirmed','checked_in')) AS rev
+                ) f ON true
+                ORDER BY days.d
+                """,
+        },
+        new()
+        {
+            Name = "arrivals", Title = "Geliş Listesi", Category = "Ön Büro", Permission = "report.view", Params = [Date],
+            Columns = [new("reservationNumber", "Rez. No", "text"), new("guestName", "Misafir", "text"), new("vip", "VIP", "bool"), new("roomType", "Oda Tipi", "text"),
+                new("room", "Oda", "text"), new("nights", "Gece", "int"), new("pax", "Kişi", "text"), new("account", "Şirket/Acente", "text"),
+                new("status", "Durum", "text"), new("eta", "Tahmini Geliş", "text"), new("specialRequests", "Özel İstek", "text")],
+            Sql = """
+                SELECT r.reservation_number, g.first_name || ' ' || g.last_name AS guest_name, g.is_vip AS vip, t.code AS room_type, rm.number AS room,
+                       (r.departure - r.arrival) AS nights, r.adults || '+' || r.children AS pax, COALESCE(c.name, a.name) AS account,
+                       r.status, to_char(r.eta, 'HH24:MI') AS eta, r.special_requests
+                FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id JOIN pms.room_types t ON t.id = r.room_type_id
+                LEFT JOIN pms.rooms rm ON rm.id = r.room_id LEFT JOIN pms.companies c ON c.id = r.company_id LEFT JOIN pms.agencies a ON a.id = r.agency_id
+                WHERE r.arrival = COALESCE(@date::date, (SELECT business_date FROM pms.property LIMIT 1)) AND r.status IN ('tentative','confirmed','checked_in')
+                ORDER BY r.status, rm.number NULLS LAST, g.last_name
+                """,
+        },
+        new()
+        {
+            Name = "departures", Title = "Çıkış Listesi", Category = "Ön Büro", Permission = "report.view", Params = [Date],
+            Columns = [new("room", "Oda", "text"), new("reservationNumber", "Rez. No", "text"), new("guestName", "Misafir", "text"), new("arrival", "Giriş", "date"),
+                new("status", "Durum", "text"), new("balance", "Bakiye", "money"), new("etd", "Tahmini Çıkış", "text")],
+            SumColumns = ["balance"],
+            Sql = """
+                SELECT rm.number AS room, r.reservation_number, g.first_name || ' ' || g.last_name AS guest_name, r.arrival, r.status,
+                       COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance,
+                       to_char(r.etd, 'HH24:MI') AS etd
+                FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id LEFT JOIN pms.rooms rm ON rm.id = r.room_id
+                WHERE r.departure = COALESCE(@date::date, (SELECT business_date FROM pms.property LIMIT 1)) AND r.status IN ('checked_in','checked_out')
+                ORDER BY rm.number
+                """,
+        },
+        new()
+        {
+            Name = "inhouse", Title = "Konaklayan Misafirler", Category = "Ön Büro", Permission = "report.view",
+            Columns = [new("room", "Oda", "text"), new("guestName", "Misafir", "text"), new("nationality", "Uyruk", "text"), new("arrival", "Giriş", "date"),
+                new("departure", "Çıkış", "date"), new("pax", "Kişi", "text"), new("mealPlan", "Pansiyon", "text"), new("account", "Şirket/Acente", "text"),
+                new("rate", "Gecelik", "money"), new("balance", "Bakiye", "money")],
+            SumColumns = ["balance"],
+            Sql = """
+                SELECT rm.number AS room, g.first_name || ' ' || g.last_name AS guest_name, g.nationality::text AS nationality, r.arrival, r.departure,
+                       r.adults || '+' || r.children AS pax, r.meal_plan, COALESCE(c.name, a.name) AS account, r.nightly_rate AS rate,
+                       COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance
+                FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id JOIN pms.rooms rm ON rm.id = r.room_id
+                LEFT JOIN pms.companies c ON c.id = r.company_id LEFT JOIN pms.agencies a ON a.id = r.agency_id
+                WHERE r.status = 'checked_in' ORDER BY rm.sort_order, rm.number
+                """,
+        },
+        new()
+        {
+            Name = "guest-list", Title = "Misafir Listesi (Konaklayan + Ek Misafirler)", Category = "Ön Büro", Permission = "report.view",
+            Columns = [new("room", "Oda", "text"), new("guestName", "Misafir", "text"), new("nationality", "Uyruk", "text"), new("birthDate", "Doğum Tarihi", "date"),
+                new("primary", "Ana Misafir", "bool"), new("arrival", "Giriş", "date"), new("departure", "Çıkış", "date")],
+            Sql = """
+                SELECT rm.number AS room, g.first_name || ' ' || g.last_name AS guest_name, g.nationality::text AS nationality, g.birth_date, rg.is_primary AS primary,
+                       r.arrival, r.departure
+                FROM pms.reservations r JOIN pms.reservation_guests rg ON rg.reservation_id = r.id JOIN pms.guests g ON g.id = rg.guest_id
+                JOIN pms.rooms rm ON rm.id = r.room_id WHERE r.status = 'checked_in' ORDER BY rm.sort_order, rm.number, rg.is_primary DESC
+                """,
+        },
+        new()
+        {
+            Name = "no-show-cancel", Title = "No-show ve İptaller", Category = "Ön Büro", Permission = "report.view", Params = [From, To],
+            Columns = [new("reservationNumber", "Rez. No", "text"), new("guestName", "Misafir", "text"), new("status", "Durum", "text"), new("arrival", "Giriş", "date"),
+                new("departure", "Çıkış", "date"), new("actionDate", "İşlem İş Günü", "date"), new("reason", "Gerekçe", "text"), new("account", "Şirket/Acente", "text")],
+            Sql = """
+                SELECT r.reservation_number, g.first_name || ' ' || g.last_name AS guest_name, r.status, r.arrival, r.departure,
+                       COALESCE(r.cancelled_on, r.no_show_on) AS action_date, r.cancel_reason AS reason, COALESCE(c.name, a.name) AS account
+                FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id LEFT JOIN pms.companies c ON c.id = r.company_id LEFT JOIN pms.agencies a ON a.id = r.agency_id
+                WHERE r.status IN ('cancelled','no_show') AND COALESCE(r.cancelled_on, r.no_show_on) BETWEEN @from AND @to
+                ORDER BY action_date, r.reservation_number
+                """,
+        },
+        new()
+        {
+            Name = "room-status", Title = "Oda Durum Raporu", Category = "Kat Hizmetleri", Permission = "report.view",
+            Columns = [new("room", "Oda", "text"), new("floor", "Kat", "text"), new("roomType", "Tip", "text"), new("hkStatus", "Temizlik", "text"),
+                new("foStatus", "Ön Büro", "text"), new("block", "Blokaj", "text"), new("guest", "Misafir", "text"), new("note", "Not", "text")],
+            Sql = """
+                SELECT r.number AS room, r.floor, t.code AS room_type,
+                       CASE r.hk_status WHEN 'clean' THEN 'Temiz' WHEN 'dirty' THEN 'Kirli' WHEN 'inspected' THEN 'Kontrol Edildi' ELSE 'Temizleniyor' END
+                         || CASE WHEN r.is_dnd THEN ' (DND)' ELSE '' END AS hk_status,
+                       CASE WHEN ih.id IS NOT NULL THEN 'Dolu' ELSE 'Boş' END AS fo_status,
+                       (SELECT CASE b.kind WHEN 'out_of_order' THEN 'Arızalı' WHEN 'out_of_service' THEN 'Servis Dışı' ELSE 'Bloke' END || ': ' || b.reason
+                          FROM pms.room_blocks b WHERE b.room_id = r.id AND b.is_active AND b.date_from <= p.business_date AND b.date_to > p.business_date LIMIT 1) AS block,
+                       g.first_name || ' ' || g.last_name AS guest, r.hk_note AS note
+                FROM pms.rooms r CROSS JOIN (SELECT business_date FROM pms.property LIMIT 1) p JOIN pms.room_types t ON t.id = r.room_type_id
+                LEFT JOIN pms.reservations ih ON ih.room_id = r.id AND ih.status = 'checked_in' LEFT JOIN pms.guests g ON g.id = ih.guest_id
+                WHERE r.is_active ORDER BY r.floor NULLS LAST, r.sort_order, r.number
+                """,
+        },
+        new()
+        {
+            Name = "housekeeping", Title = "Kat Hizmetleri Görev Raporu", Category = "Kat Hizmetleri", Permission = "report.view", Params = [Date],
+            Columns = [new("room", "Oda", "text"), new("floor", "Kat", "text"), new("task", "Görev", "text"), new("status", "Durum", "text"),
+                new("assignedTo", "Görevli", "text"), new("completedAt", "Tamamlanma", "datetime"), new("notes", "Not", "text")],
+            Sql = """
+                SELECT r.number AS room, r.floor, k.task_type AS task, k.status, u.full_name AS assigned_to, k.completed_at, k.notes
+                FROM pms.hk_tasks k JOIN pms.rooms r ON r.id = k.room_id LEFT JOIN pms.users u ON u.id = k.assigned_user_id
+                WHERE k.business_date = COALESCE(@date::date, (SELECT business_date FROM pms.property LIMIT 1))
+                ORDER BY r.floor NULLS LAST, r.number
+                """,
+        },
+        new()
+        {
+            Name = "cashier", Title = "Kasa Raporu (Ödeme Tipine Göre)", Category = "Finans", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("businessDate", "İş Günü", "date"), new("user", "Kullanıcı", "text"), new("paymentMethod", "Ödeme Tipi", "text"),
+                new("collected", "Tahsilat", "money"), new("refunded", "İade", "money"), new("net", "Net", "money"), new("count", "Adet", "int")],
+            SumColumns = ["collected", "refunded", "net", "count"],
+            Sql = """
+                SELECT l.business_date, u.username AS user, pm.name AS payment_method,
+                       COALESCE(-sum(l.amount) FILTER (WHERE l.amount < 0), 0) AS collected,
+                       COALESCE(sum(l.amount) FILTER (WHERE l.amount > 0), 0) AS refunded,
+                       -sum(l.amount) AS net, count(*)::int AS count
+                FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id LEFT JOIN pms.users u ON u.id = l.user_id
+                WHERE l.business_date BETWEEN @from AND @to AND l.line_type IN ('payment','deposit','refund','void')
+                GROUP BY l.business_date, u.username, pm.name, pm.sort_order ORDER BY l.business_date, u.username, pm.sort_order
+                """,
+        },
+        new()
+        {
+            Name = "charges", Title = "Gelir / Masraf Dökümü", Category = "Finans", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("businessDate", "İş Günü", "date"), new("code", "Kod", "text"), new("name", "İşlem", "text"), new("category", "Kategori", "text"),
+                new("quantity", "Miktar", "decimal"), new("amount", "Tutar", "money")],
+            SumColumns = ["amount"],
+            Sql = """
+                SELECT l.business_date, COALESCE(tc.code, upper(l.line_type)) AS code, COALESCE(tc.name, l.line_type) AS name, COALESCE(tc.category, '-') AS category,
+                       sum(l.quantity) AS quantity, sum(l.amount) AS amount
+                FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
+                WHERE l.business_date BETWEEN @from AND @to AND l.line_type IN ('charge','discount','allowance','void') AND l.payment_method_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM pms.folio_lines o WHERE o.id = l.related_line_id AND o.line_type IN ('payment','deposit'))
+                GROUP BY l.business_date, tc.code, tc.name, tc.category, l.line_type ORDER BY l.business_date, code
+                """,
+        },
+        new()
+        {
+            Name = "payments", Title = "Tahsilat Detayı", Category = "Finans", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("postedAt", "Zaman", "datetime"), new("folio", "Folyo", "text"), new("room", "Oda", "text"), new("type", "Tür", "text"),
+                new("paymentMethod", "Ödeme Tipi", "text"), new("amount", "Tutar", "money"), new("reference", "Referans", "text"), new("user", "Kullanıcı", "text"),
+                new("shift", "Vardiya", "int")],
+            SumColumns = ["amount"],
+            Sql = """
+                SELECT l.posted_at, f.folio_number AS folio, l.room_number AS room, l.line_type AS type, pm.name AS payment_method, -l.amount AS amount, l.reference,
+                       u.username AS user, cs.shift_no AS shift
+                FROM pms.folio_lines l JOIN pms.folios f ON f.id = l.folio_id JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
+                LEFT JOIN pms.users u ON u.id = l.user_id LEFT JOIN pms.cashier_shifts cs ON cs.id = l.cashier_shift_id
+                WHERE l.business_date BETWEEN @from AND @to ORDER BY l.posted_at
+                """,
+        },
+        new()
+        {
+            Name = "folio-balances", Title = "Açık Folyo Bakiyeleri", Category = "Finans", Permission = "financial_report.view",
+            Columns = [new("folio", "Folyo", "text"), new("name", "Ad", "text"), new("reservation", "Rezervasyon", "text"), new("room", "Oda", "text"),
+                new("reservationStatus", "Konaklama", "text"), new("charges", "Borç", "money"), new("credits", "Alacak", "money"), new("balance", "Bakiye", "money")],
+            SumColumns = ["charges", "credits", "balance"],
+            Sql = """
+                SELECT f.folio_number AS folio, f.name, r.reservation_number AS reservation, rm.number AS room, r.status AS reservation_status,
+                       COALESCE(sum(l.amount) FILTER (WHERE l.amount > 0), 0) AS charges, COALESCE(-sum(l.amount) FILTER (WHERE l.amount < 0), 0) AS credits,
+                       COALESCE(sum(l.amount), 0) AS balance
+                FROM pms.folios f LEFT JOIN pms.folio_lines l ON l.folio_id = f.id LEFT JOIN pms.reservations r ON r.id = f.reservation_id
+                LEFT JOIN pms.rooms rm ON rm.id = r.room_id
+                GROUP BY f.id, r.reservation_number, rm.number, r.status HAVING COALESCE(sum(l.amount), 0) <> 0
+                ORDER BY balance DESC
+                """,
+        },
+        new()
+        {
+            Name = "company-ledger", Title = "Şirket Cari (City Ledger)", Category = "Finans", Permission = "financial_report.view",
+            Columns = [new("code", "Kod", "text"), new("name", "Şirket", "text"), new("creditLimit", "Kredi Limiti", "money"), new("charges", "Borç", "money"),
+                new("credits", "Alacak", "money"), new("balance", "Bakiye", "money")],
+            SumColumns = ["charges", "credits", "balance"],
+            Sql = """
+                SELECT c.code, c.name, c.credit_limit,
+                       COALESCE(sum(l.amount) FILTER (WHERE l.amount > 0), 0) AS charges, COALESCE(-sum(l.amount) FILTER (WHERE l.amount < 0), 0) AS credits,
+                       COALESCE(sum(l.amount), 0) AS balance
+                FROM pms.companies c JOIN pms.folios f ON f.company_id = c.id AND f.reservation_id IS NULL LEFT JOIN pms.folio_lines l ON l.folio_id = f.id
+                GROUP BY c.id ORDER BY balance DESC
+                """,
+        },
+        new()
+        {
+            Name = "agency-ledger", Title = "Acente Cari", Category = "Finans", Permission = "financial_report.view",
+            Columns = [new("code", "Kod", "text"), new("name", "Acente", "text"), new("commissionRate", "Komisyon %", "decimal"), new("charges", "Borç", "money"),
+                new("credits", "Alacak", "money"), new("balance", "Bakiye", "money")],
+            SumColumns = ["charges", "credits", "balance"],
+            Sql = """
+                SELECT a.code, a.name, a.commission_rate,
+                       COALESCE(sum(l.amount) FILTER (WHERE l.amount > 0), 0) AS charges, COALESCE(-sum(l.amount) FILTER (WHERE l.amount < 0), 0) AS credits,
+                       COALESCE(sum(l.amount), 0) AS balance
+                FROM pms.agencies a JOIN pms.folios f ON f.agency_id = a.id AND f.reservation_id IS NULL LEFT JOIN pms.folio_lines l ON l.folio_id = f.id
+                GROUP BY a.id ORDER BY balance DESC
+                """,
+        },
+        new()
+        {
+            Name = "production", Title = "Şirket/Acente Üretimi (Gece ve Gelir)", Category = "Gelir", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("kind", "Tür", "text"), new("name", "Ad", "text"), new("reservations", "Rezervasyon", "int"), new("roomNights", "Oda-Gece", "int"),
+                new("roomRevenue", "Oda Geliri (OTB+Gerçekleşen)", "money")],
+            SumColumns = ["reservations", "roomNights", "roomRevenue"],
+            Sql = """
+                SELECT CASE WHEN r.agency_id IS NOT NULL THEN 'Acente' WHEN r.company_id IS NOT NULL THEN 'Şirket' ELSE 'Bireysel' END AS kind,
+                       COALESCE(a.name, c.name, 'Bireysel') AS name, count(DISTINCT r.id)::int AS reservations, count(rr.stay_date)::int AS room_nights,
+                       COALESCE(sum(rr.rate), 0) AS room_revenue
+                FROM pms.reservations r JOIN pms.reservation_rates rr ON rr.reservation_id = r.id AND rr.stay_date BETWEEN @from AND @to
+                LEFT JOIN pms.companies c ON c.id = r.company_id LEFT JOIN pms.agencies a ON a.id = r.agency_id
+                WHERE r.status IN ('tentative','confirmed','checked_in','checked_out')
+                GROUP BY 1, 2 ORDER BY room_revenue DESC
+                """,
+        },
+        new()
+        {
+            Name = "guest-history", Title = "Misafir Konaklama Geçmişi", Category = "Misafir", Permission = "report.view", Params = [From, To],
+            Columns = [new("guestName", "Misafir", "text"), new("nationality", "Uyruk", "text"), new("stays", "Konaklama", "int"), new("nights", "Gece", "int"),
+                new("lastArrival", "Son Giriş", "date"), new("vip", "VIP", "bool")],
+            Sql = """
+                SELECT g.first_name || ' ' || g.last_name AS guest_name, g.nationality::text AS nationality, count(*)::int AS stays,
+                       sum(r.departure - r.arrival)::int AS nights, max(r.arrival) AS last_arrival, g.is_vip AS vip
+                FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id
+                WHERE r.status IN ('checked_in','checked_out') AND r.arrival BETWEEN @from AND @to
+                GROUP BY g.id ORDER BY stays DESC, nights DESC LIMIT 5000
+                """,
+        },
+        new()
+        {
+            Name = "nationality", Title = "Uyruğa Göre Konaklama", Category = "Misafir", Permission = "report.view", Params = [From, To],
+            Columns = [new("nationality", "Uyruk", "text"), new("guests", "Misafir", "int"), new("roomNights", "Oda-Gece", "int")],
+            SumColumns = ["guests", "roomNights"],
+            Sql = """
+                SELECT COALESCE(g.nationality::text, 'Bilinmiyor') AS nationality, count(DISTINCT g.id)::int AS guests, sum(r.departure - r.arrival)::int AS room_nights
+                FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id
+                WHERE r.status IN ('checked_in','checked_out') AND r.arrival BETWEEN @from AND @to GROUP BY 1 ORDER BY room_nights DESC
+                """,
+        },
+        new()
+        {
+            Name = "night-audit", Title = "Gece Denetimi Geçmişi", Category = "Gelir", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("businessDate", "İş Günü", "date"), new("roomsSold", "Satılan", "int"), new("occupancyPct", "Doluluk %", "decimal"),
+                new("roomRevenue", "Oda Geliri", "money"), new("otherRevenue", "Diğer Gelir", "money"), new("payments", "Tahsilat", "money"),
+                new("adr", "ADR", "money"), new("revpar", "RevPAR", "money"), new("arrivals", "Geliş", "int"), new("departures", "Çıkış", "int"),
+                new("noShows", "No-show", "int"), new("cancellations", "İptal", "int")],
+            SumColumns = ["roomsSold", "roomRevenue", "otherRevenue", "payments"],
+            Sql = """
+                SELECT business_date, rooms_sold, occupancy_pct, room_revenue, other_revenue, payments, adr, revpar, arrivals, departures, no_shows, cancellations
+                FROM pms.daily_statistics WHERE business_date BETWEEN @from AND @to ORDER BY business_date
+                """,
+        },
+        new()
+        {
+            Name = "audit-log", Title = "Denetim Kayıtları", Category = "Sistem", Permission = "audit.view", Params = [From, To],
+            Columns = [new("at", "Zaman", "datetime"), new("username", "Kullanıcı", "text"), new("hostname", "Cihaz", "text"), new("ip", "IP", "text"),
+                new("action", "İşlem", "text"), new("entityType", "Kayıt Türü", "text"), new("entityId", "Kayıt", "text"), new("reason", "Gerekçe", "text")],
+            Sql = """
+                SELECT at, username, hostname, host(ip) AS ip, action, entity_type, entity_id, reason FROM pms.audit_log
+                WHERE at >= @from::date AND at < @to::date + 1 ORDER BY at DESC LIMIT 20000
+                """,
+        },
+        new()
+        {
+            Name = "migration", Title = "Veri Aktarım Raporu", Category = "Sistem", Permission = "migration.manage", Params = [From, To],
+            Columns = [new("jobNo", "No", "int"), new("createdAt", "Tarih", "datetime"), new("entity", "Veri", "text"), new("sourceType", "Kaynak Türü", "text"),
+                new("sourceLabel", "Kaynak", "text"), new("status", "Durum", "text"), new("totalRows", "Toplam", "int"), new("importedRows", "Aktarılan", "int"),
+                new("updatedRows", "Güncellenen", "int"), new("skippedRows", "Atlanan", "int"), new("failedRows", "Hatalı", "int"), new("reviewRows", "İncelenmeli", "int")],
+            SumColumns = ["totalRows", "importedRows", "updatedRows", "skippedRows", "failedRows"],
+            Sql = """
+                SELECT job_no, created_at, entity, source_type, source_label, status, total_rows, imported_rows, updated_rows, skipped_rows, failed_rows, review_rows
+                FROM pms.import_jobs WHERE created_at >= @from::date AND created_at < @to::date + 1 ORDER BY created_at DESC
+                """,
+        },
+    ];
+
+    public static void Map(WebApplication app)
+    {
+        var g = app.MapGroup("/api/v1/reports").WithTags("Reports");
+
+        g.MapGet("/", (RequestContext ctx) => Definitions.Where(d => ctx.RequireUser().Has(d.Permission))
+            .Select(d => new ReportInfo(d.Name, d.Title, d.Category, d.Params, d.Columns)).ToList());
+
+        g.MapGet("/{name}", async (string name, HttpRequest req, Db db, RequestContext ctx) => await RunAsync(Find(name, ctx), req.Query, db));
+
+        g.MapGet("/{name}/export", async (string name, string format, HttpRequest req, Db db, RequestContext ctx) =>
+        {
+            var def = Find(name, ctx);
+            var result = await RunAsync(def, req.Query, db);
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmm");
+            await using (var c = await db.OpenAsync())
+                await c.ExecuteAsync("INSERT INTO pms.audit_log (user_id, username, device_id, ip, action, entity_type, entity_id) VALUES (@u, @n, @d, @ip::inet, 'report.export', 'report', @name)",
+                    new { u = ctx.User!.Id, n = ctx.User.Username, d = ctx.DeviceId, ip = ctx.Ip?.ToString(), name = $"{name}.{format}" });
+            return format switch
+            {
+                "csv" => Results.File(ToCsv(result), "text/csv; charset=utf-8", $"{name}-{stamp}.csv"),
+                "xlsx" => Results.File(ToXlsx(result), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{name}-{stamp}.xlsx"),
+                _ => throw PmsException.Validation("Desteklenen biçimler: csv, xlsx. PDF için rapor ekranındaki Yazdır/PDF seçeneğini kullanın."),
+            };
+        });
+
+        app.MapGet("/api/v1/dashboard", (CommandRunner cmd) => cmd.ReadAsync(DashboardAsync)).WithTags("Reports").RequirePermission("dashboard.view");
+
+        app.MapGet("/api/v1/audit-logs", (Db db, string? q, string? entityType, string? entityId, Guid? userId, DateOnly? from, DateOnly? to, int page = 1, int pageSize = 100) =>
+        {
+            var p = new PageRequest(page, pageSize);
+            return db.QueryAsync<AuditLogDto>("""
+                SELECT id, at, username, hostname, host(ip) AS ip, action, entity_type, entity_id, old_value::text AS old_value, new_value::text AS new_value, reason
+                FROM pms.audit_log
+                WHERE (@q::text IS NULL OR action ILIKE '%' || @q || '%' OR username ILIKE @q || '%' OR entity_id = @q)
+                  AND (@entityType::text IS NULL OR entity_type = @entityType) AND (@entityId::text IS NULL OR entity_id = @entityId)
+                  AND (@userId::uuid IS NULL OR user_id = @userId)
+                  AND (@from::date IS NULL OR at >= @from::date) AND (@to::date IS NULL OR at < @to::date + 1)
+                ORDER BY id DESC LIMIT @Limit OFFSET @Offset
+                """, new { q = string.IsNullOrWhiteSpace(q) ? null : q.Trim(), entityType, entityId, userId, from, to, p.Limit, p.Offset });
+        }).WithTags("Reports").RequirePermission("audit.view");
+    }
+
+    static ReportDefinition Find(string name, RequestContext ctx)
+    {
+        var def = Definitions.FirstOrDefault(d => d.Name == name) ?? throw PmsException.NotFound("Rapor");
+        if (!ctx.RequireUser().Has(def.Permission)) throw PmsException.Forbidden();
+        return def;
+    }
+
+    public static async Task<ReportResult> RunAsync(ReportDefinition def, IQueryCollection query, Db db)
+    {
+        var prm = new DynamicParameters();
+        var bd = await db.ScalarAsync<DateOnly>("SELECT business_date FROM pms.property LIMIT 1");
+        foreach (var p in def.Params)
+        {
+            var raw = query[p.Key].ToString();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                if (p.Required && p.Type == "date") prm.Add(p.Key, p.Key == "from" ? bd.AddDays(-30) : bd);
+                else prm.Add(p.Key, null, global::System.Data.DbType.Date);
+                continue;
+            }
+            if (p.Type == "date")
+            {
+                if (!DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                    throw PmsException.Validation($"{p.Label} tarihi geçersiz.");
+                prm.Add(p.Key, d);
+            }
+            else prm.Add(p.Key, raw);
+        }
+        if (def.Params.Any(p => p.Key == "from") && prm.Get<DateOnly>("from") is var f && prm.Get<DateOnly>("to") is var t && (t < f || t.DayNumber - f.DayNumber > 3660))
+            throw PmsException.Validation("Tarih aralığı geçersiz (en fazla 10 yıl).");
+
+        await using var c = await db.OpenAsync();
+        var raws = await c.QueryAsync(new CommandDefinition(def.Sql, prm, commandTimeout: 120));
+        var rows = new List<IDictionary<string, object?>>();
+        foreach (IDictionary<string, object?> r in raws)
+        {
+            var row = new Dictionary<string, object?>();
+            foreach (var col in def.Columns)
+            {
+                var snake = global::System.Text.RegularExpressions.Regex.Replace(col.Key, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant();
+                r.TryGetValue(snake, out var v);
+                row[col.Key] = v switch
+                {
+                    DateTime dt when col.Type == "date" => DateOnly.FromDateTime(dt),
+                    long l when col.Type == "int" => (int)l,
+                    _ => v,
+                };
+            }
+            rows.Add(row);
+        }
+        var totals = new Dictionary<string, object?>();
+        foreach (var key in def.SumColumns)
+        {
+            var col = def.Columns.First(cc => cc.Key == key);
+            totals[key] = col.Type == "int"
+                ? rows.Sum(r => Convert.ToInt64(r[key] ?? 0L))
+                : (object)rows.Sum(r => r[key] is null ? 0m : Convert.ToDecimal(r[key], CultureInfo.InvariantCulture));
+        }
+        return new ReportResult(def.Name, def.Title, def.Columns, rows, totals, DateTime.UtcNow, bd);
+    }
+
+    static string Format(object? v, string type) => v switch
+    {
+        null => "",
+        decimal d => d.ToString(type == "money" ? "0.00" : "0.##", CultureInfo.InvariantCulture),
+        DateOnly d => d.ToString("yyyy-MM-dd"),
+        DateTime dt => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+        bool b => b ? "Evet" : "Hayır",
+        _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "",
+    };
+
+    static byte[] ToCsv(ReportResult r)
+    {
+        // Türkiye'deki Excel varsayılanıyla uyumlu: noktalı virgül ayırıcı, UTF-8 BOM.
+        var sb = new StringBuilder();
+        static string Esc(string s) => s.Contains(';') || s.Contains('"') || s.Contains('\n') ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
+        sb.AppendLine(string.Join(';', r.Columns.Select(c => Esc(c.Header))));
+        foreach (var row in r.Rows) sb.AppendLine(string.Join(';', r.Columns.Select(c => Esc(Format(row[c.Key], c.Type)))));
+        return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(sb.ToString())];
+    }
+
+    static byte[] ToXlsx(ReportResult r)
+    {
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add(r.Title.Length > 31 ? r.Title[..31] : r.Title);
+        for (var i = 0; i < r.Columns.Count; i++)
+        {
+            ws.Cell(1, i + 1).Value = r.Columns[i].Header;
+            ws.Cell(1, i + 1).Style.Font.Bold = true;
+        }
+        var rowNo = 2;
+        foreach (var row in r.Rows)
+        {
+            for (var i = 0; i < r.Columns.Count; i++)
+            {
+                var col = r.Columns[i];
+                var cell = ws.Cell(rowNo, i + 1);
+                switch (row[col.Key])
+                {
+                    case null: break;
+                    case decimal d:
+                        cell.Value = d;
+                        cell.Style.NumberFormat.Format = col.Type == "money" ? "#,##0.00" : "0.##";
+                        break;
+                    case int n: cell.Value = n; break;
+                    case long n: cell.Value = n; break;
+                    case DateOnly d: cell.Value = d.ToDateTime(TimeOnly.MinValue); cell.Style.DateFormat.Format = "dd.MM.yyyy"; break;
+                    case DateTime dt: cell.Value = dt.ToLocalTime(); cell.Style.DateFormat.Format = "dd.MM.yyyy HH:mm"; break;
+                    case bool b: cell.Value = b ? "Evet" : "Hayır"; break;
+                    default: cell.Value = Convert.ToString(row[col.Key], CultureInfo.InvariantCulture); break;
+                }
+            }
+            rowNo++;
+        }
+        ws.SheetView.FreezeRows(1);
+        ws.Columns().AdjustToContents(1, Math.Min(rowNo, 500));
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    static async Task<DashboardDto> DashboardAsync(Tx tx)
+    {
+        var p = await tx.OneAsync<(DateOnly Bd, string Name, string Currency)>("SELECT business_date, name, currency::text FROM pms.property LIMIT 1");
+        var bd = p.Bd;
+        var d = await tx.OneAsync<DashRow>("""
+            SELECT (SELECT count(*)::int FROM pms.rooms WHERE is_active) AS rooms_total,
+                   (SELECT count(*)::int FROM pms.reservations WHERE status = 'checked_in') AS occupied,
+                   (SELECT count(*)::int FROM pms.rooms r WHERE r.is_active AND r.hk_status IN ('clean','inspected')
+                      AND NOT EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status = 'checked_in')) AS vacant_clean,
+                   (SELECT count(*)::int FROM pms.rooms r WHERE r.is_active AND r.hk_status IN ('dirty','cleaning')
+                      AND NOT EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status = 'checked_in')) AS vacant_dirty,
+                   (SELECT count(DISTINCT room_id)::int FROM pms.room_blocks WHERE is_active AND date_from <= @bd AND date_to > @bd) AS out_of_order,
+                   (SELECT count(*)::int FROM pms.reservations WHERE arrival = @bd AND status IN ('tentative','confirmed')) AS arrivals_expected,
+                   (SELECT count(*)::int FROM pms.reservations WHERE arrival = @bd AND status IN ('checked_in','checked_out')) AS arrivals_checked_in,
+                   (SELECT count(*)::int FROM pms.reservations WHERE departure <= @bd AND status = 'checked_in') AS departures_expected,
+                   (SELECT count(*)::int FROM pms.reservations WHERE departure = @bd AND status = 'checked_out') AS departures_checked_out,
+                   (SELECT COALESCE(sum(adults + children), 0)::int FROM pms.reservations WHERE status = 'checked_in') AS guests_in_house,
+                   (SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
+                      WHERE l.business_date = @bd AND l.line_type IN ('charge','discount','allowance','void') AND l.payment_method_id IS NULL
+                        AND (l.is_room_charge OR tc.category = 'room')) AS room_revenue_today,
+                   (SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
+                      WHERE l.business_date = @bd AND l.line_type = 'charge' AND NOT l.is_room_charge AND COALESCE(tc.category, '') <> 'room' AND l.related_line_id IS NULL) AS other_revenue_today,
+                   (SELECT COALESCE(-sum(l.amount), 0) FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
+                      WHERE l.business_date = @bd AND pm.kind NOT IN ('city_ledger','company','agency')) AS payments_today,
+                   (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l JOIN pms.folios f ON f.id = l.folio_id WHERE f.status = 'open') AS open_balance,
+                   (SELECT count(*)::int FROM pms.maintenance_tickets WHERE status IN ('open','in_progress')) AS open_tickets,
+                   (SELECT count(*)::int FROM pms.hk_tasks WHERE status IN ('open','in_progress')) AS open_hk_tasks,
+                   (SELECT count(*)::int FROM pms.identity_reports WHERE status IN ('needs_data','blocked_configuration','rejected','outcome_unknown','manual_action_required','retry_scheduled')) AS kbs_pending,
+                   (SELECT count(*)::int FROM pms.wakeup_calls WHERE status = 'pending') AS pending_wakeups,
+                   (SELECT max(business_date) FROM pms.night_audits) AS last_night_audit
+            """, new { bd });
+        var forecast = await tx.ListAsync<ForecastDay>("""
+            WITH days AS (SELECT d::date AS d FROM generate_series(@bd::date, @bd::date + 6, interval '1 day') d)
+            SELECT days.d AS date,
+                   (SELECT count(*)::int FROM pms.reservations r WHERE r.status IN ('tentative','confirmed','checked_in') AND r.arrival <= days.d AND r.departure > days.d) AS sold,
+                   ((SELECT count(*) FROM pms.rooms WHERE is_active) - (SELECT count(DISTINCT room_id) FROM pms.room_blocks WHERE is_active AND date_from <= days.d AND date_to > days.d))::int AS available,
+                   0::numeric AS occupancy_pct
+            FROM days ORDER BY days.d
+            """, new { bd });
+        forecast = forecast.Select(f => f with { OccupancyPct = f.Available <= 0 ? 0 : decimal.Round(f.Sold * 100m / f.Available, 1) }).ToList();
+        var sellable = d.RoomsTotal - d.OutOfOrder;
+        return new DashboardDto(bd, p.Name, p.Currency, d.RoomsTotal, d.Occupied, d.VacantClean, d.VacantDirty, d.OutOfOrder, d.ArrivalsExpected,
+            d.ArrivalsCheckedIn, d.DeparturesExpected, d.DeparturesCheckedOut, d.GuestsInHouse,
+            sellable <= 0 ? 0 : decimal.Round(d.Occupied * 100m / sellable, 1), d.RoomRevenueToday, d.OtherRevenueToday, d.PaymentsToday, d.OpenBalance,
+            d.OpenTickets, d.OpenHkTasks, d.KbsPending, d.PendingWakeups, d.LastNightAudit, forecast);
+    }
+
+    sealed record DashRow(int RoomsTotal, int Occupied, int VacantClean, int VacantDirty, int OutOfOrder, int ArrivalsExpected, int ArrivalsCheckedIn,
+        int DeparturesExpected, int DeparturesCheckedOut, int GuestsInHouse, decimal RoomRevenueToday, decimal OtherRevenueToday, decimal PaymentsToday,
+        decimal OpenBalance, int OpenTickets, int OpenHkTasks, int KbsPending, int PendingWakeups, DateOnly? LastNightAudit);
+}
