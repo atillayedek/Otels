@@ -9,7 +9,7 @@ artifacts/
 
 # Node / web
 node_modules/
-web/dist/
+.claude/
 
 # Tauri / Rust
 desktop-client/src-tauri/target/
