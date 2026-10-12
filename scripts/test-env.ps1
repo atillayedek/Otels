@@ -24,7 +24,10 @@ $pidFile = Join-Path $Root 'server.pid'
 function Stop-TestEnv {
     Get-Process HotelPms.Server -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $server } | Stop-Process -Force
     if (Test-Path $pidFile) { Stop-Process -Id (Get-Content $pidFile) -Force -ErrorAction SilentlyContinue; Remove-Item $pidFile }
-    if (Test-Path (Join-Path $data 'pgdata\postmaster.pid')) { & (Join-Path $PgBin 'pg_ctl.exe') stop -D (Join-Path $data 'pgdata') -m fast | Out-Null }
+    if (Test-Path (Join-Path $data 'pgdata\postmaster.pid')) {
+        try { & (Join-Path $PgBin 'pg_ctl.exe') stop -D (Join-Path $data 'pgdata') -m fast 2>$null | Out-Null } catch { }
+        Remove-Item (Join-Path $data 'pgdata\postmaster.pid') -ErrorAction SilentlyContinue
+    }
 }
 
 if ($Stop) { Stop-TestEnv; return }

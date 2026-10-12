@@ -9,7 +9,6 @@ namespace HotelPms.Server.Auth;
 
 public sealed class SessionService(Db db, ILogger<SessionService> log)
 {
-    public const string CookieName = "pms_session";
     public static readonly TimeSpan IdleTimeout = TimeSpan.FromHours(12);
     public static readonly TimeSpan AbsoluteTimeout = TimeSpan.FromDays(3);
     const int MaxFailedAttempts = 5;

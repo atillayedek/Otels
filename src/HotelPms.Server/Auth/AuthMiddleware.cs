@@ -6,7 +6,7 @@ using HotelPms.Shared;
 namespace HotelPms.Server.Auth;
 
 /// <summary>
-/// /api altındaki her istek için: sürüm el sıkışması, CSRF başlığı, oturum çözümleme, cihaz ve izin kontrolü,
+/// /api altındaki her istek için: sürüm el sıkışması, Bearer oturum çözümleme, cihaz ve izin kontrolü,
 /// veritabanı/disk durumuna göre yazma isteklerinin reddedilmesi.
 /// </summary>
 public sealed class AuthMiddleware(RequestDelegate next)
@@ -14,7 +14,6 @@ public sealed class AuthMiddleware(RequestDelegate next)
     public const string DeviceHeader = "X-PMS-Device-Id";
     public const string HostnameHeader = "X-PMS-Hostname";
     public const string ClientVersionHeader = "X-PMS-Client-Version";
-    public const string CsrfHeader = "X-PMS-Request";
 
     public async Task InvokeAsync(HttpContext http, RequestContext ctx, SessionService sessions, HealthState health)
     {
@@ -37,8 +36,6 @@ public sealed class AuthMiddleware(RequestDelegate next)
 
         var method = http.Request.Method;
         var isWrite = !(HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method));
-        if (isWrite && http.Request.Headers[CsrfHeader] != "1" && !path.StartsWithSegments("/api/v1/manage"))
-            throw new PmsException(403, "csrf", "İstek doğrulanamadı. Sayfayı yenileyin.");
 
         var endpoint = http.GetEndpoint();
         var isSystemPath = path.StartsWithSegments("/api/v1/system") || path.StartsWithSegments("/api/v1/manage");
@@ -50,8 +47,10 @@ public sealed class AuthMiddleware(RequestDelegate next)
                 throw new PmsException(507, "disk_full", "Sunucu disk alanı kritik seviyede. Veri kaybını önlemek için kayıt işlemleri durduruldu. Yöneticinize başvurun.");
         }
 
-        if (http.Request.Cookies.TryGetValue(SessionService.CookieName, out var token))
-            ctx.User = await sessions.ResolveAsync(token, http.RequestAborted);
+        // Kimlik yalnız PMS Client'ın gönderdiği Bearer token ile; tarayıcı çerezi kullanılmaz (CSRF yüzeyi yok).
+        var auth = http.Request.Headers.Authorization.ToString();
+        if (auth.StartsWith("Bearer ", StringComparison.Ordinal))
+            ctx.User = await sessions.ResolveAsync(auth["Bearer ".Length..].Trim(), http.RequestAborted);
 
         if (endpoint?.Metadata.GetMetadata<AnonymousPmsAttribute>() is not null)
         {

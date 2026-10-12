@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Text;
@@ -61,7 +62,9 @@ public sealed class Provisioner
             await InitDbAsync(pg, superPwd, ct);
         WritePostgresConfig(config);
 
-        if (o.InstallServices)
+        if (o.InstallServices && !OperatingSystem.IsWindows())
+            throw new InvalidOperationException("Linux'ta systemd servisleri install.sh tarafından kurulur.");
+        if (o.InstallServices && OperatingSystem.IsWindows())
         {
             HardenAcls();
             await RegisterPostgresServiceAsync(pg, ct);
@@ -85,12 +88,12 @@ public sealed class Provisioner
             File.WriteAllText(_paths.SetupTokenFile, SetupCode());
         }
 
-        if (o.InstallServices)
+        if (o.InstallServices && OperatingSystem.IsWindows())
         {
             var exe = o.ServerExePath ?? Path.Combine(_paths.InstallDir, "HotelPms.Server.exe");
             RegisterPmsService(exe);
         }
-        if (o.ConfigureFirewall) ConfigureFirewall(config);
+        if (o.ConfigureFirewall && OperatingSystem.IsWindows()) ConfigureFirewall(config);
         _log("Hazırlık tamamlandı.");
     }
 
@@ -173,6 +176,7 @@ public sealed class Provisioner
         if (!r.Success) throw new InvalidOperationException("PostgreSQL başlatılamadı. Ayrıntı: " + Path.Combine(_paths.LogsDir, "postgres-startup.log"));
     }
 
+    [SupportedOSPlatform("windows")]
     async Task RegisterPostgresServiceAsync(PostgresTools pg, CancellationToken ct)
     {
         if (ServiceExists(PmsConstants.PostgresServiceName)) return;
@@ -184,6 +188,7 @@ public sealed class Provisioner
         RunSc("description", PmsConstants.PostgresServiceName, "HotelPMS yerel veritabani (yalniz 127.0.0.1)");
     }
 
+    [SupportedOSPlatform("windows")]
     void RegisterPmsService(string exePath)
     {
         if (!ServiceExists(PmsConstants.ServiceName))
@@ -199,6 +204,7 @@ public sealed class Provisioner
         StartService(PmsConstants.ServiceName);
     }
 
+    [SupportedOSPlatform("windows")]
     void HardenAcls()
     {
         // Veri kökü: yalnız SYSTEM ve Administrators. PostgreSQL servis hesabı yalnız pgdata üzerinde yazabilir.
@@ -288,9 +294,15 @@ public sealed class Provisioner
     public static bool IsTcpPortFree(int port) =>
         IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().All(e => e.Port != port);
 
-    public static bool ServiceExists(string name) =>
-        System.ServiceProcess.ServiceController.GetServices().Any(s => s.ServiceName.Equals(name, StringComparison.OrdinalIgnoreCase));
+    public static bool ServiceExists(string name)
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        foreach (var s in System.ServiceProcess.ServiceController.GetServices())
+            if (s.ServiceName.Equals(name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 
+    [SupportedOSPlatform("windows")]
     void StartService(string name)
     {
         using var sc = new System.ServiceProcess.ServiceController(name);

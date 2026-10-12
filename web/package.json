@@ -1,0 +1,14 @@
+﻿{
+  "name": "hotelpms-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "gen:api": "openapi-typescript ../build/openapi/v1.json -o src/api/schema.d.ts"
+  }
+}

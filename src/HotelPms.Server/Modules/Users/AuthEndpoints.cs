@@ -6,6 +6,7 @@ using HotelPms.Server.Realtime;
 namespace HotelPms.Server.Modules.Users;
 
 public sealed record LoginRequest(string Username, string Password, Guid DeviceId, string? DeviceName, string? DeviceKind, string? ClientVersion);
+public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt, MeResponse User);
 public sealed record MeResponse(Guid Id, string Username, string FullName, IReadOnlyList<string> Roles, IReadOnlyList<string> Permissions, bool MustChangePassword, Guid? DeviceId);
 public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
@@ -22,15 +23,7 @@ public static class AuthEndpoints
             var name = Validate.Optional(ctx.Hostname ?? req.DeviceName, 63) ?? (kind == "browser" ? "Tarayıcı" : "PMS Client");
             var r = await sessions.LoginAsync(req.Username, req.Password, req.DeviceId, name, kind,
                 Validate.Optional(req.ClientVersion, 30), ctx.Ip, http.Request.Headers.UserAgent.ToString(), http.RequestAborted);
-            http.Response.Cookies.Append(SessionService.CookieName, r.Token, new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = http.Request.IsHttps,
-                SameSite = SameSiteMode.Strict,
-                Path = "/",
-                Expires = DateTimeOffset.UtcNow.Add(SessionService.AbsoluteTimeout),
-            });
-            return ToMe(r.User);
+            return new LoginResponse(r.Token, r.ExpiresAt, ToMe(r.User));
         }).AllowAnonymousPms().RequireRateLimiting("login");
 
         g.MapPost("/logout", async (RequestContext ctx, SessionService sessions, RealtimeHub hub, HttpContext http, Db db) =>
@@ -40,7 +33,6 @@ public static class AuthEndpoints
             await using var c = await db.OpenAsync();
             await c.ExecuteAsync("INSERT INTO pms.audit_log (user_id, username, device_id, ip, action, entity_type, entity_id) VALUES (@id, @un, @dev, @ip::inet, 'auth.logout', 'session', @sid)",
                 new { id = u.Id, un = u.Username, dev = ctx.DeviceId, ip = ctx.Ip?.ToString(), sid = u.SessionId.ToString() });
-            http.Response.Cookies.Delete(SessionService.CookieName);
             return Results.NoContent();
         });
 

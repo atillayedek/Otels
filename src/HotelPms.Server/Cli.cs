@@ -54,7 +54,17 @@ public static class Cli
                     Out($"Yedek alındı: {id}");
                     return 0;
                 }
-                case "unregister":
+                case "stop-postgres":
+                {
+                    var r = await new PostgresTools(paths, ServerConfig.Load(paths), new SecretStore(paths))
+                        .RunAsync("pg_ctl", ["stop", "-D", paths.PgDataDir, "-m", "fast", "-w"], null);
+                    Out(r.Success ? "PostgreSQL durduruldu." : "PostgreSQL durdurulamadı: " + r.StdErr);
+                    return r.ExitCode;
+                }
+                case "unregister" when !OperatingSystem.IsWindows():
+                    Out("Linux'ta kaldırma için uninstall.sh kullanın (veri korunur).");
+                    return 2;
+                case "unregister" when OperatingSystem.IsWindows():
                     foreach (var svc in new[] { PmsConstants.ServiceName, PmsConstants.PostgresServiceName })
                     {
                         if (!Provisioner.ServiceExists(svc)) continue;

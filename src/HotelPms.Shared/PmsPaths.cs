@@ -13,7 +13,9 @@ public sealed class PmsPaths
     {
         DataRoot = Path.GetFullPath(dataRoot
             ?? Environment.GetEnvironmentVariable("HOTELPMS_DATA_ROOT")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "HotelPMS"));
+            ?? (OperatingSystem.IsWindows()
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "HotelPMS")
+                : "/var/lib/hotelpms"));
         InstallDir = Path.GetFullPath(installDir
             ?? Environment.GetEnvironmentVariable("HOTELPMS_INSTALL_DIR")
             ?? AppContext.BaseDirectory);
@@ -36,13 +38,24 @@ public sealed class PmsPaths
     public string StatusFile => Path.Combine(DataRoot, "server-status.json");
 
     /// <summary>Gömülü PostgreSQL bin klasörü. Kurulumda {app}\pgsql\bin; geliştirmede HOTELPMS_PG_BIN.</summary>
-    public string PgBinDir => Environment.GetEnvironmentVariable("HOTELPMS_PG_BIN") is { Length: > 0 } env
-        ? env
-        : Path.Combine(InstallDir, "pgsql", "bin");
-
-    public string WebRoot => Environment.GetEnvironmentVariable("HOTELPMS_WEB_ROOT") is { Length: > 0 } env
-        ? env
-        : Path.Combine(InstallDir, "wwwroot");
+    public string PgBinDir
+    {
+        get
+        {
+            if (Environment.GetEnvironmentVariable("HOTELPMS_PG_BIN") is { Length: > 0 } env) return env;
+            var bundled = Path.Combine(InstallDir, "pgsql", "bin");
+            if (OperatingSystem.IsWindows() || Directory.Exists(bundled)) return bundled;
+            // Linux: dağıtımın PostgreSQL paketi (ör. /usr/lib/postgresql/17/bin), en yüksek sürüm.
+            const string debian = "/usr/lib/postgresql";
+            if (Directory.Exists(debian))
+            {
+                var best = Directory.GetDirectories(debian).Select(d => (Dir: d, Ok: int.TryParse(Path.GetFileName(d), out var v), V: v))
+                    .Where(x => x.Ok && File.Exists(Path.Combine(x.Dir, "bin", "initdb"))).OrderByDescending(x => x.V).FirstOrDefault();
+                if (best.Dir is not null) return Path.Combine(best.Dir, "bin");
+            }
+            return File.Exists("/usr/bin/initdb") ? "/usr/bin" : bundled;
+        }
+    }
 
     public void EnsureDirectories()
     {

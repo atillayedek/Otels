@@ -461,6 +461,7 @@ public sealed class DbSource : ISourceReader
         {
             var ext = Path.GetExtension(c.FilePath).ToLowerInvariant();
             if (ext is not (".mdb" or ".accdb")) throw PmsException.Validation("ODBC dosya kaynağı olarak yalnız Access (.mdb/.accdb) desteklenir.");
+            if (!OperatingSystem.IsWindows()) throw PmsException.Validation("Access dosyaları yalnız Windows sunucuda okunabilir. Veriyi CSV/XLSX olarak dışa aktarıp yükleyin.");
             if (!OdbcDrivers().Any(d => d.Contains("Access", StringComparison.OrdinalIgnoreCase)))
                 throw PmsException.Validation("Bu sunucuda Microsoft Access ODBC sürücüsü kurulu değil. Access Database Engine kurulmalıdır.");
             var driver = OdbcDrivers().First(d => d.Contains("*.accdb", StringComparison.OrdinalIgnoreCase) || d.Contains("Access", StringComparison.OrdinalIgnoreCase));
@@ -474,8 +475,19 @@ public sealed class DbSource : ISourceReader
     /// <summary>Sunucuda kurulu 64-bit ODBC sürücüleri.</summary>
     public static IReadOnlyList<string> OdbcDrivers()
     {
-        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers");
-        return key?.GetValueNames().Where(n => (key.GetValue(n) as string) == "Installed").OrderBy(n => n).ToList() ?? [];
+        if (OperatingSystem.IsWindows())
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers");
+            if (key is null) return [];
+            var names = new List<string>();
+            foreach (var n in key.GetValueNames()) if (key.GetValue(n) as string == "Installed") names.Add(n);
+            return names.OrderBy(n => n).ToList();
+        }
+        // Linux: unixODBC sürücü kataloğu.
+        const string ini = "/etc/odbcinst.ini";
+        if (!File.Exists(ini)) return [];
+        return File.ReadAllLines(ini).Select(l => l.Trim()).Where(l => l.StartsWith('[') && l.EndsWith(']') && l != "[ODBC]")
+            .Select(l => l[1..^1]).OrderBy(n => n).ToList();
     }
 
     void Exec(string sql)

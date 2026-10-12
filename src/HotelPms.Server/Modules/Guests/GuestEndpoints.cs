@@ -5,7 +5,7 @@ namespace HotelPms.Server.Modules.Guests;
 
 public sealed record GuestDto(Guid Id, string FirstName, string LastName, string? Gender, DateOnly? BirthDate, string? BirthPlace,
     string? FatherName, string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry,
-    DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, Guid? CompanyId, string? CompanyName,
+    DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId, string? CompanyName,
     string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool IsBlacklisted, string? BlacklistReason, bool KvkkConsent,
     DateTime? KvkkConsentAt, bool MarketingConsent, DateTime CreatedAt, string? MigrationSource, int Version)
 {
@@ -17,7 +17,7 @@ public sealed record GuestListItem(Guid Id, string FirstName, string LastName, s
 
 public sealed record SaveGuestRequest(string FirstName, string LastName, string? Gender, DateOnly? BirthDate, string? BirthPlace,
     string? FatherName, string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry,
-    DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, Guid? CompanyId,
+    DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId,
     string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent, int? Version);
 
 public sealed record BlacklistRequest(bool IsBlacklisted, string? Reason, int Version);
@@ -34,7 +34,7 @@ public static class GuestEndpoints
     public const string GuestSelect = """
         SELECT g.id, g.first_name, g.last_name, g.gender, g.birth_date, g.birth_place, g.father_name, g.mother_name, g.nationality::text AS nationality,
                g.identity_type, g.identity_number, g.identity_country::text AS identity_country, g.identity_expiry, g.phone, g.email, g.address, g.city,
-               g.country::text AS country, g.company_id, c.name AS company_name, g.notes, g.preferences, g.is_vip, g.vip_level, g.is_blacklisted,
+               g.country::text AS country, g.tax_office, g.tax_number, g.company_id, c.name AS company_name, g.notes, g.preferences, g.is_vip, g.vip_level, g.is_blacklisted,
                g.blacklist_reason, g.kvkk_consent, g.kvkk_consent_at, g.marketing_consent, g.created_at, g.migration_source, g.version
         FROM pms.guests g LEFT JOIN pms.companies c ON c.id = g.company_id
         """;
@@ -111,7 +111,7 @@ public static class GuestEndpoints
                 UPDATE pms.guests SET first_name = @FirstName, last_name = @LastName, gender = @Gender, birth_date = @BirthDate, birth_place = @BirthPlace,
                     father_name = @FatherName, mother_name = @MotherName, nationality = @Nationality, identity_type = @IdentityType,
                     identity_number = @IdentityNumber, identity_country = @IdentityCountry, identity_expiry = @IdentityExpiry, phone = @Phone,
-                    phone_normalized = @PhoneNormalized, email = @Email, address = @Address, city = @City, country = @Country, company_id = @CompanyId,
+                    phone_normalized = @PhoneNormalized, email = @Email, address = @Address, city = @City, country = @Country, tax_office = @TaxOffice, tax_number = @TaxNumber, company_id = @CompanyId,
                     notes = @Notes, preferences = @Preferences, is_vip = @IsVip, vip_level = @VipLevel,
                     kvkk_consent = @KvkkConsent, kvkk_consent_at = CASE WHEN @KvkkConsent AND NOT kvkk_consent THEN now() WHEN NOT @KvkkConsent THEN NULL ELSE kvkk_consent_at END,
                     marketing_consent = @MarketingConsent, updated_at = now(), version = version + 1
@@ -140,10 +140,10 @@ public static class GuestEndpoints
         var p = Params(req);
         var id = await tx.ScalarAsync<Guid>("""
             INSERT INTO pms.guests (first_name, last_name, gender, birth_date, birth_place, father_name, mother_name, nationality, identity_type,
-                identity_number, identity_country, identity_expiry, phone, phone_normalized, email, address, city, country, company_id, notes,
+                identity_number, identity_country, identity_expiry, phone, phone_normalized, email, address, city, country, tax_office, tax_number, company_id, notes,
                 preferences, is_vip, vip_level, kvkk_consent, kvkk_consent_at, marketing_consent, created_by)
             VALUES (@FirstName, @LastName, @Gender, @BirthDate, @BirthPlace, @FatherName, @MotherName, @Nationality, @IdentityType,
-                @IdentityNumber, @IdentityCountry, @IdentityExpiry, @Phone, @PhoneNormalized, @Email, @Address, @City, @Country, @CompanyId, @Notes,
+                @IdentityNumber, @IdentityCountry, @IdentityExpiry, @Phone, @PhoneNormalized, @Email, @Address, @City, @Country, @TaxOffice, @TaxNumber, @CompanyId, @Notes,
                 @Preferences, @IsVip, @VipLevel, @KvkkConsent, CASE WHEN @KvkkConsent THEN now() END, @MarketingConsent, @Uid)
             RETURNING id
             """, p with { Uid = tx.User.Id });
@@ -154,7 +154,7 @@ public static class GuestEndpoints
 
     public sealed record GuestParams(string FirstName, string LastName, string? Gender, DateOnly? BirthDate, string? BirthPlace, string? FatherName,
         string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry, DateOnly? IdentityExpiry,
-        string? Phone, string? PhoneNormalized, string? Email, string? Address, string? City, string? Country, Guid? CompanyId, string? Notes,
+        string? Phone, string? PhoneNormalized, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId, string? Notes,
         string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent)
     {
         public Guid Id { get; init; }
@@ -178,7 +178,8 @@ public static class GuestEndpoints
             string.IsNullOrEmpty(r.Gender) ? null : r.Gender, r.BirthDate, Validate.Optional(r.BirthPlace, 100),
             Validate.Optional(r.FatherName, 100), Validate.Optional(r.MotherName, 100), Validate.Country(r.Nationality, "Uyruk"),
             idType, idNo, Validate.Country(r.IdentityCountry), r.IdentityExpiry, phone, Validate.NormalizePhone(phone),
-            Validate.Email(r.Email), Validate.Optional(r.Address), Validate.Optional(r.City, 100), Validate.Country(r.Country), r.CompanyId,
+            Validate.Email(r.Email), Validate.Optional(r.Address), Validate.Optional(r.City, 100), Validate.Country(r.Country),
+            Validate.Optional(r.TaxOffice, 100), Validate.Optional(r.TaxNumber, 20), r.CompanyId,
             Validate.Optional(r.Notes, 4000), Validate.Optional(r.Preferences, 2000), r.IsVip, Validate.Optional(r.VipLevel, 20),
             r.KvkkConsent, r.MarketingConsent);
     }

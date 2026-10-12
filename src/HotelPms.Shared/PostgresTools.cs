@@ -21,7 +21,7 @@ public sealed class PostgresTools
         _secrets = secrets;
     }
 
-    public string Exe(string name) => Path.Combine(_paths.PgBinDir, name + ".exe");
+    public string Exe(string name) => Path.Combine(_paths.PgBinDir, OperatingSystem.IsWindows() ? name + ".exe" : name);
     public bool BinariesPresent => File.Exists(Exe("pg_dump")) && File.Exists(Exe("pg_ctl"));
 
     public string OwnerConnectionString(string? database = null) => new NpgsqlConnectionStringBuilder
@@ -49,7 +49,7 @@ public sealed class PostgresTools
     public async Task<ProcessResult> RunAsync(string tool, IEnumerable<string> args, string? password,
         CancellationToken ct = default, TimeSpan? timeout = null, bool redirect = true)
     {
-        if (!redirect)
+        if (!redirect && OperatingSystem.IsWindows())
         {
             // ShellExecute ile başlatılan süreç std tutamaçlarını devralmaz; postgres arka planda kalsa da çağıranı kilitlemez.
             var shell = new ProcessStartInfo(Exe(tool)) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden };

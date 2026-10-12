@@ -27,7 +27,7 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 var paths = new PmsPaths();
 
 // ------------------------------------------------------------------ CLI alt komutları (installer / Server Manager)
-if (args.Length > 0 && args[0] is "provision" or "unregister" or "backup" or "renew-cert" or "version")
+if (args.Length > 0 && args[0] is "provision" or "unregister" or "backup" or "renew-cert" or "version" or "stop-postgres")
     return await Cli.RunAsync(args, paths);
 
 paths.EnsureDirectories();
@@ -52,9 +52,9 @@ try
     {
         Args = args,
         ContentRootPath = AppContext.BaseDirectory,
-        WebRootPath = Directory.Exists(paths.WebRoot) ? paths.WebRoot : null,
     });
     builder.Host.UseWindowsService(o => o.ServiceName = PmsConstants.ServiceName);
+    builder.Host.UseSystemd();
     builder.Host.UseSerilog();
 
     builder.WebHost.ConfigureKestrel(k =>
@@ -172,18 +172,8 @@ try
     app.Map("/api/v1/realtime", (HttpContext http, RequestContext ctx, RealtimeHub hub) => hub.HandleAsync(http, ctx));
     app.MapFallback("/api/{**rest}", () => Results.Json(new ErrorResponse("not_found", "API ucu bulunamadı.", "-"), Json.Options, statusCode: 404));
 
-    if (app.Environment.WebRootPath is { } webRoot && Directory.Exists(webRoot))
-    {
-        app.UseDefaultFiles();
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            OnPrepareResponse = c =>
-            {
-                c.Context.Response.Headers.CacheControl = c.File.Name == "index.html" ? "no-cache" : "public, max-age=31536000, immutable";
-            },
-        });
-        app.MapFallbackToFile("index.html");
-    }
+    // Sunucu yalnız API sunar; PMS ekranları PMS Client içindedir.
+    app.MapGet("/", () => Results.Text("HotelPMS sunucusu çalışıyor. Bu adres yalnız PMS Client tarafından kullanılır.", "text/plain; charset=utf-8"));
 
     await app.RunAsync();
     return 0;

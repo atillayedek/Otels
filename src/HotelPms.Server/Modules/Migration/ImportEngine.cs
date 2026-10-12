@@ -91,6 +91,7 @@ public static class Validator
                 break;
 
             case "folio_history":
+            case "account_ledger":
                 if (V("amount") is { } amt)
                 {
                     var val = decimal.Parse(amt, CultureInfo.InvariantCulture);
@@ -128,7 +129,7 @@ public static class Duplicates
         "room_types" => m.GetValueOrDefault("code") is { Length: > 0 } c2 ? "kod:" + c2 : null,
         "rooms" => m.GetValueOrDefault("number") is { Length: > 0 } n ? "oda no:" + n.ToUpperInvariant() : null,
         "reservations" => m.GetValueOrDefault("reservation_number") is { Length: > 0 } r ? "rezervasyon no:" + r : m.GetValueOrDefault("source_id") is { Length: > 0 } s ? "kayıt no:" + s : null,
-        "folio_history" => m.GetValueOrDefault("source_id") is { Length: > 0 } s2 ? "kayıt no:" + s2 : null,
+        "folio_history" or "account_ledger" => m.GetValueOrDefault("source_id") is { Length: > 0 } s2 ? "kayıt no:" + s2 : null,
         _ => null,
     };
 
@@ -217,6 +218,7 @@ public static class Duplicates
                 break;
             }
             case "folio_history":
+            case "account_ledger":
             {
                 var sids = rows.Select(r => r.GetValueOrDefault("source_id")).Where(x => x is not null).ToArray();
                 var existing = (await c.QueryAsync<(Guid Id, string Sid)>("SELECT id, migration_source_id FROM pms.folio_lines WHERE migration_source_id = ANY(@sids)", new { sids }))
@@ -268,6 +270,7 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
             "rooms" => await RoomAsync(m, updateId),
             "reservations" => updateId is null ? await ReservationAsync(m) : throw PmsException.Validation("Mevcut rezervasyonlar aktarımla güncellenmez; satır atlanmalıdır."),
             "folio_history" => updateId is null ? await FolioLineAsync(m) : throw PmsException.Validation("Aktarılmış folyo hareketi tekrar yazılmaz."),
+            "account_ledger" => updateId is null ? await AccountLedgerAsync(m) : throw PmsException.Validation("Aktarılmış cari hareket tekrar yazılmaz."),
             _ => throw new InvalidOperationException(),
         };
     }
@@ -291,7 +294,7 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
             first = S(m, "first_name")!, last = S(m, "last_name")!, gender = S(m, "gender"), birth = Dt(m, "birth_date"), birthPlace = S(m, "birth_place"),
             father = S(m, "father_name"), mother = S(m, "mother_name"), nationality = S(m, "nationality") ?? (idType == "tckn" ? "TR" : null),
             idType, idNo, idCountry = S(m, "identity_country"), phone, phoneN = Validate.NormalizePhone(phone), email = S(m, "email"), address = S(m, "address"),
-            city = S(m, "city"), country = S(m, "country"), companyId, notes = LostNotes(m, S(m, "notes")), prefs = S(m, "preferences"), vip = B(m, "is_vip"),
+            city = S(m, "city"), country = S(m, "country"), taxOffice = S(m, "tax_office"), taxNo = S(m, "tax_number"), companyId, notes = LostNotes(m, S(m, "notes")), prefs = S(m, "preferences"), vip = B(m, "is_vip"),
             vipLevel = S(m, "vip_level"), bl = B(m, "is_blacklisted"), blReason = S(m, "blacklist_reason"), kvkk = B(m, "kvkk_consent"), mkt = B(m, "marketing_consent"),
             jobId, src = sourceLabel, sid = S(m, "source_id"), userId, id = updateId,
         };
@@ -305,6 +308,7 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
                     identity_type = COALESCE(identity_type, @idType), identity_number = COALESCE(identity_number, @idNo), identity_country = COALESCE(identity_country, @idCountry),
                     phone = COALESCE(phone, @phone), phone_normalized = COALESCE(phone_normalized, @phoneN), email = COALESCE(email, @email),
                     address = COALESCE(address, @address), city = COALESCE(city, @city), country = COALESCE(country, @country), company_id = COALESCE(company_id, @companyId),
+                    tax_office = COALESCE(tax_office, @taxOffice), tax_number = COALESCE(tax_number, @taxNo),
                     notes = CASE WHEN @notes IS NULL THEN notes WHEN notes IS NULL THEN @notes ELSE notes || E'\n' || @notes END,
                     preferences = COALESCE(preferences, @prefs), is_vip = is_vip OR @vip, vip_level = COALESCE(vip_level, @vipLevel),
                     is_blacklisted = is_blacklisted OR @bl, blacklist_reason = COALESCE(blacklist_reason, @blReason),
@@ -316,10 +320,10 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
         }
         var newId = await Scalar<Guid>("""
             INSERT INTO pms.guests (first_name, last_name, gender, birth_date, birth_place, father_name, mother_name, nationality, identity_type, identity_number,
-                identity_country, phone, phone_normalized, email, address, city, country, company_id, notes, preferences, is_vip, vip_level, is_blacklisted,
+                identity_country, phone, phone_normalized, email, address, city, country, tax_office, tax_number, company_id, notes, preferences, is_vip, vip_level, is_blacklisted,
                 blacklist_reason, kvkk_consent, kvkk_consent_at, marketing_consent, created_by, migration_job_id, migration_source, migration_source_id)
             VALUES (@first, @last, @gender, @birth, @birthPlace, @father, @mother, @nationality, @idType, @idNo, @idCountry, @phone, @phoneN, @email, @address,
-                @city, @country, @companyId, @notes, @prefs, @vip, @vipLevel, @bl, @blReason, @kvkk, CASE WHEN @kvkk THEN now() END, @mkt, @userId,
+                @city, @country, @taxOffice, @taxNo, @companyId, @notes, @prefs, @vip, @vipLevel, @bl, @blReason, @kvkk, CASE WHEN @kvkk THEN now() END, @mkt, @userId,
                 @jobId, @src, @sid)
             RETURNING id
             """, p);
@@ -514,6 +518,58 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
         {
             folioId, kind, methodId, desc = S(m, "description")!, amount = kind == "payment" ? -amount : amount, currency, date = Dt(m, "date")!.Value, userId,
             reference = S(m, "reference"), room = res[0].Room, jobId, src = sourceLabel, sid = S(m, "source_id"),
+        });
+        await Record("folio_lines", id, "created", null, null);
+        return (id, "imported");
+    }
+
+    /// <summary>
+    /// Eski muhasebe programındaki şirket/acente cari hareketi → ilgili carinin hesap (city ledger) folyosuna borç veya alacak satırı.
+    /// Cari kart vergi no, kod veya tam unvanla bulunur; bulunamazsa satır hatalı sayılır (cari uydurulmaz).
+    /// </summary>
+    async Task<(Guid, string)> AccountLedgerAsync(Dictionary<string, string?> m)
+    {
+        var kind = S(m, "account_kind")!;
+        var table = kind == "agency" ? "agencies" : "companies";
+        var reference = S(m, "account_ref")!;
+        var hits = (await c.QueryAsync<Guid>($"""
+            SELECT id FROM pms.{table} WHERE tax_number = @reference
+            UNION SELECT id FROM pms.{table} WHERE upper(code) = upper(@reference)
+            """, new { reference }, tx)).Distinct().ToList();
+        if (hits.Count == 0)
+            hits = (await c.QueryAsync<Guid>($"SELECT id FROM pms.{table} WHERE lower(name) = lower(@reference)", new { reference }, tx)).ToList();
+        if (hits.Count != 1)
+            throw PmsException.Validation(hits.Count == 0
+                ? $"Cari '{reference}' bulunamadı. Önce {(kind == "agency" ? "acenteleri" : "şirketleri")} aktarın."
+                : $"Cari '{reference}' birden fazla kayıtla eşleşti; vergi no veya kod kullanın.");
+        var accountId = hits[0];
+        var col = kind == "agency" ? "agency_id" : "company_id";
+        var folioId = await Scalar<Guid?>($"SELECT id FROM pms.folios WHERE {col} = @accountId AND reservation_id IS NULL ORDER BY status = 'open' DESC, created_at LIMIT 1", new { accountId });
+        if (folioId is null)
+        {
+            var folioNo = "F" + await Scalar<long>("SELECT nextval('pms.folio_number_seq')", new { });
+            folioId = await Scalar<Guid>($"""
+                INSERT INTO pms.folios (folio_number, reservation_id, window_no, payer_kind, {col}, name, currency, created_by, migration_job_id, migration_source)
+                SELECT @folioNo, NULL, 1, @kind, a.id, 'Cari: ' || a.name, @currency, @userId, @jobId, @src FROM pms.{table} a WHERE a.id = @accountId RETURNING id
+                """, new { folioNo, kind, accountId, currency, userId, jobId, src = sourceLabel });
+            await Record("folios", folioId.Value, "created", null, 1);
+        }
+        var lineKind = S(m, "kind")!;
+        var amount = D(m, "amount")!.Value;
+        Guid? methodId = null;
+        if (lineKind == "payment")
+        {
+            methodId = await Scalar<Guid?>("SELECT id FROM pms.payment_methods WHERE upper(code) = upper(@pm) OR lower(name) = lower(@pm) LIMIT 1", new { pm = S(m, "payment_method") })
+                ?? throw PmsException.Validation("Alacak satırı için ödeme tipi bulunamadı.");
+        }
+        var id = await Scalar<Guid>("""
+            INSERT INTO pms.folio_lines (folio_id, line_type, payment_method_id, description, amount, currency, business_date, user_id, reference,
+                migration_job_id, migration_source, migration_source_id)
+            VALUES (@folioId, @lineKind, @methodId, @desc, @amount, @currency, @date, @userId, @reference, @jobId, @src, @sid) RETURNING id
+            """, new
+        {
+            folioId, lineKind, methodId, desc = S(m, "description")!, amount = lineKind == "payment" ? -amount : amount, currency,
+            date = Dt(m, "date")!.Value, userId, reference = S(m, "reference"), jobId, src = sourceLabel, sid = S(m, "source_id"),
         });
         await Record("folio_lines", id, "created", null, null);
         return (id, "imported");

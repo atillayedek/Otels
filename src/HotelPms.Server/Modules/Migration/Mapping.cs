@@ -37,6 +37,8 @@ public static class MappingCatalog
             new("address", "Adres", "text", false, ["ADRES", "ADDRESS", "EVADRESI"]),
             new("city", "Şehir", "text", false, ["SEHIR", "IL", "CITY", "IKAMETIL"]),
             new("country", "Ülke", "country", false, ["ULKE", "COUNTRY", "IKAMETULKE"]),
+            new("tax_office", "Vergi dairesi", "text", false, ["VERGIDAIRESI", "VD", "TAXOFFICE"]),
+            new("tax_number", "Vergi no", "text", false, ["VERGINO", "VKN", "TAXNUMBER", "VERGINUMARASI"]),
             new("company_name", "Şirket (ad veya kod)", "text", false, ["FIRMA", "SIRKET", "COMPANY", "FIRMAADI", "SIRKETADI"], "Mevcut şirket kartıyla eşleştirilir; bulunamazsa boş bırakılır."),
             new("notes", "Notlar", "text", false, ["NOT", "NOTLAR", "ACIKLAMA", "NOTES", "REMARK", "REMARKS"]),
             new("preferences", "Tercihler", "text", false, ["TERCIH", "TERCIHLER", "PREFERENCES"]),
@@ -102,6 +104,21 @@ public static class MappingCatalog
             new("payment_method", "Ödeme tipi (kod/ad)", "text", false, ["ODEMETIPI", "ODEME", "PAYMENT", "KASA"]),
             new("reference", "Belge no", "text", false, ["BELGENO", "FISNO", "REFERANS", "REFERENCE"]),
             new("source_id", "Eski sistem kayıt no", "text", false, SourceId),
+        ],
+        ["account_ledger"] =
+        [
+            new("account_kind", "Cari türü (şirket/acente)", "account_kind", true, ["CARITURU", "HESAPTURU", "TUR", "TIP"],
+                "Tüm dosya tek türse sabit değer seçin (Şirket veya Acente)."),
+            new("account_ref", "Cari (vergi no / kod / unvan)", "text", true, ["VERGINO", "VKN", "CARIKOD", "CARIKODU", "HESAPKODU", "UNVAN", "FIRMA", "CARI"],
+                "Önce vergi numarasıyla, sonra cari koduyla, en son tam unvanla eşleştirilir."),
+            new("date", "İşlem tarihi", "date", true, ["TARIH", "ISLEMTARIHI", "FISTARIHI", "DATE"]),
+            new("kind", "Borç / Alacak", "line_kind", true, ["BA", "BORCALACAK", "TUR", "TIP"]),
+            new("description", "Açıklama", "text", true, ["ACIKLAMA", "DESCRIPTION", "ISLEM"]),
+            new("amount", "Tutar", "decimal", true, ["TUTAR", "MEBLAG", "AMOUNT"]),
+            new("payment_method", "Tahsilat yöntemi (alacak satırları için)", "text", false, ["ODEMETIPI", "ODEME", "KASA", "BANKA"],
+                "Alacak (tahsilat) satırlarında zorunludur; kaynakta yoksa sabit bir ödeme tipi seçin."),
+            new("reference", "Belge / fiş no", "text", false, ["BELGENO", "FISNO", "EVRAKNO", "FATURANO", "REFERANS"]),
+            new("source_id", "Eski sistem kayıt no", "text", false, ["ID", "KAYITNO", "HAREKETNO", "SIRANO"]),
         ],
     };
 
@@ -203,6 +220,12 @@ public static class Transform
             "res_status" => ParseReservationStatus(v),
             "meal_plan" => ParseMealPlan(v),
             "line_kind" => ParseLineKind(v),
+            "account_kind" => MappingCatalog.NormalizeHeader(v) switch
+            {
+                "SIRKET" or "FIRMA" or "COMPANY" or "S" or "MUSTERI" => "company",
+                "ACENTE" or "ACENTA" or "AGENCY" or "A" or "TOUROPERATOR" => "agency",
+                _ => throw new FormatException($"Cari türü tanınmadı: '{v}' (Şirket veya Acente)"),
+            },
             _ => v,
         };
     }

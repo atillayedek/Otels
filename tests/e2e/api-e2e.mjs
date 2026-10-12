@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 const [base, setupCodeFile] = process.argv.slice(2);
 if (!base || !setupCodeFile) { console.error('Kullanım: node api-e2e.mjs <baseUrl> <setupCodeFile> <caCertFile>'); process.exit(2); }
 
-let cookie = '';
+let token = '';
 const deviceId = randomUUID();
 const results = [];
 async function step(name, fn) {
@@ -20,17 +20,15 @@ async function step(name, fn) {
 
 async function api(method, path, body, { key, expect, raw, form } = {}) {
   const headers = { 'X-PMS-Device-Id': deviceId, 'X-PMS-Hostname': 'E2E-TEST' };
-  if (method !== 'GET') headers['X-PMS-Request'] = '1';
   if (key) headers['Idempotency-Key'] = key;
-  if (cookie) headers.Cookie = cookie;
+  if (token) headers.Authorization = 'Bearer ' + token;
   let payload;
   if (form) payload = form; else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
   const res = await fetch(base + path, { method, headers, body: payload });
-  const sc = res.headers.get('set-cookie');
-  if (sc) cookie = sc.split(';')[0];
   if (raw) return res;
   const text = await res.text();
   const json = text ? JSON.parse(text) : null;
+  if (path === '/api/v1/auth/login' && res.ok) token = json.token;
   const ok = expect ? (Array.isArray(expect) ? expect.includes(res.status) : res.status === expect) : res.ok;
   if (!ok) throw new Error(`${method} ${path} -> ${res.status} ${text}`);
   return json;
@@ -67,7 +65,7 @@ try {
   });
 
   await step('Giriş ve yetkiler', async () => {
-    const me = await api('POST', '/api/v1/auth/login', { username: 'e2eadmin', password: 'TestParola123', deviceId, deviceName: 'E2E', deviceKind: 'browser' });
+    const me = (await api('POST', '/api/v1/auth/login', { username: 'e2eadmin', password: 'TestParola123', deviceId, deviceName: 'E2E', deviceKind: 'client' })).user;
     assert.ok(me.permissions.includes('night_audit.execute'));
     const p = await api('GET', '/api/v1/property');
     assert.equal(p.name, 'E2E Test Tesisi Çığşöü');
@@ -129,8 +127,8 @@ try {
 
   await step('Resepsiyon kullanıcısı (overbook yetkisi yok) ile son oda yarışı', async () => {
     await api('POST', '/api/v1/users', { username: 'e2erecep', fullName: 'E2E Resepsiyon', password: 'Resepsiyon123', roles: ['RECEPTION'] });
-    const adminCookie = cookie;
-    cookie = '';
+    const adminToken = token;
+    token = '';
     await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon123', deviceId, deviceKind: 'browser' });
     await api('GET', '/api/v1/reservations', undefined, { expect: 403 }).catch(() => {});
     await api('POST', '/api/v1/auth/change-password', { currentPassword: 'Resepsiyon123', newPassword: 'Resepsiyon456' });
@@ -145,7 +143,7 @@ try {
     // Yetkisiz işlem: resepsiyon gece denetimi çalıştıramaz.
     await api('GET', '/api/v1/night-audit/preview', undefined, { expect: 403 });
     await api('POST', '/api/v1/users', { username: 'hack', fullName: 'x', password: 'Parola12345', roles: ['SUPER_ADMIN'] }, { expect: 403 });
-    cookie = adminCookie;
+    token = adminToken;
   });
 
   await step('Check-in (kimlik zorunlu, temiz oda, KBS kaydı)', async () => {
@@ -234,7 +232,7 @@ try {
 
   await step('Realtime: oda durumu değişikliği WebSocket ile yayınlanır', async () => {
     const wsUrl = base.replace('https', 'wss') + '/api/v1/realtime';
-    const ws = new WebSocket(wsUrl, { headers: { Cookie: cookie } });
+    const ws = new WebSocket(wsUrl, { headers: { Authorization: 'Bearer ' + token } });
     const got = new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('realtime mesajı gelmedi')), 8000);
       ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.type === 'change' && m.topic === 'rooms') { clearTimeout(t); resolve(m); } };
@@ -318,6 +316,49 @@ try {
     assert.equal(after.total, 0);
     const still = await api('GET', '/api/v1/guests?q=' + encodeURIComponent('Şahin'));
     assert.equal(still.total, 1);
+  });
+
+  await step('Eski muhasebe: vergi no ile şirket aktarımı ve cari hareketleri (borç/alacak) + rollback', async () => {
+    const upload = async (entity, name, text) => {
+      const form = new FormData();
+      form.append('entity', entity);
+      form.append('file', new Blob([new TextEncoder().encode('\uFEFF' + text)]), name);
+      return api('POST', '/api/v1/imports/file', undefined, { form });
+    };
+    const run = async (ins, mapping) => {
+      const job = await api('POST', `/api/v1/imports/${ins.job.id}/stage`, { source: { headerRow: 1 }, mapping, duplicatePolicy: 'review' });
+      await api('POST', `/api/v1/imports/${ins.job.id}/execute`, undefined, { expect: 202 });
+      let j;
+      for (let i = 0; i < 60; i++) { j = await api('GET', `/api/v1/imports/${ins.job.id}`); if (j.status !== 'importing') break; await new Promise(r => setTimeout(r, 500)); }
+      return { staged: job, done: j };
+    };
+    const comp = await upload('companies', 'cariler.csv', 'CARİ KODU;ÜNVAN;VERGİ DAİRESİ;VERGİ NO\r\nC001;Örnek Turizm Ltd. Şti.;Kadıköy;1234567890\r\n');
+    const cm = comp.suggestions.filter(s => s.source).map(s => ({ source: s.source, target: s.target, transform: 'none' }));
+    const cr = await run(comp, cm);
+    assert.equal(cr.done.status, 'completed', JSON.stringify(cr.done));
+    const ledger = await upload('account_ledger', 'cari-hareket.csv',
+      'VKN;TARİH;B/A;AÇIKLAMA;TUTAR;FİŞ NO\r\n1234567890;05.01.2029;B;Konaklama faturası;12.500,75;F-1\r\n1234567890;20.01.2029;A;Havale tahsilat;10.000,00;T-1\r\n9999999999;21.01.2029;B;Bilinmeyen cari;100,00;F-2\r\n');
+    const sugg = Object.fromEntries(ledger.suggestions.filter(s => s.source).map(s => [s.target, s.source]));
+    assert.equal(sugg.account_ref, 'VKN'); assert.equal(sugg.amount, 'TUTAR');
+    const lm = [
+      { source: null, target: 'account_kind', transform: 'none', constant: 'Şirket' },
+      { source: 'VKN', target: 'account_ref', transform: 'none' },
+      { source: 'TARİH', target: 'date', transform: 'none', format: 'dd.MM.yyyy' },
+      { source: 'B/A', target: 'kind', transform: 'none' },
+      { source: 'AÇIKLAMA', target: 'description', transform: 'none' },
+      { source: 'TUTAR', target: 'amount', transform: 'none', format: 'tr' },
+      { source: null, target: 'payment_method', transform: 'none', constant: 'BANK' },
+      { source: 'FİŞ NO', target: 'reference', transform: 'none' },
+    ];
+    const lr = await run(ledger, lm);
+    assert.equal(lr.done.importedRows, 2); assert.equal(lr.done.failedRows, 1);
+    const comps = await api('GET', '/api/v1/companies?q=' + encodeURIComponent('Örnek'));
+    assert.equal(comps[0].taxNumber, '1234567890');
+    assert.equal(comps[0].balance, '2500.75');
+    const rb = await api('POST', `/api/v1/imports/${ledger.job.id}/rollback`);
+    assert.equal(rb.blocked, 0);
+    const after = await api('GET', '/api/v1/companies?q=' + encodeURIComponent('Örnek'));
+    assert.equal(after[0].balance, '0.00');
   });
 
   await step('XLSX geçersiz dosya reddedilir', async () => {
