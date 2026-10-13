@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3, BedDouble, Brush, Building2, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, LayoutGrid, LogOut,
   Moon, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, Users, Wrench, AlarmClock, Wallet, UserPlus,
-  Utensils, Package,
+  Utensils, Package, Calculator,
 } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
@@ -69,6 +69,13 @@ export const NAV: NavGroup[] = [
     label: 'Stok ve Satın Alma', icon: <Package size={17} />, items: [
       { to: '/stock', label: 'Stok', perm: 'stock.view' },
       { to: '/purchase-orders', label: 'Satın Alma Siparişleri', perm: 'purchase.manage' },
+    ],
+  },
+  {
+    label: 'Muhasebe', icon: <Calculator size={17} />, items: [
+      { to: '/accounting', label: 'Fişler ve Hesap Planı', perm: 'accounting.view' },
+      { to: '/reports/trial_balance', label: 'Mizan', perm: 'accounting.view' },
+      { to: '/reports/account_statement', label: 'Hesap Ekstresi', perm: 'accounting.view' },
     ],
   },
   { label: 'Gün Sonu', icon: <Moon size={17} />, items: [{ to: '/night-audit', label: 'Gece Denetimi', perm: 'night_audit.execute' }] },

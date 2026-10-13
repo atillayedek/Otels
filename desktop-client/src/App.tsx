@@ -31,6 +31,7 @@ const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const Pos = lazy(() => import('./pages/Pos'));
 const SetPos = lazy(() => import('./pages/settings/PosSettings'));
 const Allotments = lazy(() => import('./pages/Allotments'));
+const Accounting = lazy(() => import('./pages/Accounting'));
 const Housekeeping = lazy(() => import('./pages/Housekeeping'));
 const HkTasks = lazy(() => import('./pages/HkTasks'));
 const Maintenance = lazy(() => import('./pages/Maintenance'));
@@ -136,6 +137,7 @@ export function App() {
           <Route path="/pos" element={<Pos />} />
           <Route path="/settings/pos" element={<SetPos />} />
           <Route path="/allotments" element={<Allotments />} />
+          <Route path="/accounting" element={<Accounting />} />
           <Route path="/housekeeping" element={<Housekeeping />} />
           <Route path="/housekeeping/tasks" element={<HkTasks />} />
           <Route path="/maintenance" element={<Maintenance />} />
