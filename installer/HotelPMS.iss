@@ -62,10 +62,9 @@ Name: "{commondesktop}\PMS Server Manager"; Filename: "{app}\manager\PMS-Server-
 Name: "{group}\İstemci kurulum dosyası (diğer bilgisayarlar için)"; Filename: "{app}\client-setup"; Components: server
 
 [Run]
-; Sunucu: veritabanı oluşturma/yapılandırma, hizmet kaydı, sertifika ve yalnız PMS portları için güvenlik duvarı kuralı.
-Filename: "{app}\server\HotelPms.Server.exe"; Parameters: "provision --install-services --firewall --https-port {code:HttpsPort}"; StatusMsg: "Sunucu hazırlanıyor (veritabanı, hizmet, sertifika)…"; Components: server; Flags: runhidden waituntilterminated
+; Sunucu hazırlığı (provision) [Code] CurStepChanged içinde çalışır: çıkış kodu denetlenir ve çıktı günlüğe yazılır.
 Filename: "{app}\client-setup\PMS-Client-Setup.exe"; Parameters: "/S"; StatusMsg: "PMS Client kuruluyor…"; Components: client; Flags: waituntilterminated
-Filename: "{app}\manager\PMS-Server-Manager.exe"; Description: "PMS Server Manager'ı aç (ilk kurulum kodu burada görünür)"; Components: manager; Flags: postinstall nowait skipifsilent shellexec
+Filename: "{app}\manager\PMS-Server-Manager.exe"; Description: "PMS Server Manager'ı aç (ilk kurulum kodu burada görünür)"; Components: manager; Flags: postinstall nowait skipifsilent shellexec runascurrentuser
 
 [UninstallRun]
 ; Hizmetleri ve güvenlik duvarı kurallarını kaldırır; veri klasörüne dokunmaz.
@@ -79,6 +78,7 @@ Type: filesandordirs; Name: "{app}\client-setup"
 [Code]
 var
   PortPage: TInputQueryWizardPage;
+  ProvisionFailed: Boolean;
 
 function IsAsciiPath(const S: string): Boolean;
 var
@@ -153,6 +153,36 @@ begin
     Exec(ExpandConstant('{sys}\net.exe'), 'stop HotelPMSServer /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
     Exec(ExpandConstant('{sys}\net.exe'), 'stop HotelPMS-PostgreSQL /y', '', SW_HIDE, ewWaitUntilTerminated, Code);
   end;
+end;
+
+{ Sunucu hazırlığı: veritabanı oluşturma/yapılandırma, hizmet kaydı, sertifika ve yalnız PMS portları için güvenlik duvarı kuralı.
+  Başarısız olursa kurulum bunu gizlemez; çıktı kurulum klasöründeki provision.log dosyasına yazılır ve kullanıcıya gösterilir. }
+procedure RunProvision;
+var
+  Code: Integer;
+  Log, Cmd: string;
+begin
+  Log := ExpandConstant('{app}\provision.log');
+  Cmd := '/C ""' + ExpandConstant('{app}\server\HotelPms.Server.exe') + '" provision --install-services --firewall --https-port ' + HttpsPort('') + ' > "' + Log + '" 2>&1"';
+  WizardForm.StatusLabel.Caption := 'Sunucu hazırlanıyor (veritabanı, hizmet, sertifika)…';
+  if not Exec(ExpandConstant('{cmd}'), Cmd, ExpandConstant('{app}\server'), SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+  begin
+    ProvisionFailed := True;
+    SuppressibleMsgBox('Sunucu hazırlığı tamamlanamadı (kod ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
+      'Ayrıntılar: ' + Log + #13#10 + #13#10 +
+      'Dosyalar kuruldu ancak sunucu hizmeti çalışmıyor. Sorunu giderdikten sonra kurulumu yeniden çalıştırabilirsiniz; mevcut veriler korunur.',
+      mbCriticalError, MB_OK, IDOK);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and IsServer then RunProvision;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if ProvisionFailed then Result := 2 else Result := 0;
 end;
 
 function InitializeUninstall: Boolean;

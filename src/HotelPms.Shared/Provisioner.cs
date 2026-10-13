@@ -38,6 +38,8 @@ public sealed class Provisioner
     public async Task RunAsync(ProvisionOptions o, CancellationToken ct = default)
     {
         _paths.EnsureDirectories();
+        // Yeniden kurulum/onarım: yapılandırma okunmadan önce veri klasörü izinleri düzeltilir.
+        if (o.InstallServices && OperatingSystem.IsWindows()) HardenAcls();
         var config = ServerConfig.Load(_paths);
         var firstConfig = !File.Exists(_paths.ServerConfigFile);
         if (o.DbPort is { } dbp) config.DbPort = dbp;
@@ -113,8 +115,17 @@ public sealed class Provisioner
     async Task InitDbAsync(PostgresTools pg, string superPwd, CancellationToken ct)
     {
         _log("PostgreSQL veri dizini oluşturuluyor (initdb)...");
+        // Windows'ta initdb yönetici yetkisini bırakıp kısıtlı belirteçle (Administrators devre dışı) çalışır. Veri kökü yalnız
+        // SYSTEM ve Administrators'a açık olduğundan, işlem süresince yalnız pgdata ve parola dosyasına çalışan kullanıcıya izin verilir.
+        Directory.CreateDirectory(_paths.PgDataDir);
         var pwFile = Path.Combine(_paths.ConfigDir, $"pw-{Guid.NewGuid():N}.tmp");
         await File.WriteAllTextAsync(pwFile, superPwd, ct);
+        var userSid = OperatingSystem.IsWindows() ? System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value : null;
+        if (userSid is not null)
+        {
+            RunProcess("icacls", _paths.PgDataDir, "/grant", $"*{userSid}:(OI)(CI)F", "/C", "/Q");
+            RunProcess("icacls", pwFile, "/grant", $"*{userSid}:R", "/C", "/Q");
+        }
         try
         {
             var common = new List<string> { "-D", _paths.PgDataDir, "-U", "postgres", "--pwfile", pwFile, "-E", "UTF8", "-A", "scram-sha-256" };
@@ -123,13 +134,19 @@ public sealed class Provisioner
             if (!r.Success)
             {
                 _log("ICU yerel ayarı kullanılamadı (" + r.StdErr.Split('\n').FirstOrDefault(l => l.Contains("FATAL") || l.Contains("error"))?.Trim() + "), C yerel ayarıyla tekrar deneniyor.");
-                if (Directory.Exists(_paths.PgDataDir) && !Directory.EnumerateFileSystemEntries(_paths.PgDataDir).Any(f => f.EndsWith("PG_VERSION")))
-                    Directory.Delete(_paths.PgDataDir, true);
+                // Klasör silinmez (izni korunur), yalnız yarım kalan içerik temizlenir. Tamamlanmış küme (PG_VERSION) varsa dokunulmaz.
+                if (!File.Exists(Path.Combine(_paths.PgDataDir, "PG_VERSION")))
+                    foreach (var e in new DirectoryInfo(_paths.PgDataDir).EnumerateFileSystemInfos())
+                        if (e is DirectoryInfo d) d.Delete(true); else e.Delete();
                 r = await pg.RunAsync("initdb", [.. common, "--locale=C"], null, ct);
             }
             if (!r.Success) throw new InvalidOperationException("initdb başarısız: " + r.StdErr);
         }
-        finally { File.Delete(pwFile); }
+        finally
+        {
+            File.Delete(pwFile);
+            if (userSid is not null) RunProcess("icacls", _paths.PgDataDir, "/remove:g", $"*{userSid}", "/C", "/Q");
+        }
     }
 
     void WritePostgresConfig(ServerConfig config)
@@ -207,10 +224,13 @@ public sealed class Provisioner
     [SupportedOSPlatform("windows")]
     void HardenAcls()
     {
-        // Veri kökü: yalnız SYSTEM ve Administrators. PostgreSQL servis hesabı yalnız pgdata üzerinde yazabilir.
-        RunProcess("icacls", _paths.DataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/T", "/C", "/Q");
-        RunProcess("icacls", _paths.PgDataDir, "/grant", "*S-1-5-20:(OI)(CI)M", "/T", "/C", "/Q");
+        // Veri kökü: yalnız SYSTEM ve Administrators; PostgreSQL servis hesabı (NETWORK SERVICE) yalnız pgdata ve logs üzerinde yazabilir.
+        // İzinler yalnız klasörlere verilir, dosya ve alt klasörler devralır. (OI)(CI) bayrakları /T ile dosyalara uygulanırsa
+        // dosyada devralma kaldırılıp izin eklenemez ve erişim listesi boş kalır; önceki kurulumlarda kalmış böyle dosyalar /reset ile onarılır.
+        RunProcess("icacls", _paths.DataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/C", "/Q");
+        RunProcess("icacls", Path.Combine(_paths.DataRoot, "*"), "/reset", "/T", "/C", "/Q");
         RunProcess("icacls", _paths.DataRoot, "/grant", "*S-1-5-20:RX", "/C", "/Q");
+        if (Directory.Exists(_paths.PgDataDir)) RunProcess("icacls", _paths.PgDataDir, "/grant", "*S-1-5-20:(OI)(CI)M", "/C", "/Q");
         RunProcess("icacls", _paths.LogsDir, "/grant", "*S-1-5-20:(OI)(CI)M", "/C", "/Q");
     }
 
