@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { post } from '../lib/api';
-import type { Reservation } from '../lib/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { get, post } from '../lib/api';
+import type { Reservation, Sharer } from '../lib/types';
+import { KbsPromptModal } from './KbsForm';
 import { fmtDate, fmtMoney, HK_LABEL, nightsBetween } from '../lib/format';
 import { useRoomStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
@@ -16,8 +17,10 @@ function useRefresh() {
 export function CheckInModal({ reservation: r, onClose }: { reservation: Reservation; onClose: () => void }) {
   const status = useRoomStatus();
   const refresh = useRefresh();
-  const { property } = useSession();
+  const { property, can } = useSession();
   const [roomId, setRoomId] = useState(r.roomId ?? '');
+  const [askKbs, setAskKbs] = useState(false);
+  const roomGuests = useQuery({ queryKey: ['reservation', r.id, 'guests'], queryFn: () => get<Sharer[]>(`/api/v1/reservations/${r.id}/guests`) });
   const candidates = (status.data ?? []).filter(s => s.roomTypeId === r.roomTypeId && (s.id === r.roomId || (s.foStatus === 'vacant' && !s.blockKind)));
   const chosen = status.data?.find(s => s.id === roomId);
   const early = !!property && r.arrival > property.businessDate;
@@ -25,10 +28,11 @@ export function CheckInModal({ reservation: r, onClose }: { reservation: Reserva
     await post(`/api/v1/reservations/${r.id}/check-in`, { roomId, earlyCheckIn: early, version: r.version }, key);
     await refresh();
   }, { success: `${r.guestName} için giriş yapıldı.` });
+  if (askKbs) return <KbsPromptModal reservationId={r.id} onClose={onClose} />;
   return (
     <Modal title={`Giriş (check-in) · ${r.reservationNumber}`} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Vazgeç</button>
-      <button className="btn primary" disabled={!roomId || act.busy} onClick={async () => { if (await act.run() !== undefined) onClose(); }}>Girişi tamamla</button>
+      <button className="btn primary" disabled={!roomId || act.busy} onClick={async () => { if (await act.run() !== undefined) { if (can('kbs.manage')) setAskKbs(true); else onClose(); } }}>Girişi tamamla</button>
     </>}>
       <div className="stack">
         <div><b>{r.guestName}</b> · {fmtDate(r.arrival)} → {fmtDate(r.departure)} ({r.nights} gece) · {r.roomTypeCode} · {r.adults}+{r.children} kişi</div>
@@ -41,6 +45,16 @@ export function CheckInModal({ reservation: r, onClose }: { reservation: Reserva
         {candidates.length === 0 && <div className="warn-box">Bu oda tipinde boş ve satışa açık oda yok.</div>}
         {chosen && chosen.hkStatus !== 'clean' && chosen.hkStatus !== 'inspected' && <div className="warn-box">Seçilen oda {HK_LABEL[chosen.hkStatus].toLocaleLowerCase('tr-TR')} durumda. Temiz olmayan odaya giriş sunucu tarafından engellenebilir.</div>}
         {early && <div className="info-box">Geliş tarihi iş gününden sonra; erken giriş olarak işlenecek.</div>}
+        <div>
+          <div className="section-title">Odada kalacak misafirler ({roomGuests.data?.length ?? 0})</div>
+          <ul className="list-plain">
+            {roomGuests.data?.map(g => (
+              <li key={g.id}><span>{g.name}</span>{g.isPrimary && <span className="badge blue">Ana misafir</span>}<span className="spacer" />
+                {g.hasIdentity ? <span className="badge green">Kimlik var</span> : <span className="badge orange">Kimlik eksik</span>}</li>
+            ))}
+          </ul>
+          <div className="muted" style={{ fontSize: 12 }}>Odada başka kişiler de kalacaksa girişten önce rezervasyonun "Ek misafirler" sekmesinden ekleyin; KBS bildirimi odadaki herkes için hazırlanır.</div>
+        </div>
         <div className="muted" style={{ fontSize: 12 }}>Kimlik bilgisi eksik misafirler için giriş engellenir. Kimlik Bildirim Sistemi (KBS) yapılandırılmışsa bildirim kuyruğa alınır.</div>
         <ErrorBox error={act.error} />
       </div>

@@ -223,7 +223,7 @@ export function WalkInPage() {
   return (
     <div className="page">
       <PageHead title="Walk-in" sub={`Rezervasyonsuz gelen misafir · giriş tarihi ${fmtDate(property?.businessDate)}`} />
-      <ReservationEditor mode="walkin" onSaved={id => nav(`/reservations/${id}`)} />
+      <ReservationEditor mode="walkin" onSaved={id => nav(`/reservations/${id}?kbs=1`)} />
     </div>
   );
 }

@@ -155,6 +155,23 @@ try {
     assert.ok(kbs.some(k => k.status === 'blocked_configuration'));
   });
 
+  await step('KBS bildirim formu: oda no ve misafir alanları dolu, toplu manuel işaretleme', async () => {
+    const f = await api('GET', `/api/v1/kbs/reservations/${state.res}/form`);
+    assert.equal(f.reservation.roomNumber, '101');
+    assert.equal(f.automaticSendingAvailable, false);
+    assert.ok(f.guests.length >= 1);
+    const g = f.guests.find(x => x.isPrimary);
+    assert.equal(g.lastName, 'Işıkoğlu');
+    assert.ok(g.identityNumber && !g.identityNumber.includes('*'), 'yönetici kimlik numarasını maskesiz görür');
+    assert.equal(g.reportStatus, 'blocked_configuration');
+    await api('POST', `/api/v1/kbs/reservations/${state.res}/manual`, { reference: '' , reason: 'x' }, { key: randomUUID(), expect: 422 });
+    const m = await api('POST', `/api/v1/kbs/reservations/${state.res}/manual`, { reference: 'KBS-REF-1', reason: 'Resmi KBS ekranından bildirildi' }, { key: randomUUID() });
+    assert.equal(m.count, f.guests.length);
+    const f2 = await api('GET', `/api/v1/kbs/reservations/${state.res}/form`);
+    assert.ok(f2.guests.every(x => x.reportStatus === 'reported_manually' && x.manualReference === 'KBS-REF-1'));
+    await api('POST', `/api/v1/kbs/reservations/${state.res}/manual`, { reference: 'KBS-REF-2', reason: 'tekrar' }, { key: randomUUID(), expect: 409 });
+  });
+
   await step('Dolu odaya ikinci check-in engellenir', async () => {
     const id = (await api('POST', '/api/v1/reservations', { guestId: state.guest, roomTypeId: state.std, arrival: state.bd, departure: addDays(state.bd, 1), adults: 1, children: 0, status: 'confirmed', depositRequired: '0' }, { key: randomUUID() })).id;
     const r = await api('GET', `/api/v1/reservations/${id}`);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlarmClock, ArrowLeft, BedDouble, CalendarClock, Crown, LogIn, LogOut, Pencil, Trash2, UserMinus, UserPlus, UserX, XCircle } from 'lucide-react';
 import { api, del, get, post, qs } from '../lib/api';
@@ -11,6 +11,7 @@ import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs, useConfirm, useToa
 import { CancelModal, CheckInModal, CheckOutModal, ExtendModal, MoveModal } from '../components/ReservationActions';
 import { FolioPanel } from '../components/FolioPanel';
 import { ReservationEditModal } from './ReservationForm';
+import { KbsPromptModal } from '../components/KbsForm';
 
 type Dlg = 'edit' | 'checkin' | 'checkout' | 'move' | 'cancel' | 'extend' | 'sharer' | 'wakeup' | null;
 
@@ -23,6 +24,7 @@ export default function ReservationDetailPage() {
   const { can, property } = useSession();
   const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'history'>('folio');
   const [dlg, setDlg] = useState<Dlg>(null);
+  const [sp, setSp] = useSearchParams();
   const res = useQuery({ queryKey: ['reservation', id], queryFn: () => get<Reservation>(`/api/v1/reservations/${id}`) });
   const sharers = useQuery({ queryKey: ['reservation', id, 'guests'], queryFn: () => get<Sharer[]>(`/api/v1/reservations/${id}/guests`), enabled: tab === 'guests' });
   const rates = useQuery({ queryKey: ['reservation', id, 'rates'], queryFn: () => get<{ date: string; rate: string }[]>(`/api/v1/reservations/${id}/rates`), enabled: tab === 'rates' });
@@ -119,6 +121,7 @@ export default function ReservationDetailPage() {
         ))}
       </div></div>
 
+      {sp.get('kbs') === '1' && can('kbs.manage') && r.status === 'checked_in' && <KbsPromptModal reservationId={r.id} onClose={() => setSp({}, { replace: true })} />}
       {dlg === 'edit' && <ReservationEditModal reservation={r} onClose={() => setDlg(null)} />}
       {dlg === 'checkin' && <CheckInModal reservation={r} onClose={() => setDlg(null)} />}
       {dlg === 'checkout' && <CheckOutModal reservation={r} onClose={() => setDlg(null)} />}
