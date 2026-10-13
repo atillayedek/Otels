@@ -120,7 +120,8 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   const methods = usePaymentMethods();
   const companies = useCompanies();
   const agencies = useAgencies();
-  const cashier = useQuery({ queryKey: ['cashier', 'current'], queryFn: () => get<unknown>('/api/v1/cashier/current') });
+  const { can } = useSession();
+  const cashier = useQuery({ queryKey: ['cashier', 'current'], queryFn: () => get<unknown>('/api/v1/cashier/current'), enabled: can('cashier.manage') });
   const [v, setV] = useState<Record<string, string>>({ quantity: '1', kind: 'discount', payerKind: 'guest', invoiceDate: new Date().toISOString().slice(0, 10) });
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV(s => ({ ...s, [k]: e.target.value }));
   const setVal = (k: string) => (x: string) => setV(s => ({ ...s, [k]: x }));

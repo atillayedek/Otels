@@ -9,6 +9,25 @@
 - Rol bazlı yetki (RBAC) sunucuda her uç noktada denetlenir; arayüzde gizlenen bir işlem sunucuda da reddedilir.
 - Her bilgisayar cihaz olarak kaydedilir; yönetici bir cihazı engelleyebilir, açık oturumları kapatabilir.
 
+## Hazır roller
+
+| Rol | Yapabildikleri |
+|---|---|
+| Süper Yönetici, Otel Yöneticisi | Tüm yetkiler |
+| Genel Müdür | Yönetim ayarları (kullanıcı, cihaz, yedek, aktarım, entegrasyon, yazıcı, oda tanımı) dışında her şey |
+| Ön Büro Müdürü | Rezervasyon (fiyat aşımı ve overbook dahil), giriş/çıkış, oda değişikliği, misafir ve kara liste, şirket/acente, fiyat planları, tüm folyo ve kasa işlemleri (iade, indirim, iptal), kat hizmetleri durumu ve görev ataması, arıza ve oda blokajı, gece denetimi, finansal raporlar, KBS, denetim kayıtları |
+| Resepsiyon | Rezervasyon oluşturma/düzenleme/iptal, giriş/çıkış, walk-in, oda değişikliği, misafir kartı (kimlik görme), folyo görüntüleme, masraf, tahsilat, aktarım, folyo kapatma ve fatura no, kasa vardiyası, oda temizlik durumu, arıza bildirme, operasyon raporları, KBS |
+| Gece Denetçisi | Gece resepsiyonu (rezervasyon, giriş/çıkış, oda değişikliği, misafir), masraf, tahsilat, aktarım, folyo kapatma, kasa, no-show, oda durumu, arıza bildirme, gece denetimi, finansal raporlar, KBS |
+| Kat Hizmetleri Müdürü | Oda durumları, kontrol onayı (inspected), görev ataması, arıza ve oda blokajı, raporlar |
+| Kat Görevlisi | Oda durumları, görevleri güncelleme, arıza bildirme |
+| Muhasebe | Folyo ve cari işlemleri (iade, indirim, iptal dahil), şirket/acente, tüm kasa vardiyaları, finansal raporlar, denetim kayıtları |
+| Kasiyer | Folyo görüntüleme, masraf, tahsilat, folyo kapatma, kasa vardiyası |
+| Satış | Rezervasyon oluşturma/düzenleme/iptal, misafir, şirket/acente, fiyat planları ve elle fiyat, raporlar |
+| Teknik Servis | Arıza kayıtları ve oda blokajı |
+| Yalnız Rapor | Gösterge paneli ve raporlar |
+
+Rollerin yetkileri **Yönetim → Kullanıcılar ve Roller** ekranından değiştirilebilir, yeni rol tanımlanabilir. Bir kullanıcıya birden fazla rol verilebilir (ör. küçük otelde Resepsiyon + Gece Denetçisi). Sürüm güncellemeleri rollere yalnız yeni yetki ekler; yöneticinin yaptığı değişiklikleri geri almaz.
+
 ## Denetim kaydı
 
 Tüm yazma işlemleri; kullanıcı, cihaz, IP, önceki ve sonraki değer ve gerekçeyle aynı veritabanı işleminde kaydedilir. Uygulama rolünün denetim kaydını değiştirme veya silme yetkisi yoktur.

@@ -61,7 +61,8 @@ function TaskModal({ task, onClose }: { task?: HkTask; onClose: () => void }) {
     else await api('POST', '/api/v1/housekeeping/tasks', { roomId: f.roomId, taskType: f.taskType, assignedUserId: f.assignedUserId || null, notes: f.notes || null });
     await qc.invalidateQueries({ queryKey: ['hk'] });
   }, { success: 'Görev kaydedildi.' });
-  const readOnly = !can('housekeeping.update') && !can('housekeeping.assign');
+  // Görev güncelleme housekeeping.update, yeni görev ve atama/iptal housekeeping.assign ister.
+  const readOnly = task ? !can('housekeeping.update') : !can('housekeeping.assign');
   return (
     <Modal title={task ? `Oda ${task.roomNumber} · ${TASK_LABEL[task.taskType]}` : 'Yeni görev'} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Kapat</button>
@@ -72,7 +73,7 @@ function TaskModal({ task, onClose }: { task?: HkTask; onClose: () => void }) {
           <Field label="Oda" required className="span-2"><select className="input" value={f.roomId} onChange={set('roomId')}><option value="">Seçin</option>{rooms.data?.map(r => <option key={r.id} value={r.id}>{r.number}</option>)}</select></Field>
           <Field label="Görev" className="span-2"><select className="input" value={f.taskType} onChange={set('taskType')}>{Object.entries(TASK_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         </>}
-        {task && <Field label="Durum" className="span-2"><select className="input" value={f.status} onChange={set('status')}>{Object.entries(TASK_STATUS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>}
+        {task && <Field label="Durum" className="span-2"><select className="input" value={f.status} onChange={set('status')}>{Object.entries(TASK_STATUS).filter(([k]) => k !== 'cancelled' || can('housekeeping.assign') || task.status === 'cancelled').map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>}
         <Field label="Görevli" className="span-2"><select className="input" value={f.assignedUserId} onChange={set('assignedUserId')} disabled={!can('housekeeping.assign')}><option value="">Atanmadı</option>{staff.data?.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}</select></Field>
         <Field label="Not" className="span-4"><input className="input" value={f.notes} onChange={set('notes')} /></Field>
       </div>

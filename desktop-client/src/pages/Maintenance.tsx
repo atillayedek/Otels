@@ -34,7 +34,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="page">
-      <PageHead title="Arıza Kayıtları" sub="Teknik servis" actions={can('maintenance.manage') && <button className="btn primary" onClick={() => setCreating(true)}><Plus /> Yeni arıza</button>} />
+      <PageHead title="Arıza Kayıtları" sub="Teknik servis" actions={can('maintenance.report') && <button className="btn primary" onClick={() => setCreating(true)}><Plus /> Yeni arıza</button>} />
       <div className="toolbar">
         <select className="input" style={{ width: 170 }} value={status} onChange={e => setStatus(e.target.value)}>
           <option value="active">Açık ve çalışılanlar</option>{Object.entries(TICKET_STATUS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}<option value="">Tümü</option>

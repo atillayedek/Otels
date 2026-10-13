@@ -7,7 +7,7 @@ import {
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
 
-interface NavItem { to: string; label: string; perm?: string }
+interface NavItem { to: string; label: string; perm?: string | string[] }
 interface NavGroup { label: string; icon: ReactNode; items: NavItem[] }
 
 export const NAV: NavGroup[] = [
@@ -29,7 +29,7 @@ export const NAV: NavGroup[] = [
       { to: '/reservations?view=arrivals', label: 'Beklenen Gelişler', perm: 'reservation.view' },
       { to: '/reservations?view=departures', label: 'Beklenen Çıkışlar', perm: 'reservation.view' },
       { to: '/reservations?view=inhouse', label: 'Konaklayanlar', perm: 'reservation.view' },
-      { to: '/walk-in', label: 'Walk-in', perm: 'checkin.execute' },
+      { to: '/walk-in', label: 'Walk-in', perm: ['checkin.execute', 'reservation.create'] },
       { to: '/wakeups', label: 'Uyandırmalar', perm: 'reservation.view' },
       { to: '/kbs', label: 'Kimlik Bildirimi (KBS)', perm: 'kbs.manage' },
     ],
@@ -73,13 +73,22 @@ export const NAV: NavGroup[] = [
   },
 ];
 
-const QUICK = [
+/** Kullanıcının yetkili olduğu ilk ekran (gösterge paneli yetkisi olmayan roller için açılış sayfası). */
+export function firstAllowedRoute(can: (p: string) => boolean): string | null {
+  for (const g of NAV) for (const i of g.items) {
+    const ok = !i.perm || (Array.isArray(i.perm) ? i.perm.every(can) : can(i.perm));
+    if (ok && i.to !== '/settings/connection') return i.to;
+  }
+  return null;
+}
+
+const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[] }[] = [
   { to: '/', label: 'Durum', icon: <Gauge />, perm: 'dashboard.view' },
   { to: '/rack', label: 'Rack', icon: <LayoutGrid />, perm: 'reservation.view' },
   { to: '/blokaj', label: 'Blokaj', icon: <CalendarRange />, perm: 'reservation.view' },
   { to: '/availability', label: 'Fiyat/Doluluk', icon: <Tags />, perm: 'reservation.view' },
   { to: '/reservations/new', label: 'Rezervasyon', icon: <ClipboardList />, perm: 'reservation.create' },
-  { to: '/walk-in', label: 'Walk-in', icon: <UserPlus />, perm: 'checkin.execute' },
+  { to: '/walk-in', label: 'Walk-in', icon: <UserPlus />, perm: ['checkin.execute', 'reservation.create'] },
   { to: '/reservations?view=arrivals', label: 'Gelişler', icon: <PlaneLanding />, perm: 'reservation.view' },
   { to: '/reservations?view=departures', label: 'Çıkışlar', icon: <PlaneTakeoff />, perm: 'reservation.view' },
   { to: '/reservations?view=inhouse', label: 'Konaklayan', icon: <BedDouble />, perm: 'reservation.view' },
@@ -91,7 +100,8 @@ const QUICK = [
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { me, property, connected, dbAvailable, client, can, logout } = useSession();
+  const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
+  const can = (p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p));
   const [collapsed, setCollapsed] = useState(false);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string[]>(['Resepsiyon', 'Rezervasyon']);
@@ -101,9 +111,9 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const groups = useMemo(() => {
     const needle = q.trim().toLocaleLowerCase('tr-TR');
-    return NAV.map(g => ({ ...g, items: g.items.filter(i => (!i.perm || can(i.perm)) && (!needle || i.label.toLocaleLowerCase('tr-TR').includes(needle))) }))
+    return NAV.map(g => ({ ...g, items: g.items.filter(i => can(i.perm) && (!needle || i.label.toLocaleLowerCase('tr-TR').includes(needle))) }))
       .filter(g => g.items.length > 0);
-  }, [q, can]);
+  }, [q, canOne]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>

@@ -60,11 +60,11 @@ export default function RackPage() {
   const items = (r: RoomStatus): MenuItem[] => [
     ...(r.inHouseReservationId ? [{ label: 'Konaklamayı aç', icon: <FileText size={14} />, onClick: () => nav(`/reservations/${r.inHouseReservationId}`) }] : []),
     ...(r.arrivalReservationId ? [{ label: `Gelişi aç (${r.arrivalGuest})`, icon: <LogIn size={14} />, onClick: () => nav(`/reservations/${r.arrivalReservationId}`) }] : []),
-    ...(r.foStatus === 'vacant' && !r.blockKind && can('checkin.execute') ? [{ label: 'Walk-in giriş', icon: <UserPlus size={14} />, onClick: () => nav(`/walk-in?room=${r.id}`) }] : []),
+    ...(r.foStatus === 'vacant' && !r.blockKind && can('checkin.execute') && can('reservation.create') ? [{ label: 'Walk-in giriş', icon: <UserPlus size={14} />, onClick: () => nav(`/walk-in?room=${r.id}`) }] : []),
     ...(r.foStatus === 'vacant' && can('reservation.create') ? [{ label: 'Bu odaya rezervasyon', icon: <ClipboardList size={14} />, onClick: () => nav(`/reservations/new?room=${r.id}&type=${r.roomTypeId}`) }] : []),
     { separator: true, label: '' },
     { label: 'Temizlik durumu', icon: <Brush size={14} />, onClick: () => setHkRoom(r.id), disabled: !can('housekeeping.update') },
-    { label: 'Arıza kaydı aç', icon: <Wrench size={14} />, onClick: () => setTicketRoom(r.id), disabled: !can('maintenance.manage') },
+    { label: 'Arıza kaydı aç', icon: <Wrench size={14} />, onClick: () => setTicketRoom(r.id), disabled: !can('maintenance.report') },
   ];
 
   const F = (k: Filter, label: string) => <button className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>{label} ({counts[k]})</button>;
@@ -72,7 +72,7 @@ export default function RackPage() {
   return (
     <div className="page">
       <PageHead title="Oda Rack" sub={`İş günü ${fmtDate(property?.businessDate)}`} actions={<>
-        {can('checkin.execute') && <button className="btn" onClick={() => nav('/walk-in')}><UserPlus /> Walk-in</button>}
+        {can('checkin.execute') && can('reservation.create') && <button className="btn" onClick={() => nav('/walk-in')}><UserPlus /> Walk-in</button>}
         {can('reservation.create') && <button className="btn primary" onClick={() => nav('/reservations/new')}><ClipboardList /> Yeni rezervasyon</button>}
       </>} />
 

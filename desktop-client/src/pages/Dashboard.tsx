@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { AlarmClock, BedDouble, Brush, IdCard, Moon, PlaneLanding, PlaneTakeoff, Wrench } from 'lucide-react';
 import { get } from '../lib/api';
 import type { Dashboard } from '../lib/types';
@@ -7,13 +7,18 @@ import { fmtDate, fmtDay, fmtMoney, fmtPct } from '../lib/format';
 import { useSession } from '../lib/session';
 import { PageHead, Stat } from '../components/common';
 import { Empty, ErrorBox, Spinner } from '../components/ui';
+import { firstAllowedRoute } from '../components/Layout';
 
 export default function DashboardPage() {
   const nav = useNavigate();
   const { can } = useSession();
   const q = useQuery({ queryKey: ['dashboard'], queryFn: () => get<Dashboard>('/api/v1/dashboard'), enabled: can('dashboard.view') });
 
-  if (!can('dashboard.view')) return <div className="page"><Empty title="Gösterge paneli için yetkiniz yok" text="Sol menüden yetkili olduğunuz ekranlara geçebilirsiniz." /></div>;
+  if (!can('dashboard.view')) {
+    const to = firstAllowedRoute(can);
+    if (to && to !== '/') return <Navigate to={to} replace />;
+    return <div className="page"><Empty title="Hesabınıza tanımlı ekran yok" text="Yöneticinizden rolünüze yetki eklemesini isteyin." /></div>;
+  }
   if (q.isLoading) return <div className="page"><Spinner /></div>;
   if (q.error) return <div className="page"><ErrorBox error={q.error} /></div>;
   const d = q.data!;

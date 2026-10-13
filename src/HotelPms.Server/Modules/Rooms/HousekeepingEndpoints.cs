@@ -112,6 +112,8 @@ public static class HousekeepingEndpoints
             });
             if (req.BlockRoom)
             {
+                // Arıza bildirmek resepsiyon/kat görevlisine açıktır; odayı satışa kapatmak ayrı yetki ister.
+                tx.Ctx.Require("maintenance.manage");
                 if (req.RoomId is null || req.BlockFrom is null || req.BlockTo is null) throw PmsException.Validation("Oda blokajı için oda ve tarih aralığı gereklidir.");
                 await RoomEndpoints.CreateBlockAsync(tx, new CreateRoomBlockRequest(req.RoomId.Value, req.BlockKind ?? "out_of_order",
                     req.BlockFrom.Value, req.BlockTo.Value, "Arıza: " + req.Issue.Trim(), id));
@@ -120,7 +122,7 @@ public static class HousekeepingEndpoints
             tx.Publish("maintenance");
             if (req.RoomId is { } r) tx.Publish("rooms", r);
             return new { id };
-        }, requireKey: false)).RequirePermission("maintenance.manage");
+        }, requireKey: false)).RequirePermission("maintenance.report");
 
         mt.MapPut("/tickets/{id:guid}", (Guid id, UpdateTicketRequest req, CommandRunner cmd) => cmd.RunAsync("maintenance.update", new { id, req }, async tx =>
         {

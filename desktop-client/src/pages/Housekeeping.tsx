@@ -60,7 +60,7 @@ export default function HousekeepingPage() {
         {floors.length > 0 && <select className="input" style={{ width: 110 }} value={floor} onChange={e => setFloor(e.target.value)}><option value="">Tüm katlar</option>{floors.map(f => <option key={f} value={f}>{f}. kat</option>)}</select>}
         {can('housekeeping.update') && sel.size > 0 && <>
           <span className="muted">{sel.size} oda seçili:</span>
-          {Object.entries(HK_LABEL).map(([k, l]) => <button key={k} className="btn sm" disabled={busy} onClick={() => void bulk(k)}><Brush /> {l}</button>)}
+          {Object.entries(HK_LABEL).filter(([k]) => k !== 'inspected' || can('housekeeping.inspect')).map(([k, l]) => <button key={k} className="btn sm" disabled={busy} onClick={() => void bulk(k)}><Brush /> {l}</button>)}
         </>}
         <span className="count">{view.length} oda</span>
       </div>

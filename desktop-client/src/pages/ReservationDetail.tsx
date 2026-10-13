@@ -57,7 +57,7 @@ export default function ReservationDetailPage() {
         {pre && can('checkin.execute') && r.arrival <= bd && <button className="btn primary" onClick={() => setDlg('checkin')}><LogIn /> Giriş yap</button>}
         {r.status === 'checked_in' && can('room.change') && <button className="btn" onClick={() => setDlg('move')}><BedDouble /> Oda değiştir</button>}
         {(pre || r.status === 'checked_in') && can('reservation.edit') && <button className="btn" onClick={() => setDlg('extend')}><CalendarClock /> Uzat / kısalt</button>}
-        {r.status === 'checked_in' && <button className="btn" onClick={() => setDlg('wakeup')}><AlarmClock /> Uyandırma</button>}
+        {r.status === 'checked_in' && can('reservation.edit') && <button className="btn" onClick={() => setDlg('wakeup')}><AlarmClock /> Uyandırma</button>}
         {r.status === 'checked_in' && can('checkout.execute') && <button className="btn primary" onClick={() => setDlg('checkout')}><LogOut /> Çıkış yap</button>}
         {pre && r.arrival <= bd && can('reservation.cancel') && <button className="btn" onClick={() => void noShow()}><UserX /> No-show</button>}
         {pre && can('reservation.cancel') && <button className="btn danger" onClick={() => setDlg('cancel')}><XCircle /> İptal</button>}

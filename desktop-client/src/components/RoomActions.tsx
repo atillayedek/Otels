@@ -12,6 +12,7 @@ export function HkStatusModal({ roomId, onClose }: { roomId: string; onClose: ()
   const rooms = useRooms();
   const room = rooms.data?.find(r => r.id === roomId);
   const qc = useQueryClient();
+  const { can: canHk } = useSession();
   const [hk, setHk] = useState<string | null>(null);
   const [dnd, setDnd] = useState<boolean | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -27,7 +28,7 @@ export function HkStatusModal({ roomId, onClose }: { roomId: string; onClose: ()
     </>}>
       <div className="stack">
         <div className="seg">
-          {Object.entries(HK_LABEL).map(([k, l]) => <button key={k} className={(hk ?? room.hkStatus) === k ? 'active' : ''} onClick={() => setHk(k)}>{l}</button>)}
+          {Object.entries(HK_LABEL).filter(([k]) => k !== 'inspected' || canHk('housekeeping.inspect') || room.hkStatus === 'inspected').map(([k, l]) => <button key={k} className={(hk ?? room.hkStatus) === k ? 'active' : ''} onClick={() => setHk(k)}>{l}</button>)}
         </div>
         <label className="check"><input type="checkbox" checked={dnd ?? room.isDnd} onChange={e => setDnd(e.target.checked)} /> Rahatsız etmeyin (DND)</label>
         <Field label="Kat notu"><textarea className="input" rows={3} value={note ?? room.hkNote ?? ''} onChange={e => setNote(e.target.value)} maxLength={500} /></Field>
@@ -41,7 +42,7 @@ export function HkStatusModal({ roomId, onClose }: { roomId: string; onClose: ()
 export function TicketModal({ roomId, onClose }: { roomId?: string; onClose: () => void }) {
   const rooms = useRooms();
   const staff = useStaff();
-  const { property } = useSession();
+  const { property, can } = useSession();
   const qc = useQueryClient();
   const [f, setF] = useState({ roomId: roomId ?? '', location: '', issue: '', description: '', priority: 'normal', assignedUserId: '', blockRoom: false, blockKind: 'out_of_order', blockFrom: property?.businessDate ?? '', blockTo: '' });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF(s => ({ ...s, [k]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }));
@@ -64,7 +65,7 @@ export function TicketModal({ roomId, onClose }: { roomId?: string; onClose: () 
         <Field label="Açıklama" className="span-4"><textarea className="input" rows={3} value={f.description} onChange={set('description')} /></Field>
         <Field label="Öncelik"><select className="input" value={f.priority} onChange={set('priority')}>{Object.entries(PRIORITY_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         <Field label="Görevli" className="span-2"><select className="input" value={f.assignedUserId} onChange={set('assignedUserId')}><option value="">Atanmadı</option>{staff.data?.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}</select></Field>
-        {f.roomId && <>
+        {f.roomId && can('maintenance.manage') && <>
           <div className="span-4"><label className="check"><input type="checkbox" checked={f.blockRoom} onChange={set('blockRoom')} /> Odayı satışa kapat</label></div>
           {f.blockRoom && <>
             <Field label="Blokaj türü"><select className="input" value={f.blockKind} onChange={set('blockKind')}>{Object.entries(BLOCK_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>

@@ -385,6 +385,35 @@ try {
     await api('POST', '/api/v1/imports/file', undefined, { form, expect: 422 });
   });
 
+  await step('Rol yetkileri: resepsiyon ve kat görevlisi günlük işlerini yapabilir, yetkisiz işler reddedilir', async () => {
+    const adminToken = token;
+    const rooms = await api('GET', '/api/v1/rooms');
+    const room = rooms.find(r => r.number === '102');
+    // Resepsiyon
+    token = '';
+    await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
+    await api('POST', `/api/v1/rooms/${room.id}/housekeeping`, { hkStatus: 'dirty', isDnd: false, version: room.version });
+    const r2 = (await api('GET', '/api/v1/rooms')).find(r => r.id === room.id);
+    await api('POST', `/api/v1/rooms/${room.id}/housekeeping`, { hkStatus: 'inspected', isDnd: false, version: r2.version }, { expect: 403 });
+    await api('POST', '/api/v1/maintenance/tickets', { roomId: room.id, issue: 'Musluk damlatıyor', priority: 'normal', blockRoom: false });
+    await api('POST', '/api/v1/maintenance/tickets', { roomId: room.id, issue: 'Klima', priority: 'high', blockRoom: true, blockFrom: addDays(state.bd, 20), blockTo: addDays(state.bd, 21), blockKind: 'out_of_order' }, { expect: 403 });
+    await api('GET', '/api/v1/kbs/reports');
+    await api('PUT', '/api/v1/property/settings/night_audit.auto_no_show', true, { expect: 403 });
+    // Kat görevlisi
+    token = adminToken;
+    await api('POST', '/api/v1/users', { username: 'e2ehk', fullName: 'E2E Kat Görevlisi', password: 'KatGorev123', roles: ['HOUSEKEEPING'] });
+    token = '';
+    await api('POST', '/api/v1/auth/login', { username: 'e2ehk', password: 'KatGorev123', deviceId, deviceKind: 'browser' });
+    await api('POST', '/api/v1/auth/change-password', { currentPassword: 'KatGorev123', newPassword: 'KatGorev456' });
+    await api('POST', '/api/v1/auth/login', { username: 'e2ehk', password: 'KatGorev456', deviceId, deviceKind: 'browser' });
+    const r3 = (await api('GET', '/api/v1/rooms')).find(r => r.id === room.id);
+    await api('POST', `/api/v1/rooms/${room.id}/housekeeping`, { hkStatus: 'clean', isDnd: false, version: r3.version });
+    await api('POST', '/api/v1/maintenance/tickets', { roomId: room.id, issue: 'Ampul yanmıyor', priority: 'low', blockRoom: false });
+    await api('GET', '/api/v1/reservations', undefined, { expect: 403 });
+    await api('GET', '/api/v1/folios', undefined, { expect: 403 });
+    token = adminToken;
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);
