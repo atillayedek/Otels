@@ -26,6 +26,11 @@ const GuestDetail = lazy(() => import('./pages/GuestDetail'));
 const Accounts = lazy(() => import('./pages/Accounts'));
 const Cashier = lazy(() => import('./pages/Cashier'));
 const ExchangeRates = lazy(() => import('./pages/ExchangeRates'));
+const Stock = lazy(() => import('./pages/Stock'));
+const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
+const Pos = lazy(() => import('./pages/Pos'));
+const SetPos = lazy(() => import('./pages/settings/PosSettings'));
+const Allotments = lazy(() => import('./pages/Allotments'));
 const Housekeeping = lazy(() => import('./pages/Housekeeping'));
 const HkTasks = lazy(() => import('./pages/HkTasks'));
 const Maintenance = lazy(() => import('./pages/Maintenance'));
@@ -126,6 +131,11 @@ export function App() {
           <Route path="/agencies" element={<Accounts kind="agencies" />} />
           <Route path="/cashier" element={<Cashier />} />
           <Route path="/exchange-rates" element={<ExchangeRates />} />
+          <Route path="/stock" element={<Stock />} />
+          <Route path="/purchase-orders" element={<PurchaseOrders />} />
+          <Route path="/pos" element={<Pos />} />
+          <Route path="/settings/pos" element={<SetPos />} />
+          <Route path="/allotments" element={<Allotments />} />
           <Route path="/housekeeping" element={<Housekeeping />} />
           <Route path="/housekeeping/tasks" element={<HkTasks />} />
           <Route path="/maintenance" element={<Maintenance />} />

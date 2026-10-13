@@ -51,7 +51,7 @@ export interface ReservationListItem {
   id: string; reservationNumber: string; status: string; guestName: string; guestIsVip: boolean; companyName?: string; agencyName?: string; roomTypeCode: string;
   roomNumber?: string; arrival: DateStr; departure: DateStr; adults: number; children: number; nightlyRate: Money; currency: string; source: string; balance: Money;
 }
-export interface AvailabilityDay { date: DateStr; roomTypeId: string; roomTypeCode: string; total: number; blocked: number; sold: number; available: number }
+export interface AvailabilityDay { date: DateStr; roomTypeId: string; roomTypeCode: string; total: number; blocked: number; sold: number; held: number; available: number }
 export interface RatePreview { nights: { date: DateStr; rate: Money }[]; total: Money; average: Money; source: string }
 export interface RackRoom { id: string; number: string; floor?: string; roomTypeId: string; roomTypeCode: string; hkStatus: string; isDnd: boolean; sortOrder: number }
 export interface RackBar { reservationId: string; reservationNumber: string; roomId?: string; roomTypeId: string; status: string; guestName: string; isVip: boolean; arrival: DateStr; departure: DateStr; adults: number; children: number; companyName?: string; agencyName?: string; balance: Money }
@@ -134,3 +134,28 @@ export interface ClientInfo { deviceId: string; hostname: string; version: strin
 export interface ProbeResult { info: SystemInfo; caPem: string; caFingerprint: string; fingerprintMatchesServer: boolean }
 export interface TestResult { ok: boolean; message: string; latencyMs: number; serverVersion?: string; compatible: boolean; databaseReady: boolean; hotelName?: string; setupRequired: boolean }
 export interface DiscoveredServer { product: string; name: string; hostname: string; httpsPort: number; version: string; addresses: string[]; caFingerprint?: string; replyFrom: string }
+
+// ---- Stok ve satın alma
+export interface Warehouse { id: string; code: string; name: string; isActive: boolean; version: number }
+export interface StockItem { id: string; code: string; name: string; unit: string; category?: string; barcode?: string; minQty?: string; vatRate: string; isActive: boolean; totalQty: string; version: number }
+export interface Supplier { id: string; name: string; taxOffice?: string; taxNumber?: string; contactName?: string; phone?: string; email?: string; address?: string; notes?: string; isActive: boolean; version: number }
+export interface StockBalance { warehouseId: string; warehouseCode: string; warehouseName: string; itemId: string; itemCode: string; itemName: string; unit: string; category?: string; quantity: string; avgCost: string; value: Money; minQty?: string }
+export interface StockMovement { id: string; documentId: string; docNo: string; kind: string; warehouseCode: string; quantity: string; unitCost: string; isReversal: boolean; businessDate: DateStr; createdAt: string; username?: string; party?: string }
+export interface StockDocument { id: string; docNo: string; kind: 'receipt' | 'issue' | 'transfer' | 'count' | 'pos'; warehouseId: string; warehouseName: string; targetWarehouseName?: string; supplierId?: string; supplierName?: string; purchaseOrderNo?: string; invoiceNo?: string; invoiceDate?: DateStr; department?: string; reference?: string; notes?: string; businessDate: DateStr; username?: string; createdAt: string; isCancelled: boolean; cancelReason?: string; totalValue: Money; lineCount: number }
+export interface StockDocumentLine { itemId: string; itemCode: string; itemName: string; unit: string; warehouseCode: string; quantity: string; unitCost: string; amount: Money; isReversal: boolean }
+export interface PurchaseOrder { id: string; orderNo: string; supplierId: string; supplierName: string; warehouseId: string; warehouseName: string; status: 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled'; orderDate: DateStr; expectedDate?: DateStr; notes?: string; cancelReason?: string; total: Money; username?: string; createdAt: string; version: number }
+export interface PurchaseOrderLine { id: string; lineNo: number; itemId: string; itemCode: string; itemName: string; unit: string; quantity: string; unitCost: string; vatRate: string; receivedQty: string; amount: Money }
+
+// ---- Restoran / POS
+export interface Outlet { id: string; code: string; name: string; transactionCodeId: string; transactionCode: string; warehouseId?: string; warehouseName?: string; sortOrder: number; isActive: boolean; openChecks: number; version: number }
+export interface PosProduct { id: string; code: string; name: string; category: string; price: Money; vatRate: string; sortOrder: number; isActive: boolean; outletIds: string[]; recipeItems: number; version: number }
+export interface RecipeLine { stockItemId: string; itemCode: string; itemName: string; unit: string; quantity: string }
+export interface PosCheck { id: string; checkNo: number; outletId: string; outletName: string; tableLabel?: string; covers: number; status: 'open' | 'closed' | 'cancelled'; businessDate: DateStr; openedBy?: string; openedAt: string; note?: string; subtotal: Money; discountAmount: Money; discountReason?: string; total: Money; paid: Money; settlement?: 'room' | 'payment' | 'complimentary'; reservationId?: string; roomNumber?: string; guestName?: string; closedBy?: string; closedAt?: string; closedBusinessDate?: DateStr; cancelReason?: string; itemCount: number; version: number }
+export interface PosCheckLine { id: string; productId: string; name: string; quantity: string; unitPrice: Money; amount: Money; vatRate: string; note?: string; addedBy?: string; addedAt: string; isVoid: boolean; voidReason?: string; voidedBy?: string }
+export interface PosCheckPayment { id: string; paymentMethod: string; amount: Money; tenderedCurrency?: string; tenderedAmount?: Money; exchangeRate?: string; reference?: string; isReversal: boolean; username?: string; createdAt: string }
+export interface PosCheckDetail { check: PosCheck; lines: PosCheckLine[]; payments: PosCheckPayment[] }
+export interface InHouseRoom { reservationId: string; roomNumber: string; guestName: string; departure: DateStr; isBlacklisted: boolean }
+
+// ---- Acente kontenjanı
+export interface Allotment { id: string; agencyId: string; agencyName: string; roomTypeId: string; roomTypeCode: string; dateFrom: DateStr; dateTo: DateStr; rooms: number; releaseDays: number; notes?: string; isActive: boolean; usedRoomNights: number; totalRoomNights: number; createdBy?: string; createdAt: string; version: number }
+export interface AllotmentDay { date: DateStr; rooms: number; used: number; remaining: number; releaseDate: DateStr; released: boolean }

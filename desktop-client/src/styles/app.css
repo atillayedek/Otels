@@ -371,3 +371,38 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .form-grid .span-3, .form-grid .span-4 { grid-column: 1 / -1; }
 }
+
+.input.invalid { border-color: var(--danger); }
+
+/* ---- Restoran / POS */
+.seg.wrap { flex-wrap: wrap; }
+.seg .pill { margin-left: 6px; background: var(--primary); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+.pos-layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; height: calc(100vh - 150px); min-height: 480px; }
+.pos-checks { display: flex; flex-direction: column; min-height: 0; }
+.pos-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow: auto; padding: 8px 2px; }
+.pos-check-card { text-align: left; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 9px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: inherit; color: var(--text); }
+.pos-check-card:hover { border-color: var(--primary); }
+.pos-check-card.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-100); background: var(--primary-50); }
+.pos-check-card.cancelled { opacity: .6; }
+.pos-check-total { font-size: 16px; font-weight: 700; }
+.pos-main { min-height: 0; overflow: hidden; }
+.pos-check-screen { display: grid; grid-template-columns: 1fr 380px; gap: 14px; height: 100%; }
+.pos-check-screen > .pos-ticket:only-child { grid-column: 1 / -1; max-width: 520px; }
+.pos-menu { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden; }
+.pos-products { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; overflow: auto; align-content: start; padding-bottom: 8px; }
+.pos-product { min-height: 72px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 8px; display: flex; flex-direction: column; justify-content: space-between; text-align: left; cursor: pointer; font: inherit; color: var(--text); }
+.pos-product:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-50); }
+.pos-product b { color: var(--primary); }
+.pos-ticket { display: flex; flex-direction: column; min-height: 0; margin: 0; }
+.pos-ticket-lines { flex: 1; overflow: auto; min-height: 120px; }
+.pos-totals { border-top: 1px solid var(--border); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.pos-grand { font-size: 18px; }
+.pos-actions { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
+.pos-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 340px; overflow: auto; }
+.pos-room { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 9px 10px; cursor: pointer; font: inherit; color: var(--text); text-align: left; }
+.pos-room.active { border-color: var(--primary); background: var(--primary-50); }
+.pos-room:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 1100px) {
+  .pos-layout { grid-template-columns: 1fr; height: auto; }
+  .pos-check-screen { grid-template-columns: 1fr; }
+}

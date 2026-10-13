@@ -49,7 +49,7 @@ public static class ExchangeRateEndpoints
             var currencies = await PropertyEndpoints.SettingAsync<string[]>(tx, "finance.currencies");
             var rates = await tx.ListAsync<ExchangeRateDto>(LatestSql, new { bd });
             return new ExchangeRatesView(baseCur, bd, currencies, rates, baseCur == "TRY");
-        })).RequirePermission("folio.view");
+        })).RequireAnyPermission("folio.view", "pos.settle");
 
         g.MapGet("/history", (Db db, string currency) => db.QueryAsync<ExchangeRateDto>("""
             SELECT e.currency::text AS currency, e.rate_date, e.rate, e.source, u.username, e.created_at

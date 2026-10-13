@@ -50,6 +50,29 @@ Doluluk/ADR/RevPAR, geliş, çıkış, konaklayanlar, misafir listesi, no-show v
 
 Misafir kartında **Kimlik ve belgeler**, rezervasyonda **Belgeler** sekmesi: kimlik kartı, pasaport, sözleşme veya fatura için PDF/JPG/PNG yüklenir. Dosya türü içerikten doğrulanır, belgeler yalnız sunucuda saklanır (internete gönderilmez), her görüntüleme ve silme denetim kaydına yazılır. Sekme `guest.identity.view` yetkisi ister.
 
+## Acente kontenjanı (allotment)
+
+**Rezervasyon → Acente Kontenjanları**: acente, oda tipi, tarih aralığı, günlük oda sayısı ve release süresi. Acentenin o oda tipindeki rezervasyonları kontenjandan düşer. Kullanılmayan kontenjan, gecenin release tarihine (gece − release günü) kadar diğer satışlara kapalıdır; bu tarihte serbest kalır. Acente kendi kontenjanına satış yapabilir. Kontenjan boş oda sayısını aşamaz; aynı acente ve oda tipi için çakışan aktif kontenjan tanımlanamaz. Fiyat ve Doluluk ekranında kontenjanda tutulan odalar "+nK" olarak görünür. Rapor: Acente Kontenjan Kullanımı.
+
+## Restoran / bar (POS)
+
+- **Menü ve Satış Noktaları**: satış noktası (restoran, bar, oda servisi…), folyo işlem kodu, stok düşülecek depo; ürünler (kategori, KDV dahil fiyat, KDV oranı, satıldığı yerler) ve reçeteler.
+- **Satış Ekranı**: masa/yer ve kişi sayısıyla adisyon, kategori düğmeleriyle ürün ekleme, ürün iptali (kendi eklediği ürünü 2 dakika içinde garson, sonrasını `pos.void` yetkilisi), tutar veya yüzde indirim (gerekçeli).
+- Kapanış: **Ödeme** (bölünmüş, dövizli, kasa vardiyasına işlenir, para üstü hesabı), **Odaya aktar** (konaklayan misafir; KDV oranına göre ayrı folyo satırı, indirim oransal dağıtılır), **İkram** (tamamı gerekçeli indirimle).
+- Kapanmış adisyon aynı iş gününde iptal edilebilir: folyo satırları iptal edilir veya ödemeler kasadan ters kayıtla geri alınır; reçeteyle düşülen stok geri yüklenir.
+- Reçeteli ürünler adisyon kapanınca satış noktasının deposundan düşülür; satış stok yetersizliğinden engellenmez (eksi stok Stok Durumu raporunda görünür).
+- Açık adisyonlar gece denetiminde uyarı olarak listelenir. Doğrudan ödenen adisyonlar günlük diğer gelire ve tahsilata, odaya aktarılanlar folyo masrafı olarak dahil edilir.
+- Raporlar: Restoran Satışları, Ürün Satışları, Adisyon Listesi, Ürün İptalleri.
+
+## Stok ve satın alma
+
+- Depolar, stok kartları (birim, kategori, barkod, asgari stok, KDV), tedarikçiler.
+- **Satın alma siparişi**: taslak → sipariş verildi → kısmen/tamamen teslim alındı; iptal gerekçeli.
+- **Mal kabul** (siparişe bağlı veya doğrudan; fatura/irsaliye no), **çıkış** (bölüme sarf), **depolar arası transfer**, **sayım** (yalnız farklar düzeltme olarak kaydedilir).
+- Maliyet ağırlıklı ortalamadır. Stok hareketleri değiştirilemez; belge iptali ters hareket yazar (tüketilmiş girişin iptali stoğu eksiye düşürecekse engellenir).
+- Çıkış ve transferde stok yetersizse işlem reddedilir (`stock.allow_negative` ayarı ile açılabilir).
+- Raporlar: Stok Durumu, Stok Hareketleri, Alımlar (Mal Kabul), Tüketim Özeti.
+
 ## Bu sürümde bulunmayanlar
 
 - Kanal yöneticisi / online satış kanalları

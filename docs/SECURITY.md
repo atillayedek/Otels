@@ -25,6 +25,11 @@
 | Satış | Rezervasyon oluşturma/düzenleme/iptal, misafir, şirket/acente, fiyat planları ve elle fiyat, raporlar |
 | Teknik Servis | Arıza kayıtları ve oda blokajı |
 | Yalnız Rapor | Gösterge paneli ve raporlar |
+| Restoran / Bar | Adisyon açma, ürün ekleme, kendi yanlış girdiği ürünü 2 dakika içinde iptal, adisyon kapatma (ödeme, odaya aktarma), kasa vardiyası |
+| Restoran Müdürü | Restoran / Bar yetkileri + ürün iptali, indirim ve ikram, kapanmış adisyon iptali, menü ve satış noktaları, stok görüntüleme, raporlar |
+| Depo / Satın Alma | Depo, stok kartı, tedarikçi, satın alma siparişi, mal kabul, çıkış, transfer, sayım, belge iptali, raporlar |
+
+Ek olarak Satış ve Ön Büro Müdürü acente kontenjanı tanımlayabilir; Muhasebe stok görüntüleme ve satın alma, Kat Hizmetleri Müdürü stok görüntüleme yetkisine sahiptir.
 
 Rollerin yetkileri **Yönetim → Kullanıcılar ve Roller** ekranından değiştirilebilir, yeni rol tanımlanabilir. Bir kullanıcıya birden fazla rol verilebilir (ör. küçük otelde Resepsiyon + Gece Denetçisi). Sürüm güncellemeleri rollere yalnız yeni yetki ekler; yöneticinin yaptığı değişiklikleri geri almaz.
 

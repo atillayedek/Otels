@@ -53,8 +53,8 @@ export default function AvailabilityPage() {
                     const p = price(t.id, d);
                     const free = c?.available ?? 0;
                     return (
-                      <td key={d} style={{ textAlign: 'center', background: free <= 0 ? 'var(--danger-50)' : free <= 1 ? 'var(--warning-50)' : undefined }} title={c ? `Toplam ${c.total}, bloke ${c.blocked}, satılan ${c.sold}` : ''}>
-                        <b style={{ fontSize: 15 }}>{free}</b><br /><span className="muted" style={{ fontSize: 11 }}>{p ? fmtMoney(p) : '—'}</span>
+                      <td key={d} style={{ textAlign: 'center', background: free <= 0 ? 'var(--danger-50)' : free <= 1 ? 'var(--warning-50)' : undefined }} title={c ? `Toplam ${c.total}, bloke ${c.blocked}, satılan ${c.sold}${c.held ? `, acente kontenjanında ${c.held}` : ''}` : ''}>
+                        <b style={{ fontSize: 15 }}>{free}</b>{c?.held ? <span className="muted" style={{ fontSize: 11 }}> +{c.held}K</span> : null}<br /><span className="muted" style={{ fontSize: 11 }}>{p ? fmtMoney(p) : '—'}</span>
                       </td>
                     );
                   })}

@@ -125,3 +125,17 @@ export function parseRate(s: string): string | null {
   if (!/^\d+(\.\d{1,6})?$/.test(t) || Number(t) <= 0) return null;
   return t;
 }
+
+/** Stok miktarı gösterimi: en fazla 3 ondalık, Türkçe ayırıcılar. */
+export function fmtQty(q?: string | number | null) {
+  if (q === undefined || q === null || q === '') return '';
+  const n = Number(q);
+  return n.toLocaleString('tr-TR', { maximumFractionDigits: 3 });
+}
+
+/** "1,5" / "1.5" / "12" → "1.5"; geçersizse null. Ondalık sınırı verilebilir (miktar 3, maliyet 4). */
+export function parseDecimal(s: string, decimals = 3): string | null {
+  const t = s.includes(',') ? s.trim().replace(/\./g, '').replace(',', '.') : s.trim();
+  if (!new RegExp(`^\\d+(\\.\\d{1,${decimals}})?$`).test(t)) return null;
+  return t;
+}

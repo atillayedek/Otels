@@ -182,7 +182,8 @@ public static class FolioEndpoints
         // ---- Yapılandırma: işlem kodları ve ödeme tipleri
         var cfg = app.MapGroup("/api/v1/finance").WithTags("Finance");
         cfg.MapGet("/transaction-codes", (Db db) => db.QueryAsync<TransactionCodeDto>(
-            "SELECT id, code, name, category, default_price, vat_rate, is_system, is_active FROM pms.transaction_codes ORDER BY category, code")).RequirePermission("folio.view");
+            "SELECT id, code, name, category, default_price, vat_rate, is_system, is_active FROM pms.transaction_codes ORDER BY category, code"))
+            .RequireAnyPermission("folio.view", "pos.manage");
         cfg.MapPost("/transaction-codes", (SaveTransactionCodeRequest req, CommandRunner cmd) => cmd.RunAsync("transaction_code.create", req, async tx =>
         {
             var p = CodeParams(req);
@@ -207,7 +208,8 @@ public static class FolioEndpoints
             return new { id };
         }, requireKey: false)).RequirePermission("settings.manage");
         cfg.MapGet("/payment-methods", (Db db) => db.QueryAsync<PaymentMethodDto>(
-            "SELECT id, code, name, kind, requires_reference, is_system, is_active FROM pms.payment_methods ORDER BY sort_order, name")).RequirePermission("folio.view");
+            "SELECT id, code, name, kind, requires_reference, is_system, is_active FROM pms.payment_methods ORDER BY sort_order, name"))
+            .RequireAnyPermission("folio.view", "pos.settle");
         cfg.MapPost("/payment-methods", (SavePaymentMethodRequest req, CommandRunner cmd) => cmd.RunAsync("payment_method.create", req, async tx =>
         {
             var p = MethodParams(req);
