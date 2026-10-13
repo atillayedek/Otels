@@ -425,7 +425,7 @@ public static class FolioService
     /// net = fiyat / ((1 + kv) × (1 + kdv)), vergi satırı = net × kv × (1 + kdv). "Üstüne eklenir" modunda vergi = fiyat × kv.
     /// </summary>
     public static async Task<decimal> PostRoomChargeAsync(Tx tx, Guid reservationId, int window, string currency, DateOnly bd, decimal rate, string roomNumber,
-        string reservationNumber, Guid roomCodeId, decimal roomVatRate, AccommodationTax? kv)
+        string reservationNumber, Guid roomCodeId, decimal roomVatRate, AccommodationTax? kv, Tender? fx = null)
     {
         var folioId = await tx.ScalarAsync<Guid?>(
             "SELECT id FROM pms.folios WHERE reservation_id = @reservationId AND window_no = @window AND status = 'open'", new { reservationId, window })
@@ -445,13 +445,21 @@ public static class FolioService
             }
             else tax = decimal.Round(rate * t, 2, MidpointRounding.AwayFromZero);
         }
-        var lineId = await InsertLineAsync(tx, folioId, "charge", $"Konaklama {bd:dd.MM.yyyy}", roomAmount, currency, bd, codeId: roomCodeId, unitPrice: roomAmount,
-            room: roomNumber, isRoomCharge: true, vat: roomVatRate);
+        // Dövizli fiyatta döviz tutarı oda ve vergi satırlarına aynı oranda bölünür; satırda döviz tutarı ve kur saklanır.
+        Tender? fxRoom = null, fxTax = null;
+        if (fx is not null)
+        {
+            var roomFx = tax == 0 ? fx.Amount : decimal.Round(fx.Amount * roomAmount / rate, 2, MidpointRounding.AwayFromZero);
+            fxRoom = fx with { Amount = roomFx };
+            fxTax = tax == 0 ? null : fx with { Amount = fx.Amount - roomFx };
+        }
+        var lineId = await InsertLineAsync(tx, folioId, "charge", $"Konaklama {bd:dd.MM.yyyy}" + TenderText(fxRoom), roomAmount, currency, bd, codeId: roomCodeId,
+            unitPrice: roomAmount, room: roomNumber, isRoomCharge: true, vat: roomVatRate, tender: fxRoom);
         await tx.ExecAsync("INSERT INTO pms.room_charge_postings (reservation_id, business_date, folio_line_id) VALUES (@reservationId, @bd, @lineId)",
             new { reservationId, bd, lineId });
         if (tax > 0)
             await InsertLineAsync(tx, folioId, "charge", $"Konaklama vergisi %{kv!.Rate:0.##} {bd:dd.MM.yyyy}", tax, currency, bd, codeId: kv.CodeId,
-                unitPrice: tax, room: roomNumber, vat: roomVatRate);
+                unitPrice: tax, room: roomNumber, vat: roomVatRate, tender: fxTax);
         return roomAmount + tax;
     }
 }

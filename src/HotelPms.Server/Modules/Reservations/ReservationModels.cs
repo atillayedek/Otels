@@ -9,7 +9,7 @@ public sealed record ReservationDto(
     int Adults, int Children, Guid? RatePlanId, string? RatePlanCode, decimal NightlyRate, decimal TotalRate, string Currency, string MealPlan,
     string Source, string? Market, string? Segment, bool IsWalkIn, TimeOnly? Eta, TimeOnly? Etd, int RoomChargeWindow, string? Notes,
     string? SpecialRequests, decimal DepositRequired, DateOnly? OptionUntil, DateTime? CheckedInAt, DateTime? CheckedOutAt, DateTime? CancelledAt,
-    string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version);
+    string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version, string? RateCurrency, decimal? FxNightlyRate);
 
 public sealed record ReservationListItem(Guid Id, string ReservationNumber, string Status, string GuestName, bool GuestIsVip, string? CompanyName,
     string? AgencyName, string RoomTypeCode, string? RoomNumber, DateOnly Arrival, DateOnly Departure, int Adults, int Children,
@@ -42,7 +42,9 @@ public sealed record SaveReservationRequest(
     DateOnly? OptionUntil,
     int? Version,
     // Müsaitlik yoksa overbooking ancak açıkça istenirse ve kullanıcının reservation.overbook yetkisi varsa yapılır.
-    bool AllowOverbook = false);
+    bool AllowOverbook = false,
+    // Dövizli fiyat (ör. acente sözleşmesi EUR): NightlyRate bu dövizdedir; boşsa tesis para birimi.
+    string? RateCurrency = null);
 
 public sealed record CancelRequest(string Reason, int Version);
 public sealed record VersionRequest(int Version);
@@ -58,7 +60,8 @@ public sealed record CreateWakeupRequest(Guid ReservationId, DateTime CallAt, st
 
 /// <summary>Held: başka acentelere ayrılmış, henüz kullanılmamış ve release süresi dolmamış kontenjan (bu satış için kapalı).</summary>
 public sealed record AvailabilityDay(DateOnly Date, Guid RoomTypeId, string RoomTypeCode, int Total, int Blocked, int Sold, int Held, int Available);
-public sealed record RatePreview(IReadOnlyList<NightRate> Nights, decimal Total, decimal Average, string Source);
+/// <summary>Currency: fiyat planının para birimi (boşsa tesis para birimi); tutarlar bu para birimindedir.</summary>
+public sealed record RatePreview(IReadOnlyList<NightRate> Nights, decimal Total, decimal Average, string Source, string? Currency = null);
 public sealed record NightRate(DateOnly Date, decimal Rate);
 
 public sealed record RackRoom(Guid Id, string Number, string? Floor, Guid RoomTypeId, string RoomTypeCode, string HkStatus, bool IsDnd, int SortOrder);

@@ -76,11 +76,21 @@ public static class NightAuditEndpoints
             var currency = await PropertyEndpoints.CurrencyAsync(tx);
             var toPost = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd });
             decimal total = 0, posted = 0;
-            foreach (var c in toPost.Where(c => c.Rate > 0))
+            foreach (var c in toPost.Where(c => c.Rate > 0 || c.FxAmount > 0))
             {
-                posted += await FolioService.PostRoomChargeAsync(tx, c.ReservationId, c.Window, currency, bd, c.Rate, c.RoomNumber, c.ReservationNumber,
-                    roomCode.Id, roomCode.VatRate, kv);
-                total += c.Rate;
+                // Dövizli fiyatlı gece, bugünün kuruyla tesis para birimine çevrilerek yazılır.
+                var amount = c.Rate;
+                FolioService.Tender? fx = null;
+                if (c.RateCurrency is { } cur && c.FxAmount is { } fxAmount)
+                {
+                    var fxRate = await ExchangeRateEndpoints.RateAsync(tx, cur, bd);
+                    amount = decimal.Round(fxAmount * fxRate, 2, MidpointRounding.AwayFromZero);
+                    fx = new FolioService.Tender(cur, fxAmount, fxRate);
+                }
+                if (amount <= 0) continue;
+                posted += await FolioService.PostRoomChargeAsync(tx, c.ReservationId, c.Window, currency, bd, amount, c.RoomNumber, c.ReservationNumber,
+                    roomCode.Id, roomCode.VatRate, kv, fx);
+                total += amount;
             }
             var taxTotal = kv is null ? 0 : await tx.ScalarAsync<decimal>(
                 "SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines WHERE business_date = @bd AND transaction_code_id = @code AND line_type = 'charge'",
@@ -97,7 +107,7 @@ public static class NightAuditEndpoints
             var next = bd.AddDays(1);
             var summary = new
             {
-                roomChargesPosted = toPost.Count(c => c.Rate > 0), roomChargeTotal = total, postedTotal = posted, accommodationTax = taxTotal, noShows,
+                roomChargesPosted = toPost.Count(c => c.Rate > 0 || c.FxAmount > 0), roomChargeTotal = total, postedTotal = posted, accommodationTax = taxTotal, noShows,
                 optionsCancelled, stats.RoomsSold, stats.OccupancyPct,
                 stats.Adr, stats.Revpar, stats.RoomRevenue, stats.OtherRevenue, stats.Payments,
             };
@@ -136,11 +146,12 @@ public static class NightAuditEndpoints
         ORDER BY option_until, reservation_number
         """;
 
-    sealed record ChargeCandidate(Guid ReservationId, string ReservationNumber, string RoomNumber, int Window, decimal Rate);
+    sealed record ChargeCandidate(Guid ReservationId, string ReservationNumber, string RoomNumber, int Window, decimal Rate, string? RateCurrency, decimal? FxAmount);
 
     const string ChargeCandidatesSql = """
         SELECT r.id AS reservation_id, r.reservation_number, rm.number AS room_number, r.room_charge_window AS window,
-               COALESCE(rr.rate, r.nightly_rate) AS rate
+               COALESCE(rr.rate, r.nightly_rate) AS rate, r.rate_currency::text AS rate_currency,
+               CASE WHEN r.rate_currency IS NULL THEN NULL ELSE COALESCE(rr.fx_amount, r.fx_nightly_rate) END AS fx_amount
         FROM pms.reservations r JOIN pms.rooms rm ON rm.id = r.room_id
         LEFT JOIN pms.reservation_rates rr ON rr.reservation_id = r.id AND rr.stay_date = @bd
         WHERE r.status = 'checked_in' AND r.arrival <= @bd AND r.departure > @bd
@@ -217,12 +228,18 @@ public static class NightAuditEndpoints
                 : $"{o.No} {o.Guest}: opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}). Onaylayın, süreyi uzatın veya iptal edin.", o.Id, o.No));
 
         var candidates = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd });
-        var zero = candidates.Count(c => c.Rate == 0);
+        // Dövizli fiyatlı konaklamalar için güncel kur olmadan oda ücreti yazılamaz.
+        foreach (var cur in candidates.Where(c => c.RateCurrency is not null).Select(c => c.RateCurrency!).Distinct())
+        {
+            try { await ExchangeRateEndpoints.RateAsync(tx, cur, bd); }
+            catch (PmsException ex) { blockers.Add(new("exchange_rate_missing", "blocker", $"Dövizli fiyatlı konaklama var: {ex.Message}", null, cur)); }
+        }
+        var zero = candidates.Count(c => c.Rate == 0 && c.FxAmount is null or 0);
         if (zero > 0) warnings.Add(new("zero_rate", "warning", $"{zero} konaklamanın bu gece fiyatı 0 (ücretsiz/complimentary).", null, null));
         var inHouse = await tx.ScalarAsync<int>("SELECT count(*)::int FROM pms.reservations WHERE status = 'checked_in'");
         if (closed) blockers.Insert(0, new("already_closed", "blocker", "Bu iş günü zaten kapatılmış.", null, null));
 
-        return new NightAuditPreview(bd, bd.AddDays(1), closed, blockers, warnings, candidates.Count(c => c.Rate > 0), candidates.Sum(c => c.Rate),
+        return new NightAuditPreview(bd, bd.AddDays(1), closed, blockers, warnings, candidates.Count(c => c.Rate > 0 || c.FxAmount > 0), candidates.Sum(c => c.Rate),
             inHouse, blockers.Count == 0);
     }
 

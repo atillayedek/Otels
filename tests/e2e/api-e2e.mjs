@@ -4,6 +4,7 @@
 // Üretim/otel veritabanına karşı ÇALIŞTIRMAYIN: test kayıtları oluşturur.
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import net from 'node:net';
 import assert from 'node:assert/strict';
 
 const [base, setupCodeFile] = process.argv.slice(2);
@@ -675,6 +676,84 @@ try {
     assert.equal(list[0].usedRoomNights, 2); assert.equal(list[0].totalRoomNights, 6);
     const rep = await api('GET', `/api/v1/reports/allotment_usage?from=${d1}&to=${d3}`);
     assert.equal(rep.rows.length, 3);
+  });
+
+  await step('Mutfak yazıcısı: deneme fişi, sipariş gönderimi, iptal fişi, ulaşılamayan yazıcı', async () => {
+    const k = () => ({ key: randomUUID() });
+    const received = [];
+    const srv = net.createServer(s => { const chunks = []; s.on('data', d => chunks.push(d)); s.on('end', () => received.push(Buffer.concat(chunks))); });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const waitFor = async n => { for (let i = 0; i < 50 && received.length < n; i++) await new Promise(r => setTimeout(r, 50)); assert.equal(received.length, n); };
+    try {
+      await api('POST', '/api/v1/pos/printers', { name: 'Mutfak', host: 'bad host!', port: 9100, codePage: 'PC857', lineWidth: 42, isActive: true }, { expect: 422 });
+      const pr = (await api('POST', '/api/v1/pos/printers', { name: 'Mutfak', host: '127.0.0.1', port: srv.address().port, codePage: 'PC857', lineWidth: 42, isActive: true })).id;
+      await api('POST', `/api/v1/pos/printers/${pr}/test`, {});
+      await waitFor(1);
+      assert.ok(received[0].includes(Buffer.from([0x1b, 0x74, 13])), 'PC857 kod sayfası komutu');
+      assert.ok(received[0].includes(Buffer.from([0x1d, 0x56, 66, 0])), 'kesme komutu');
+
+      const products = await api('GET', `/api/v1/pos/products?outletId=${state.outlet}`);
+      const corba = products.find(x => x.code === 'MERCIMEK'), kola = products.find(x => x.code === 'KOLA');
+      await api('PUT', `/api/v1/pos/products/${corba.id}`, { code: corba.code, name: corba.name, category: corba.category, price: corba.price, vatRate: corba.vatRate,
+        sortOrder: corba.sortOrder, isActive: true, outletIds: corba.outletIds, version: corba.version, printerId: pr });
+      let c = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, tableLabel: '12', covers: 3 }, k());
+      const id = c.check.id;
+      await api('POST', `/api/v1/pos/checks/${id}/lines`, { productId: corba.id, quantity: '2', note: 'Acısız' }, k());
+      await api('POST', `/api/v1/pos/checks/${id}/lines`, { productId: kola.id, quantity: '1' }, k());
+      let s = await api('POST', `/api/v1/pos/checks/${id}/send`, {});
+      assert.deepEqual(s.sent, ['Mutfak']); assert.equal(s.lines, 1); assert.equal(s.failed.length, 0);
+      await waitFor(2);
+      assert.ok(received[1].includes(Buffer.from('Mercimek')) && received[1].includes(Buffer.from('MASA 12')) && received[1].includes(Buffer.from('Ac')), 'sipariş fişi içeriği');
+      assert.ok(!received[1].includes(Buffer.from('Kola')), 'yazıcısız ürün fişe girmez');
+      s = await api('POST', `/api/v1/pos/checks/${id}/send`, {});
+      assert.equal(s.lines, 0);
+      const line = s.detail.lines.find(l => l.productId === corba.id);
+      assert.ok(line.sentAt && line.printable);
+      await api('POST', `/api/v1/pos/check-lines/${line.id}/void`, { reason: 'Misafir vazgeçti' }, k());
+      s = await api('POST', `/api/v1/pos/checks/${id}/send`, {});
+      assert.equal(s.lines, 1);
+      await waitFor(3);
+      assert.ok(received[2].includes(Buffer.from('PTAL')), 'iptal fişi');
+
+      // Ulaşılamayan yazıcı: satır gönderilmemiş kalır, hata bildirilir
+      const closed = net.createServer(); await new Promise(r => closed.listen(0, '127.0.0.1', r)); const deadPort = closed.address().port; await new Promise(r => closed.close(r));
+      const bar = (await api('POST', '/api/v1/pos/printers', { name: 'Bar', host: '127.0.0.1', port: deadPort, codePage: 'ASCII', lineWidth: 32, isActive: true })).id;
+      await api('PUT', `/api/v1/pos/products/${kola.id}`, { code: kola.code, name: kola.name, category: kola.category, price: kola.price, vatRate: kola.vatRate,
+        sortOrder: kola.sortOrder, isActive: true, outletIds: kola.outletIds, version: kola.version, printerId: bar });
+      await api('POST', `/api/v1/pos/checks/${id}/lines`, { productId: kola.id, quantity: '1' }, k());
+      s = await api('POST', `/api/v1/pos/checks/${id}/send`, {});
+      assert.equal(s.failed.length, 1); assert.equal(s.failed[0].printer, 'Bar');
+      assert.ok(s.detail.lines.filter(l => l.productId === kola.id && !l.isVoid).some(l => !l.sentAt), 'gönderilemeyen satır bekler');
+      c = await api('GET', `/api/v1/pos/checks/${id}`);
+      await api('POST', `/api/v1/pos/checks/${id}/cancel`, { reason: 'Test', version: c.check.version }, k());
+    } finally { srv.close(); }
+  });
+
+  await step('Dövizli fiyat: EUR fiyat planı, elle EUR fiyat, kur yoksa red, gece denetiminde günün kuruyla oda ücreti', async () => {
+    const k = () => ({ key: randomUUID() });
+    const plan = (await api('POST', '/api/v1/rate-plans', { code: 'ACENTE-EUR', name: 'Acente EUR', mealPlan: 'BB', isActive: true, currency: 'EUR' })).id;
+    const plans = await api('GET', '/api/v1/rate-plans');
+    assert.equal(plans.find(x => x.id === plan).currency, 'EUR');
+    const body = extra => ({ guestId: state.guest, roomTypeId: state.dlx, arrival: state.bd, departure: addDays(state.bd, 2), adults: 1, children: 0, status: 'confirmed', depositRequired: '0', ...extra });
+    await api('POST', '/api/v1/reservations', body({ rateCurrency: 'USD', nightlyRate: '90.00' }), { ...k(), expect: 422 }); // USD kuru yok
+    await api('POST', '/api/v1/reservations', body({ rateCurrency: 'EUR' }), { ...k(), expect: 422 });                     // EUR fiyat yok
+    await api('POST', '/api/v1/reservations', body({ ratePlanId: plan }), { ...k(), expect: 422 });                          // planda fiyat tanımlı değil
+    const id = (await api('POST', '/api/v1/reservations', body({ rateCurrency: 'EUR', nightlyRate: '100.00' }), k())).id;
+    let r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.equal(r.rateCurrency, 'EUR'); assert.equal(r.fxNightlyRate, '100.00'); assert.equal(r.nightlyRate, '3750.00'); // 100 × 37,5 (tahmini)
+    await api('POST', `/api/v1/reservations/${id}/check-in`, { roomId: state.room202, earlyCheckIn: false, version: r.version }, k());
+    const pv = await api('GET', '/api/v1/night-audit/preview?autoNoShow=true');
+    assert.ok(!pv.blockers.some(b => b.code === 'exchange_rate_missing'));
+    const run = await api('POST', '/api/v1/night-audit/run', { businessDate: state.bd, autoNoShow: true }, k());
+    const folios = await api('GET', `/api/v1/folios?reservationId=${id}`);
+    const lines = (await api('GET', `/api/v1/folios/${folios[0].id}`)).lines.filter(l => l.lineType === 'charge' && l.businessDate === state.bd);
+    const sum = f => lines.reduce((s, l) => s + Number(f(l)), 0).toFixed(2);
+    assert.equal(sum(l => l.amount), '3750.00');           // 100 EUR × 37,5 (KV dahil, iki satır)
+    assert.equal(sum(l => l.tenderedAmount), '100.00');    // döviz tutarı satırlara bölünür
+    assert.ok(lines.every(l => l.tenderedCurrency === 'EUR' && Number(l.exchangeRate) === 37.5));
+    state.bd = run.newBusinessDate;
+    // Yeni günde EUR kuru 3 güne kadar geçerli; daha eski kurla rezervasyon reddedilir
+    await api('POST', '/api/v1/reservations', body({ arrival: state.bd, departure: addDays(state.bd, 1), rateCurrency: 'EUR', nightlyRate: '80.00' }), k());
   });
 
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {

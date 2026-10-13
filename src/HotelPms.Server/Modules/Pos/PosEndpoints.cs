@@ -11,12 +11,16 @@ public sealed record OutletDto(Guid Id, string Code, string Name, Guid Transacti
 public sealed record SaveOutletRequest(string Code, string Name, Guid TransactionCodeId, Guid? WarehouseId, int SortOrder, bool IsActive, int? Version);
 
 public sealed record PosProductDto(Guid Id, string Code, string Name, string Category, decimal Price, decimal VatRate, int SortOrder, bool IsActive,
-    string? OutletIdsCsv, int RecipeItems, int Version)
+    string? OutletIdsCsv, int RecipeItems, Guid? PrinterId, int Version)
 {
     public IReadOnlyList<Guid> OutletIds => string.IsNullOrEmpty(OutletIdsCsv) ? [] : OutletIdsCsv.Split(',').Select(Guid.Parse).ToList();
 }
 public sealed record SavePosProductRequest(string Code, string Name, string Category, decimal Price, decimal VatRate, int SortOrder, bool IsActive,
-    IReadOnlyList<Guid>? OutletIds, int? Version);
+    IReadOnlyList<Guid>? OutletIds, int? Version, Guid? PrinterId = null);
+public sealed record PosPrinterDto(Guid Id, string Name, string Host, int Port, string CodePage, int LineWidth, bool IsActive, int Products, int Version);
+public sealed record SavePosPrinterRequest(string Name, string Host, int Port, string CodePage, int LineWidth, bool IsActive, int? Version);
+public sealed record SendResult(IReadOnlyList<string> Sent, IReadOnlyList<SendFailure> Failed, int Lines, CheckDetail Detail);
+public sealed record SendFailure(string Printer, string Error);
 public sealed record RecipeLineDto(Guid StockItemId, string ItemCode, string ItemName, string Unit, decimal Quantity);
 public sealed record RecipeLine(Guid StockItemId, decimal Quantity);
 public sealed record SaveRecipeRequest(IReadOnlyList<RecipeLine> Lines);
@@ -26,7 +30,7 @@ public sealed record CheckDto(Guid Id, long CheckNo, Guid OutletId, string Outle
     string? Settlement, Guid? ReservationId, string? RoomNumber, string? GuestName, string? ClosedBy, DateTime? ClosedAt, DateOnly? ClosedBusinessDate,
     string? CancelReason, int ItemCount, int Version);
 public sealed record CheckLineDto(Guid Id, Guid ProductId, string Name, decimal Quantity, decimal UnitPrice, decimal Amount, decimal VatRate, string? Note,
-    string? AddedBy, DateTime AddedAt, bool IsVoid, string? VoidReason, string? VoidedBy);
+    string? AddedBy, DateTime AddedAt, bool IsVoid, string? VoidReason, string? VoidedBy, bool Printable, DateTime? SentAt);
 public sealed record CheckPaymentDto(Guid Id, string PaymentMethod, decimal Amount, string? TenderedCurrency, decimal? TenderedAmount, decimal? ExchangeRate,
     string? Reference, bool IsReversal, string? Username, DateTime CreatedAt);
 public sealed record CheckDetail(CheckDto Check, IReadOnlyList<CheckLineDto> Lines, IReadOnlyList<CheckPaymentDto> Payments);
@@ -55,7 +59,7 @@ public static class PosEndpoints
     const string ProductSelect = """
         SELECT p.id, p.code, p.name, p.category, p.price, p.vat_rate, p.sort_order, p.is_active,
                (SELECT string_agg(po.outlet_id::text, ',') FROM pms.pos_product_outlets po WHERE po.product_id = p.id) AS outlet_ids_csv,
-               (SELECT count(*)::int FROM pms.pos_recipes r WHERE r.product_id = p.id) AS recipe_items, p.version
+               (SELECT count(*)::int FROM pms.pos_recipes r WHERE r.product_id = p.id) AS recipe_items, p.printer_id, p.version
         FROM pms.pos_products p
         """;
     const string CheckSelect = """
@@ -115,9 +119,9 @@ public static class PosEndpoints
         {
             var p = ProductParams(req);
             var id = await tx.ScalarAsync<Guid>("""
-                INSERT INTO pms.pos_products (code, name, category, price, vat_rate, sort_order, is_active)
-                VALUES (@code, @name, @category, @price, @vat, @sort, @active) RETURNING id
-                """, new { p.code, p.name, p.category, p.price, p.vat, p.sort, p.active });
+                INSERT INTO pms.pos_products (code, name, category, price, vat_rate, sort_order, is_active, printer_id)
+                VALUES (@code, @name, @category, @price, @vat, @sort, @active, @printer) RETURNING id
+                """, new { p.code, p.name, p.category, p.price, p.vat, p.sort, p.active, printer = await PrinterRefAsync(tx, req.PrinterId) });
             await WriteProductOutletsAsync(tx, id, req.OutletIds);
             await tx.AuditAsync("pos_product.create", "pos_product", id, null, req);
             tx.Publish("pos");
@@ -129,9 +133,9 @@ public static class PosEndpoints
             var before = await tx.OneOrNullAsync<PosProductDto>(ProductSelect + " WHERE p.id = @id", new { id }) ?? throw PmsException.NotFound("Ürün");
             await tx.ExecVersionedAsync("""
                 UPDATE pms.pos_products SET code = @code, name = @name, category = @category, price = @price, vat_rate = @vat, sort_order = @sort,
-                    is_active = @active, version = version + 1
+                    is_active = @active, printer_id = @printer, version = version + 1
                 WHERE id = @id AND version = @version
-                """, new { p.code, p.name, p.category, p.price, p.vat, p.sort, p.active, id, version = req.Version ?? -1 });
+                """, new { p.code, p.name, p.category, p.price, p.vat, p.sort, p.active, printer = await PrinterRefAsync(tx, req.PrinterId), id, version = req.Version ?? -1 });
             await tx.ExecAsync("DELETE FROM pms.pos_product_outlets WHERE product_id = @id", new { id });
             await WriteProductOutletsAsync(tx, id, req.OutletIds);
             await tx.AuditAsync("pos_product.update", "pos_product", id, before, req);
@@ -161,6 +165,90 @@ public static class PosEndpoints
             tx.Publish("pos");
             return new { id };
         }, requireKey: false)).RequirePermission("pos.manage");
+
+        // ---- Sipariş yazıcıları (mutfak, bar)
+        g.MapGet("/printers", (Db db) => db.QueryAsync<PosPrinterDto>("""
+            SELECT pr.id, pr.name, pr.host, pr.port, pr.code_page, pr.line_width, pr.is_active,
+                   (SELECT count(*)::int FROM pms.pos_products p WHERE p.printer_id = pr.id) AS products, pr.version
+            FROM pms.pos_printers pr ORDER BY pr.name
+            """)).RequireAnyPermission("pos.view", "pos.manage");
+        g.MapPost("/printers", (SavePosPrinterRequest req, CommandRunner cmd) => cmd.RunAsync("pos_printer.create", req, async tx =>
+        {
+            var p = PrinterParams(req);
+            var id = await tx.ScalarAsync<Guid>("""
+                INSERT INTO pms.pos_printers (name, host, port, code_page, line_width, is_active) VALUES (@name, @host, @port, @cp, @width, @active) RETURNING id
+                """, new { p.name, p.host, p.port, p.cp, p.width, p.active });
+            await tx.AuditAsync("pos_printer.create", "pos_printer", id, null, req);
+            tx.Publish("pos");
+            return new { id };
+        }, requireKey: false)).RequirePermission("pos.manage");
+        g.MapPut("/printers/{id:guid}", (Guid id, SavePosPrinterRequest req, CommandRunner cmd) => cmd.RunAsync("pos_printer.update", new { id, req }, async tx =>
+        {
+            var p = PrinterParams(req);
+            await tx.ExecVersionedAsync("""
+                UPDATE pms.pos_printers SET name = @name, host = @host, port = @port, code_page = @cp, line_width = @width, is_active = @active, version = version + 1
+                WHERE id = @id AND version = @version
+                """, new { id, p.name, p.host, p.port, p.cp, p.width, p.active, version = req.Version ?? -1 });
+            await tx.AuditAsync("pos_printer.update", "pos_printer", id, null, req);
+            tx.Publish("pos");
+            return new { id };
+        }, requireKey: false)).RequirePermission("pos.manage");
+        g.MapPost("/printers/{id:guid}/test", async (Guid id, Db db, RequestContext ctx) =>
+        {
+            var p = await db.QuerySingleOrDefaultAsync<KitchenPrinterConfig>(
+                "SELECT id, name, host, port, code_page, line_width FROM pms.pos_printers WHERE id = @id", new { id }) ?? throw PmsException.NotFound("Yazıcı");
+            try
+            {
+                await KitchenPrinter.SendAsync(p, new KitchenTicket("Deneme", 0, "1", 1, ctx.RequireUser().FullName, DateTime.Now,
+                    [new KitchenTicketLine(1, "Deneme ürünü", "Not satırı")], [], IsTest: true));
+            }
+            catch (IOException ex) { throw new PmsException(502, "printer_unreachable", ex.Message); }
+            return Results.Ok(new { printed = true });
+        }).RequirePermission("pos.manage");
+
+        // Sipariş fişi: gönderilmemiş yazdırılabilir ürünler ve gönderildikten sonra iptal edilenler yazıcılarına gider.
+        // Ulaşılamayan yazıcının satırları gönderilmemiş kalır; tekrar gönderilebilir.
+        g.MapPost("/checks/{id:guid}/send", (Guid id, CommandRunner cmd) => cmd.RunAsync("pos.check_send", new { id }, async tx =>
+        {
+            var c = await LockOpenCheckAsync(tx, id);
+            var head = await tx.OneAsync<(string Outlet, string? Table, int Covers)>("""
+                SELECT o.name, c.table_label, c.covers FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id WHERE c.id = @id
+                """, new { id });
+            var lines = await tx.ListAsync<(Guid LineId, Guid PrinterId, string Name, decimal Quantity, string? Note, bool IsVoid, string? VoidReason, bool Sent)>("""
+                SELECT l.id, p.printer_id, l.name, l.quantity, l.note, l.is_void, l.void_reason, l.sent_at IS NOT NULL
+                FROM pms.pos_check_lines l JOIN pms.pos_products p ON p.id = l.product_id
+                WHERE l.check_id = @id AND p.printer_id IS NOT NULL
+                  AND ((NOT l.is_void AND l.sent_at IS NULL) OR (l.is_void AND l.sent_at IS NOT NULL AND l.void_sent_at IS NULL))
+                ORDER BY l.added_at
+                """, new { id });
+            var sent = new List<string>();
+            var failed = new List<SendFailure>();
+            var count = 0;
+            foreach (var grp in lines.GroupBy(l => l.PrinterId))
+            {
+                var p = await tx.OneOrNullAsync<KitchenPrinterConfig>(
+                    "SELECT id, name, host, port, code_page, line_width FROM pms.pos_printers WHERE id = @pid AND is_active", new { pid = grp.Key });
+                if (p is null) { failed.Add(new("Pasif yazıcı", "Ürünün yazıcısı pasif; Menü ekranından yazıcıyı değiştirin.")); continue; }
+                var ticket = new KitchenTicket(head.Outlet, c.CheckNo, head.Table, head.Covers, tx.User.FullName, DateTime.Now,
+                    grp.Where(l => !l.IsVoid).Select(l => new KitchenTicketLine(l.Quantity, l.Name, l.Note)).ToList(),
+                    grp.Where(l => l.IsVoid).Select(l => new KitchenTicketLine(l.Quantity, l.Name, l.VoidReason)).ToList());
+                try { await KitchenPrinter.SendAsync(p, ticket); }
+                catch (IOException ex) { failed.Add(new(p.Name, ex.Message)); continue; }
+                var newIds = grp.Where(l => !l.IsVoid).Select(l => l.LineId).ToArray();
+                var voidIds = grp.Where(l => l.IsVoid).Select(l => l.LineId).ToArray();
+                await tx.ExecAsync("UPDATE pms.pos_check_lines SET sent_at = now() WHERE id = ANY(@newIds)", new { newIds });
+                await tx.ExecAsync("UPDATE pms.pos_check_lines SET void_sent_at = now() WHERE id = ANY(@voidIds)", new { voidIds });
+                sent.Add(p.Name);
+                count += grp.Count();
+            }
+            if (count > 0)
+            {
+                await TouchAsync(tx, id);
+                await tx.AuditAsync("pos.check_send", "pos_check", id, null, new { sent, failed, count });
+                tx.Publish("pos");
+            }
+            return new SendResult(sent, failed, count, await DetailAsync(tx, id));
+        }, requireKey: false)).RequirePermission("pos.order");
 
         // ---- Odaya aktarma için konaklayanlar (yalnız oda, ad ve çıkış tarihi; bakiye gösterilmez)
         g.MapGet("/in-house", (Db db) => db.QueryAsync<InHouseRoomDto>("""
@@ -453,8 +541,9 @@ public static class PosEndpoints
         var c = await tx.OneOrNullAsync<CheckDto>(CheckSelect + " WHERE c.id = @id", new { id }) ?? throw PmsException.NotFound("Adisyon");
         var lines = await tx.ListAsync<CheckLineDto>("""
             SELECT l.id, l.product_id, l.name, l.quantity, l.unit_price, l.amount, l.vat_rate, l.note, au.username AS added_by, l.added_at, l.is_void,
-                   l.void_reason, vu.username AS voided_by
-            FROM pms.pos_check_lines l LEFT JOIN pms.users au ON au.id = l.added_by LEFT JOIN pms.users vu ON vu.id = l.voided_by
+                   l.void_reason, vu.username AS voided_by, (p.printer_id IS NOT NULL) AS printable, l.sent_at
+            FROM pms.pos_check_lines l JOIN pms.pos_products p ON p.id = l.product_id
+            LEFT JOIN pms.users au ON au.id = l.added_by LEFT JOIN pms.users vu ON vu.id = l.voided_by
             WHERE l.check_id = @id ORDER BY l.added_at
             """, new { id });
         var pays = await tx.ListAsync<CheckPaymentDto>("""
@@ -475,6 +564,23 @@ public static class PosEndpoints
         if (tc.Category is "room" or "tax") throw PmsException.Validation("Satış noktasına oda veya vergi işlem kodu bağlanamaz.");
         if (r.WarehouseId is { } w) await StockService.EnsureWarehouseAsync(tx, w);
         return (code, Validate.Required(r.Name, "Ad", 100));
+    }
+
+    static async Task<Guid?> PrinterRefAsync(Tx tx, Guid? printerId)
+    {
+        if (printerId is not { } pid) return null;
+        if (!await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.pos_printers WHERE id = @pid)", new { pid })) throw PmsException.NotFound("Yazıcı");
+        return pid;
+    }
+
+    static (string name, string host, int port, string cp, int width, bool active) PrinterParams(SavePosPrinterRequest r)
+    {
+        var host = Validate.Required(r.Host, "Yazıcı adresi", 253);
+        if (!System.Text.RegularExpressions.Regex.IsMatch(host, "^[A-Za-z0-9.-]{1,253}$")) throw PmsException.Validation("Yazıcı adresi IP veya ağ adı olmalıdır (ör. 192.168.1.50).");
+        if (r.Port is < 1 or > 65535) throw PmsException.Validation("Port 1-65535 arasında olmalıdır (fiş yazıcılarında genellikle 9100).");
+        if (r.CodePage is not ("PC857" or "ASCII")) throw PmsException.Validation("Karakter seti PC857 veya ASCII olmalıdır.");
+        if (r.LineWidth is < 24 or > 64) throw PmsException.Validation("Satır genişliği 24-64 karakter olmalıdır (80 mm: 42/48, 58 mm: 32).");
+        return (Validate.Required(r.Name, "Yazıcı adı", 60), host, r.Port, r.CodePage, r.LineWidth, r.IsActive);
     }
 
     static (string code, string name, string category, decimal price, decimal vat, int sort, bool active) ProductParams(SavePosProductRequest r)

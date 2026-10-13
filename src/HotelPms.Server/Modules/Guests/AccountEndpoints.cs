@@ -11,8 +11,9 @@ public sealed record SaveAccountRequest(string? Code, string Name, string? TaxOf
     string? Country, string? Phone, string? Email, string? ContactName, decimal? CreditLimit, decimal? CommissionRate, bool IsCityLedger,
     string? Notes, bool IsActive, int? Version);
 
-public sealed record RatePlanDto(Guid Id, string Code, string Name, string MealPlan, string? Description, bool IsActive, int Version);
-public sealed record SaveRatePlanRequest(string Code, string Name, string MealPlan, string? Description, bool IsActive, int? Version);
+public sealed record RatePlanDto(Guid Id, string Code, string Name, string MealPlan, string? Description, bool IsActive, int Version, string? Currency);
+/// <summary>Currency: planın fiyat para birimi (boşsa tesis para birimi). Fiyatı girilmiş planın para birimi değiştirilemez.</summary>
+public sealed record SaveRatePlanRequest(string Code, string Name, string MealPlan, string? Description, bool IsActive, int? Version, string? Currency = null);
 public sealed record RatePriceDto(Guid Id, Guid RatePlanId, Guid RoomTypeId, string RoomTypeCode, DateOnly DateFrom, DateOnly DateTo, decimal Price, int? MinStay);
 public sealed record SaveRatePriceRequest(Guid RoomTypeId, DateOnly DateFrom, DateOnly DateTo, decimal Price, int? MinStay);
 
@@ -100,12 +101,14 @@ public static class AccountEndpoints
     static void MapRates(WebApplication app)
     {
         var g = app.MapGroup("/api/v1/rate-plans").WithTags("Rates");
-        g.MapGet("/", (Db db) => db.QueryAsync<RatePlanDto>("SELECT id, code, name, meal_plan, description, is_active, version FROM pms.rate_plans ORDER BY code"))
+        g.MapGet("/", (Db db) => db.QueryAsync<RatePlanDto>("SELECT id, code, name, meal_plan, description, is_active, version, currency::text AS currency FROM pms.rate_plans ORDER BY code"))
             .RequirePermission("reservation.view");
         g.MapPost("/", (SaveRatePlanRequest req, CommandRunner cmd) => cmd.RunAsync("rate_plan.create", req, async tx =>
         {
             var p = RateParams(req);
-            var id = await tx.ScalarAsync<Guid>("INSERT INTO pms.rate_plans (code, name, meal_plan, description, is_active) VALUES (@code, @name, @meal, @desc, @active) RETURNING id", p);
+            var cur = await PlanCurrencyAsync(tx, req.Currency);
+            var id = await tx.ScalarAsync<Guid>("INSERT INTO pms.rate_plans (code, name, meal_plan, description, is_active, currency) VALUES (@code, @name, @meal, @desc, @active, @cur) RETURNING id",
+                new { p.code, p.name, p.meal, p.desc, p.active, cur });
             await tx.AuditAsync("rate_plan.create", "rate_plan", id, null, req);
             tx.Publish("rates");
             return new { id };
@@ -113,10 +116,14 @@ public static class AccountEndpoints
         g.MapPut("/{id:guid}", (Guid id, SaveRatePlanRequest req, CommandRunner cmd) => cmd.RunAsync("rate_plan.update", new { id, req }, async tx =>
         {
             var p = RateParams(req);
+            var cur = await PlanCurrencyAsync(tx, req.Currency);
+            var oldCur = await tx.ScalarAsync<string?>("SELECT currency::text FROM pms.rate_plans WHERE id = @id", new { id });
+            if (oldCur != cur && await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.rate_plan_prices WHERE rate_plan_id = @id)", new { id }))
+                throw PmsException.Validation("Fiyat girilmiş planın para birimi değiştirilemez. Yeni plan açın.");
             await tx.ExecVersionedAsync("""
-                UPDATE pms.rate_plans SET code = @code, name = @name, meal_plan = @meal, description = @desc, is_active = @active, version = version + 1
+                UPDATE pms.rate_plans SET code = @code, name = @name, meal_plan = @meal, description = @desc, is_active = @active, currency = @cur, version = version + 1
                 WHERE id = @id AND version = @version
-                """, new { p.code, p.name, p.meal, p.desc, p.active, id, version = req.Version ?? -1 });
+                """, new { p.code, p.name, p.meal, p.desc, p.active, cur, id, version = req.Version ?? -1 });
             await tx.AuditAsync("rate_plan.update", "rate_plan", id, null, req);
             tx.Publish("rates");
             return new { id };
@@ -152,6 +159,14 @@ public static class AccountEndpoints
     }
 
     sealed record RateP(string code, string name, string meal, string? desc, bool active);
+
+    static async Task<string?> PlanCurrencyAsync(Tx tx, string? currency)
+    {
+        var cur = Validate.Optional(currency, 3)?.ToUpperInvariant();
+        if (cur is null || cur == await Property.PropertyEndpoints.CurrencyAsync(tx)) return null;
+        if (!global::System.Text.RegularExpressions.Regex.IsMatch(cur, "^[A-Z]{3}$")) throw PmsException.Validation("Para birimi 3 harfli ISO kodu olmalıdır.");
+        return cur;
+    }
 
     static RateP RateParams(SaveRatePlanRequest r)
     {
