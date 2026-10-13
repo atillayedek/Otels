@@ -756,6 +756,36 @@ try {
     await api('POST', '/api/v1/reservations', body({ arrival: state.bd, departure: addDays(state.bd, 1), rateCurrency: 'EUR', nightlyRate: '80.00' }), k());
   });
 
+  await step('Muhasebe: gün sonu fişleri dengeli, hesaplar, mizan, elle ve ters fiş, ekstre', async () => {
+    const k = () => ({ key: randomUUID() });
+    const days = await api('GET', '/api/v1/accounting/entries?kind=day');
+    assert.ok(days.length >= 2, 'her gece denetiminde gün sonu fişi');
+    const all = [];
+    for (const e of days) {
+      const d = await api('GET', `/api/v1/accounting/entries/${e.id}`);
+      const dr = d.lines.reduce((s, l) => s + Number(l.debit), 0), cr = d.lines.reduce((s, l) => s + Number(l.credit), 0);
+      assert.equal(dr.toFixed(2), cr.toFixed(2), `fiş #${e.entryNo} dengeli`);
+      all.push(...d.lines);
+    }
+    const has = code => all.some(l => l.accountCode === code);
+    for (const code of ['120.01', '600.01', '391.10', '360.01', '100.01', '100.02', '150', '191.20', '320', '740']) assert.ok(has(code), `${code} hesabı fişte`);
+    const tb = await api('GET', `/api/v1/reports/trial_balance?from=2030-01-01&to=${state.bd}`);
+    assert.equal(tb.totals.debit, tb.totals.credit);
+    // Elle fiş: dengesiz reddedilir; dengeli kaydedilir; ters fiş bir kez
+    const bad = { entryDate: state.bd, description: 'Deneme', lines: [{ accountCode: '100.01', debit: '50.00', credit: '0' }, { accountCode: '102.01', debit: '0', credit: '40.00' }] };
+    await api('POST', '/api/v1/accounting/entries', bad, { ...k(), expect: 422 });
+    const m = await api('POST', '/api/v1/accounting/entries', { ...bad, description: 'Kasadan bankaya virman', lines: [bad.lines[0], { ...bad.lines[1], credit: '50.00' }] }, k());
+    await api('POST', `/api/v1/accounting/entries/${m.id}/reverse`, { reason: 'Yanlış tarih' }, k());
+    await api('POST', `/api/v1/accounting/entries/${m.id}/reverse`, { reason: 'tekrar' }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/accounting/accounts', { code: '600.05', name: 'Spa gelirleri', kind: 'revenue', isActive: true });
+    await api('POST', '/api/v1/accounting/accounts', { code: '999.01', name: 'Üst hesapsız', kind: 'expense', isActive: true }, { expect: 422 });
+    await api('PUT', '/api/v1/accounting/mappings/revenue.spa', { accountCode: '600.05' });
+    const st = await api('GET', `/api/v1/reports/account_statement?from=2030-01-01&to=${state.bd}&account=120`);
+    assert.ok(st.rows.length > 1);
+    const gen = await api('POST', '/api/v1/accounting/generate', { from: '2030-01-01', to: state.bd }, k());
+    assert.equal(gen.created, 0);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

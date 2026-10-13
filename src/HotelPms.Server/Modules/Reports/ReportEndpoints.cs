@@ -494,6 +494,79 @@ public static class ReportEndpoints
                 ORDER BY 1, ag.name, t.code
                 """,
         },
+
+        new()
+        {
+            Name = "trial_balance", Title = "Mizan", Category = "Muhasebe", Permission = "accounting.view", Params = [From, To],
+            Columns = [new("code", "Hesap", "text"), new("name", "Hesap adı", "text"), new("openingDebit", "Devir Borç", "money"), new("openingCredit", "Devir Alacak", "money"),
+                new("debit", "Dönem Borç", "money"), new("credit", "Dönem Alacak", "money"), new("balanceDebit", "Borç Bakiye", "money"), new("balanceCredit", "Alacak Bakiye", "money")],
+            SumColumns = ["debit", "credit", "balanceDebit", "balanceCredit"],
+            Sql = """
+                WITH x AS (
+                    SELECT l.account_code AS code,
+                           COALESCE(sum(l.debit) FILTER (WHERE e.entry_date < @from), 0) AS od, COALESCE(sum(l.credit) FILTER (WHERE e.entry_date < @from), 0) AS oc,
+                           COALESCE(sum(l.debit) FILTER (WHERE e.entry_date BETWEEN @from AND @to), 0) AS d, COALESCE(sum(l.credit) FILTER (WHERE e.entry_date BETWEEN @from AND @to), 0) AS c
+                    FROM pms.gl_lines l JOIN pms.gl_entries e ON e.id = l.entry_id WHERE e.entry_date <= @to GROUP BY l.account_code)
+                SELECT x.code, a.name, x.od AS opening_debit, x.oc AS opening_credit, x.d AS debit, x.c AS credit,
+                       GREATEST(x.od + x.d - x.oc - x.c, 0) AS balance_debit, GREATEST(x.oc + x.c - x.od - x.d, 0) AS balance_credit
+                FROM x JOIN pms.gl_accounts a ON a.code = x.code
+                ORDER BY x.code
+                """,
+        },
+        new()
+        {
+            Name = "trial_balance_main", Title = "Mizan (ana hesaplar)", Category = "Muhasebe", Permission = "accounting.view", Params = [From, To],
+            Columns = [new("code", "Hesap", "text"), new("name", "Hesap adı", "text"), new("debit", "Dönem Borç", "money"), new("credit", "Dönem Alacak", "money"),
+                new("balanceDebit", "Borç Bakiye", "money"), new("balanceCredit", "Alacak Bakiye", "money")],
+            SumColumns = ["debit", "credit", "balanceDebit", "balanceCredit"],
+            Sql = """
+                WITH x AS (
+                    SELECT split_part(l.account_code, '.', 1) AS code,
+                           COALESCE(sum(l.debit) FILTER (WHERE e.entry_date BETWEEN @from AND @to), 0) AS d, COALESCE(sum(l.credit) FILTER (WHERE e.entry_date BETWEEN @from AND @to), 0) AS c,
+                           COALESCE(sum(l.debit), 0) - COALESCE(sum(l.credit), 0) AS bal
+                    FROM pms.gl_lines l JOIN pms.gl_entries e ON e.id = l.entry_id WHERE e.entry_date <= @to GROUP BY 1)
+                SELECT x.code, a.name, x.d AS debit, x.c AS credit, GREATEST(x.bal, 0) AS balance_debit, GREATEST(-x.bal, 0) AS balance_credit
+                FROM x LEFT JOIN pms.gl_accounts a ON a.code = x.code ORDER BY x.code
+                """,
+        },
+        new()
+        {
+            Name = "journal", Title = "Yevmiye Dökümü", Category = "Muhasebe", Permission = "accounting.view", Params = [From, To],
+            Columns = [new("entryNo", "Fiş", "int"), new("date", "Tarih", "date"), new("entryDescription", "Fiş açıklaması", "text"), new("code", "Hesap", "text"),
+                new("name", "Hesap adı", "text"), new("description", "Satır açıklaması", "text"), new("debit", "Borç", "money"), new("credit", "Alacak", "money")],
+            SumColumns = ["debit", "credit"],
+            Sql = """
+                SELECT e.entry_no, e.entry_date AS date, e.description AS entry_description, l.account_code AS code, a.name, l.description, l.debit, l.credit
+                FROM pms.gl_entries e JOIN pms.gl_lines l ON l.entry_id = e.id JOIN pms.gl_accounts a ON a.code = l.account_code
+                WHERE e.entry_date BETWEEN @from AND @to
+                ORDER BY e.entry_date, e.entry_no, l.line_no
+                """,
+        },
+        new()
+        {
+            Name = "account_statement", Title = "Hesap Ekstresi (Muavin)", Category = "Muhasebe", Permission = "accounting.view",
+            Params = [From, To, new("account", "Hesap kodu", "text", true)],
+            Columns = [new("date", "Tarih", "date"), new("entryNo", "Fiş", "int"), new("code", "Hesap", "text"), new("description", "Açıklama", "text"),
+                new("debit", "Borç", "money"), new("credit", "Alacak", "money"), new("balance", "Bakiye (B−A)", "money")],
+            SumColumns = ["debit", "credit"],
+            Sql = """
+                WITH sel AS (SELECT code FROM pms.gl_accounts WHERE code = @account OR code LIKE @account || '.%'),
+                opening AS (
+                    SELECT COALESCE(sum(l.debit - l.credit), 0) AS bal FROM pms.gl_lines l JOIN pms.gl_entries e ON e.id = l.entry_id
+                    WHERE l.account_code IN (SELECT code FROM sel) AND e.entry_date < @from),
+                rows AS (
+                    SELECT e.entry_date AS date, e.entry_no, l.account_code AS code, COALESCE(l.description, e.description) AS description, l.debit, l.credit, l.line_no
+                    FROM pms.gl_lines l JOIN pms.gl_entries e ON e.id = l.entry_id
+                    WHERE l.account_code IN (SELECT code FROM sel) AND e.entry_date BETWEEN @from AND @to)
+                SELECT @from::date AS date, NULL::bigint AS entry_no, @account AS code, 'Devir' AS description, 0::numeric AS debit, 0::numeric AS credit,
+                       (SELECT bal FROM opening) AS balance
+                UNION ALL
+                SELECT r.date, r.entry_no, r.code, r.description, r.debit, r.credit,
+                       (SELECT bal FROM opening) + sum(r.debit - r.credit) OVER (ORDER BY r.date, r.entry_no, r.line_no) AS balance
+                FROM rows r
+                ORDER BY 1, 2 NULLS FIRST
+                """,
+        },
     ];
 
     public static void Map(WebApplication app)

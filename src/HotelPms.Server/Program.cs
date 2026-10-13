@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using HotelPms.Server;
 using HotelPms.Server.Auth;
 using HotelPms.Server.Infrastructure;
+using HotelPms.Server.Modules.Accounting;
 using HotelPms.Server.Modules.Backup;
 using HotelPms.Server.Modules.Documents;
 using HotelPms.Server.Modules.Folios;
@@ -170,6 +171,7 @@ try
     ExchangeRateEndpoints.Map(app);
     StockEndpoints.Map(app);
     PosEndpoints.Map(app);
+    AccountingEndpoints.Map(app);
     NightAuditEndpoints.Map(app);
     ReportEndpoints.Map(app);
     KbsService.Map(app);

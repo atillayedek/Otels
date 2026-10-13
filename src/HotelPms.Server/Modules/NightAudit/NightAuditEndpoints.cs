@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using HotelPms.Server.Auth;
 using HotelPms.Server.Infrastructure;
+using HotelPms.Server.Modules.Accounting;
 using HotelPms.Server.Modules.Folios;
 using HotelPms.Server.Modules.Integrations;
 using HotelPms.Server.Modules.Property;
@@ -104,11 +105,14 @@ public static class NightAuditEndpoints
                     @NoShows, @Cancellations, @RoomRevenue, @OtherRevenue, @Payments, @OccupancyPct, @Adr, @Revpar)
                 """, stats);
 
+            // Günün muhasebe fişi (folyo, restoran, stok) gün kapanışıyla aynı işlemde oluşur.
+            var glEntry = await AccountingService.GenerateDayAsync(tx, bd);
+
             var next = bd.AddDays(1);
             var summary = new
             {
                 roomChargesPosted = toPost.Count(c => c.Rate > 0 || c.FxAmount > 0), roomChargeTotal = total, postedTotal = posted, accommodationTax = taxTotal, noShows,
-                optionsCancelled, stats.RoomsSold, stats.OccupancyPct,
+                optionsCancelled, accountingEntry = glEntry is not null, stats.RoomsSold, stats.OccupancyPct,
                 stats.Adr, stats.Revpar, stats.RoomRevenue, stats.OtherRevenue, stats.Payments,
             };
             await tx.ExecAsync("""
