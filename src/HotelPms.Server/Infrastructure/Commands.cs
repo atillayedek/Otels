@@ -126,6 +126,22 @@ public sealed class CommandRunner(Db db, RequestContext ctx, RealtimeHub hub, IH
         return Results.Text(json, "application/json", Encoding.UTF8, 200);
     }
 
+    /// <summary>
+    /// İdempotency anahtarı olmadan kısa bir yazma transaction'ı çalıştırır ve olayları yayınlar. Dış sistemle (ör. ağ yazıcısı)
+    /// konuşan işlemlerde ağ çağrısını transaction dışında tutmak için birden fazla adımda kullanılır.
+    /// </summary>
+    public async Task<T> WriteAsync<T>(Func<Tx, Task<T>> body)
+    {
+        ctx.RequireUser();
+        await using var c = await db.OpenAsync();
+        await using var t = await c.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        var tx = new Tx(c, t, ctx);
+        var r = await body(tx);
+        await t.CommitAsync();
+        foreach (var e in tx.Events.Distinct()) hub.Broadcast(e);
+        return r;
+    }
+
     /// <summary>Okuma amaçlı transaction gerektiren işlemler için (ör. tutarlı rapor anlık görüntüsü).</summary>
     public async Task<T> ReadAsync<T>(Func<Tx, Task<T>> body)
     {

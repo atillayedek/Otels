@@ -155,7 +155,7 @@ function VoidModal({ line, onClose, onDone }: { line: { id: string; name: string
       <div className="stack">
         <div className="m-filters">{['Yanlış ürün', 'Misafir vazgeçti', 'Mutfakta yok'].map(x => <button key={x} className={reason === x ? 'active' : ''} onClick={() => setReason(x)}>{x}</button>)}</div>
         <Field label="Gerekçe"><input className="input" value={reason} onChange={e => setReason(e.target.value)} maxLength={200} /></Field>
-        <div className="muted" style={{ fontSize: 12 }}>Kendi eklediğiniz ürünü 2 dakika içinde iptal edebilirsiniz; sonrası için müdür onayı gerekir.</div>
+        <div className="muted" style={{ fontSize: 12 }}>Kendi eklediğiniz ürünü mutfağa/bara gönderilmeden 2 dakika içinde iptal edebilirsiniz; sonrası için müdür onayı gerekir.</div>
         <ErrorBox error={error} />
       </div>
     </Modal>

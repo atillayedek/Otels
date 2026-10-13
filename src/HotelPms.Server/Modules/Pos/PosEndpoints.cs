@@ -207,48 +207,74 @@ public static class PosEndpoints
         }).RequirePermission("pos.manage");
 
         // Sipariş fişi: gönderilmemiş yazdırılabilir ürünler ve gönderildikten sonra iptal edilenler yazıcılarına gider.
-        // Ulaşılamayan yazıcının satırları gönderilmemiş kalır; tekrar gönderilebilir.
-        g.MapPost("/checks/{id:guid}/send", (Guid id, CommandRunner cmd) => cmd.RunAsync("pos.check_send", new { id }, async tx =>
+        // 1) Satırlar kısa bir transaction'da "gönderildi" olarak işaretlenir (aynı anda ikinci gönderim aynı satırları bulamaz),
+        // 2) fişler transaction dışında yazdırılır (adisyon kilidi ağ beklemesi boyunca tutulmaz),
+        // 3) ulaşılamayan yazıcının satırları geri alınır; tekrar gönderilebilir. Yazdırılmış fiş veritabanı hatasıyla ikinci kez basılmaz.
+        g.MapPost("/checks/{id:guid}/send", async (Guid id, CommandRunner cmd) =>
         {
-            var c = await LockOpenCheckAsync(tx, id);
-            var head = await tx.OneAsync<(string Outlet, string? Table, int Covers)>("""
-                SELECT o.name, c.table_label, c.covers FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id WHERE c.id = @id
-                """, new { id });
-            var lines = await tx.ListAsync<(Guid LineId, Guid PrinterId, string Name, decimal Quantity, string? Note, bool IsVoid, string? VoidReason, bool Sent)>("""
-                SELECT l.id, p.printer_id, l.name, l.quantity, l.note, l.is_void, l.void_reason, l.sent_at IS NOT NULL
-                FROM pms.pos_check_lines l JOIN pms.pos_products p ON p.id = l.product_id
-                WHERE l.check_id = @id AND p.printer_id IS NOT NULL
-                  AND ((NOT l.is_void AND l.sent_at IS NULL) OR (l.is_void AND l.sent_at IS NOT NULL AND l.void_sent_at IS NULL))
-                ORDER BY l.added_at
-                """, new { id });
-            var sent = new List<string>();
-            var failed = new List<SendFailure>();
-            var count = 0;
-            foreach (var grp in lines.GroupBy(l => l.PrinterId))
+            var claim = await cmd.WriteAsync(async tx =>
             {
-                var p = await tx.OneOrNullAsync<KitchenPrinterConfig>(
-                    "SELECT id, name, host, port, code_page, line_width FROM pms.pos_printers WHERE id = @pid AND is_active", new { pid = grp.Key });
-                if (p is null) { failed.Add(new("Pasif yazıcı", "Ürünün yazıcısı pasif; Menü ekranından yazıcıyı değiştirin.")); continue; }
-                var ticket = new KitchenTicket(head.Outlet, c.CheckNo, head.Table, head.Covers, tx.User.FullName, DateTime.Now,
-                    grp.Where(l => !l.IsVoid).Select(l => new KitchenTicketLine(l.Quantity, l.Name, l.Note)).ToList(),
-                    grp.Where(l => l.IsVoid).Select(l => new KitchenTicketLine(l.Quantity, l.Name, l.VoidReason)).ToList());
-                try { await KitchenPrinter.SendAsync(p, ticket); }
-                catch (IOException ex) { failed.Add(new(p.Name, ex.Message)); continue; }
-                var newIds = grp.Where(l => !l.IsVoid).Select(l => l.LineId).ToArray();
-                var voidIds = grp.Where(l => l.IsVoid).Select(l => l.LineId).ToArray();
+                var c = await LockOpenCheckAsync(tx, id);
+                var head = await tx.OneAsync<(string Outlet, string? Table, int Covers)>("""
+                    SELECT o.name, c.table_label, c.covers FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id WHERE c.id = @id
+                    """, new { id });
+                var lines = await tx.ListAsync<(Guid LineId, Guid PrinterId, string Name, decimal Quantity, string? Note, bool IsVoid, string? VoidReason, bool PrinterActive)>("""
+                    SELECT l.id, p.printer_id, l.name, l.quantity, l.note, l.is_void, l.void_reason, pr.is_active
+                    FROM pms.pos_check_lines l JOIN pms.pos_products p ON p.id = l.product_id JOIN pms.pos_printers pr ON pr.id = p.printer_id
+                    WHERE l.check_id = @id
+                      AND ((NOT l.is_void AND l.sent_at IS NULL) OR (l.is_void AND l.sent_at IS NOT NULL AND l.void_sent_at IS NULL))
+                    ORDER BY l.added_at
+                    """, new { id });
+                var printable = lines.Where(l => l.PrinterActive).ToList();
+                var newIds = printable.Where(l => !l.IsVoid).Select(l => l.LineId).ToArray();
+                var voidIds = printable.Where(l => l.IsVoid).Select(l => l.LineId).ToArray();
                 await tx.ExecAsync("UPDATE pms.pos_check_lines SET sent_at = now() WHERE id = ANY(@newIds)", new { newIds });
                 await tx.ExecAsync("UPDATE pms.pos_check_lines SET void_sent_at = now() WHERE id = ANY(@voidIds)", new { voidIds });
-                sent.Add(p.Name);
-                count += grp.Count();
-            }
-            if (count > 0)
+                var printers = await tx.ListAsync<KitchenPrinterConfig>(
+                    "SELECT id, name, host, port, code_page, line_width FROM pms.pos_printers WHERE id = ANY(@ids)",
+                    new { ids = printable.Select(l => l.PrinterId).Distinct().ToArray() });
+                return (c.CheckNo, head.Outlet, head.Table, head.Covers, Waiter: tx.User.FullName, Printable: printable,
+                    Printers: printers.ToDictionary(p => p.Id), InactiveLines: lines.Count - printable.Count);
+            });
+
+            var sent = new List<string>();
+            var failed = new List<SendFailure>();
+            var failedNew = new List<Guid>();
+            var failedVoid = new List<Guid>();
+            if (claim.InactiveLines > 0)
+                failed.Add(new("Pasif yazıcı", "Bazı ürünlerin yazıcısı pasif; Menü ekranından yazıcıyı değiştirin veya yazıcıyı etkinleştirin."));
+            foreach (var grp in claim.Printable.GroupBy(l => l.PrinterId))
             {
-                await TouchAsync(tx, id);
-                await tx.AuditAsync("pos.check_send", "pos_check", id, null, new { sent, failed, count });
-                tx.Publish("pos");
+                var p = claim.Printers[grp.Key];
+                var ticket = new KitchenTicket(claim.Outlet, claim.CheckNo, claim.Table, claim.Covers, claim.Waiter, DateTime.Now,
+                    grp.Where(l => !l.IsVoid).Select(l => new KitchenTicketLine(l.Quantity, l.Name, l.Note)).ToList(),
+                    grp.Where(l => l.IsVoid).Select(l => new KitchenTicketLine(l.Quantity, l.Name, l.VoidReason)).ToList());
+                try { await KitchenPrinter.SendAsync(p, ticket); sent.Add(p.Name); }
+                catch (IOException ex)
+                {
+                    failed.Add(new(p.Name, ex.Message));
+                    failedNew.AddRange(grp.Where(l => !l.IsVoid).Select(l => l.LineId));
+                    failedVoid.AddRange(grp.Where(l => l.IsVoid).Select(l => l.LineId));
+                }
             }
-            return new SendResult(sent, failed, count, await DetailAsync(tx, id));
-        }, requireKey: false)).RequirePermission("pos.order");
+            var count = claim.Printable.Count - failedNew.Count - failedVoid.Count;
+
+            var result = await cmd.WriteAsync(async tx =>
+            {
+                if (failedNew.Count > 0)
+                    await tx.ExecAsync("UPDATE pms.pos_check_lines SET sent_at = NULL WHERE id = ANY(@ids)", new { ids = failedNew.ToArray() });
+                if (failedVoid.Count > 0)
+                    await tx.ExecAsync("UPDATE pms.pos_check_lines SET void_sent_at = NULL WHERE id = ANY(@ids)", new { ids = failedVoid.ToArray() });
+                if (claim.Printable.Count > 0)
+                {
+                    await TouchAsync(tx, id);
+                    await tx.AuditAsync("pos.check_send", "pos_check", id, null, new { sent, failed, count });
+                    tx.Publish("pos");
+                }
+                return new SendResult(sent, failed, count, await DetailAsync(tx, id));
+            });
+            return Results.Text(System.Text.Json.JsonSerializer.Serialize(result, Json.Options), "application/json", System.Text.Encoding.UTF8);
+        }).RequirePermission("pos.order");
 
         // ---- Odaya aktarma için konaklayanlar (yalnız oda, ad ve çıkış tarihi; bakiye gösterilmez)
         g.MapGet("/in-house", (Db db) => db.QueryAsync<InHouseRoomDto>("""
@@ -317,12 +343,13 @@ public static class PosEndpoints
 
         g.MapPost("/check-lines/{lineId:guid}/void", (Guid lineId, VoidLineRequest req, CommandRunner cmd) => cmd.RunAsync("pos.line_void", new { lineId, req }, async tx =>
         {
-            var line = await tx.OneOrNullAsync<(Guid CheckId, bool IsVoid, Guid? AddedBy, DateTime AddedAt, string Name, decimal Amount)>(
-                "SELECT check_id, is_void, added_by, added_at, name, amount FROM pms.pos_check_lines WHERE id = @lineId", new { lineId });
+            var line = await tx.OneOrNullAsync<(Guid CheckId, bool IsVoid, Guid? AddedBy, DateTime AddedAt, string Name, decimal Amount, bool Sent)>(
+                "SELECT check_id, is_void, added_by, added_at, name, amount, sent_at IS NOT NULL FROM pms.pos_check_lines WHERE id = @lineId", new { lineId });
             if (line == default) throw PmsException.NotFound("Adisyon satırı");
             await LockOpenCheckAsync(tx, line.CheckId);
             if (line.IsVoid) throw PmsException.Validation("Satır zaten iptal edilmiş.");
-            var own = line.AddedBy == tx.User.Id && DateTime.UtcNow - line.AddedAt.ToUniversalTime() <= SelfVoidWindow;
+            // Yanlış tuşlama düzeltmesi yalnız mutfağa/bara gönderilmemiş satır için geçerlidir; hazırlanmaya başlamış ürünün iptali yetki ister.
+            var own = !line.Sent && line.AddedBy == tx.User.Id && DateTime.UtcNow - line.AddedAt.ToUniversalTime() <= SelfVoidWindow;
             if (!own) tx.Ctx.Require("pos.void");
             var reason = Validate.Required(req.Reason, "İptal gerekçesi", 200);
             await tx.ExecAsync("UPDATE pms.pos_check_lines SET is_void = true, void_reason = @reason, voided_by = @uid, voided_at = now() WHERE id = @lineId",
@@ -468,6 +495,18 @@ public static class PosEndpoints
                 if (c.ClosedBd != bd) throw PmsException.Validation("Yalnız bugünkü iş gününde kapatılmış adisyon iptal edilebilir.");
                 if (c.Settlement == "room")
                 {
+                    // Odaya yazılan tutar başka folyoya (ör. şirket) aktarıldıysa iptal eksik kalırdı: tutar aktarılan folyoda borç olarak
+                    // dururken adisyon iptal görünürdü. Bu durumda iptal edilmez; düzeltme, tutarın bulunduğu folyoda gerekçeli düzeltmeyle yapılır.
+                    var moved = await tx.ListAsync<string>("""
+                        SELECT tf.folio_number FROM pms.folio_lines l JOIN pms.folios f ON f.id = l.folio_id
+                        JOIN pms.folio_lines t ON t.related_line_id = l.id AND t.line_type = 'transfer_out'
+                        LEFT JOIN pms.folio_lines ti ON ti.related_line_id = t.id AND ti.line_type = 'transfer_in'
+                        LEFT JOIN pms.folios tf ON tf.id = ti.folio_id
+                        WHERE f.reservation_id = @rid AND l.reference = @reference AND l.line_type = 'charge'
+                        """, new { rid = c.ReservationId, reference = $"ADS-{c.CheckNo}" });
+                    if (moved.Count > 0)
+                        throw PmsException.Validation($"Adisyon tutarı başka folyoya aktarılmış ({string.Join(", ", moved.Where(x => x is not null).Distinct())}); " +
+                            "adisyon iptal edilemez. Tutarı düzeltmek için o folyoda gerekçeli düzeltme (allowance) girin.");
                     var charges = await tx.ListAsync<Guid>("""
                         SELECT l.id FROM pms.folio_lines l JOIN pms.folios f ON f.id = l.folio_id
                         WHERE f.reservation_id = @rid AND l.reference = @reference AND l.line_type = 'charge'

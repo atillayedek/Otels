@@ -236,8 +236,16 @@ public static class NightAuditEndpoints
         foreach (var cur in candidates.Where(c => c.RateCurrency is not null).Select(c => c.RateCurrency!).Distinct())
         {
             try { await ExchangeRateEndpoints.RateAsync(tx, cur, bd); }
-            catch (PmsException ex) { blockers.Add(new("exchange_rate_missing", "blocker", $"Dövizli fiyatlı konaklama var: {ex.Message}", null, cur)); }
+            catch (PmsException ex) { blockers.Add(new("exchange_rate_missing", "blocker", $"Dövizli fiyatlı konaklama var: {ex.Message}", null, cur)); continue; }
+            var rateDate = await tx.ScalarAsync<DateOnly>("SELECT max(rate_date) FROM pms.exchange_rates WHERE currency = @cur AND rate_date <= @bd", new { cur, bd });
+            if (rateDate < bd.AddDays(-ExchangeRateEndpoints.FreshRateDays))
+                warnings.Add(new("exchange_rate_old", "warning",
+                    $"{cur} için kullanılacak son kur {rateDate:dd.MM.yyyy} tarihli (resmî tatil olabilir). Gerekirse güncel kuru girin.", null, cur));
         }
+
+        // Gün sonu muhasebe fişinin oluşturulabildiği gece denetiminden önce doğrulanır (çalıştırmada sürpriz hata olmasın).
+        if (!closed && await AccountingService.CheckDayAsync(tx, bd) is { } glProblem)
+            blockers.Add(new("accounting", "blocker", glProblem, null, null));
         var zero = candidates.Count(c => c.Rate == 0 && c.FxAmount is null or 0);
         if (zero > 0) warnings.Add(new("zero_rate", "warning", $"{zero} konaklamanın bu gece fiyatı 0 (ücretsiz/complimentary).", null, null));
         var inHouse = await tx.ScalarAsync<int>("SELECT count(*)::int FROM pms.reservations WHERE status = 'checked_in'");

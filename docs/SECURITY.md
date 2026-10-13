@@ -25,7 +25,7 @@
 | Satış | Rezervasyon oluşturma/düzenleme/iptal, misafir, şirket/acente, fiyat planları ve elle fiyat, raporlar |
 | Teknik Servis | Arıza kayıtları ve oda blokajı |
 | Yalnız Rapor | Gösterge paneli ve raporlar |
-| Restoran / Bar | Adisyon açma, ürün ekleme, kendi yanlış girdiği ürünü 2 dakika içinde iptal, adisyon kapatma (ödeme, odaya aktarma), kasa vardiyası |
+| Restoran / Bar | Adisyon açma, ürün ekleme, kendi yanlış girdiği ve mutfağa gönderilmemiş ürünü 2 dakika içinde iptal, adisyon kapatma (ödeme, odaya aktarma), kasa vardiyası |
 | Restoran Müdürü | Restoran / Bar yetkileri + ürün iptali, indirim ve ikram, kapanmış adisyon iptali, menü ve satış noktaları, stok görüntüleme, raporlar |
 | Depo / Satın Alma | Depo, stok kartı, tedarikçi, satın alma siparişi, mal kabul, çıkış, transfer, sayım, belge iptali, raporlar |
 

@@ -739,6 +739,7 @@ try {
     await api('POST', '/api/v1/reservations', body({ rateCurrency: 'EUR' }), { ...k(), expect: 422 });                     // EUR fiyat yok
     await api('POST', '/api/v1/reservations', body({ ratePlanId: plan }), { ...k(), expect: 422 });                          // planda fiyat tanımlı değil
     const id = (await api('POST', '/api/v1/reservations', body({ rateCurrency: 'EUR', nightlyRate: '100.00' }), k())).id;
+    state.eurRes = id;
     let r = await api('GET', `/api/v1/reservations/${id}`);
     assert.equal(r.rateCurrency, 'EUR'); assert.equal(r.fxNightlyRate, '100.00'); assert.equal(r.nightlyRate, '3750.00'); // 100 × 37,5 (tahmini)
     await api('POST', `/api/v1/reservations/${id}/check-in`, { roomId: state.room202, earlyCheckIn: false, version: r.version }, k());
@@ -754,6 +755,25 @@ try {
     state.bd = run.newBusinessDate;
     // Yeni günde EUR kuru 3 güne kadar geçerli; daha eski kurla rezervasyon reddedilir
     await api('POST', '/api/v1/reservations', body({ arrival: state.bd, departure: addDays(state.bd, 1), rateCurrency: 'EUR', nightlyRate: '80.00' }), k());
+  });
+
+  await step('Muhasebe: iptal edilen indirim KDV dahil tam ters çevrilir; önizleme muhasebeyi doğrular', async () => {
+    const k = () => ({ key: randomUUID() });
+    const code = (await api('POST', '/api/v1/finance/transaction-codes', { code: 'SPA20', name: 'Spa hizmeti', category: 'spa', vatRate: '20', isActive: true })).id;
+    const folio = (await api('GET', `/api/v1/folios?reservationId=${state.eurRes}`))[0].id;
+    const charge = await api('POST', `/api/v1/folios/${folio}/charges`, { transactionCodeId: code, quantity: '1', unitPrice: '1200.00' }, k());
+    const disc = await api('POST', `/api/v1/folios/${folio}/discounts`, { kind: 'discount', amount: '120.00', reason: 'Şikayet', relatedLineId: charge.id }, k());
+    await api('POST', `/api/v1/folio-lines/${disc.id}/void`, { reason: 'Yanlış indirim' }, k());
+    const pv = await api('GET', '/api/v1/night-audit/preview?autoNoShow=true');
+    assert.ok(!pv.blockers.some(b => b.code === 'accounting'), 'muhasebe ön kontrolü geçer');
+    const bd = state.bd;
+    const run = await api('POST', '/api/v1/night-audit/run', { businessDate: bd, autoNoShow: true }, k());
+    state.bd = run.newBusinessDate;
+    const entry = (await api('GET', '/api/v1/accounting/entries?kind=day')).find(e => e.businessDate === bd);
+    const d = await api('GET', `/api/v1/accounting/entries/${entry.id}`);
+    const net = acc => d.lines.filter(l => l.accountCode === acc).reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0).toFixed(2);
+    assert.equal(net('611'), '0.00', 'indirim ve iptali birbirini sıfırlar (KDV payı dahil)');
+    assert.ok(!d.lines.some(l => l.accountCode === '646' || l.accountCode === '656'), 'dövizsiz günde kur farkı yok');
   });
 
   await step('Muhasebe: gün sonu fişleri dengeli, hesaplar, mizan, elle ve ters fiş, ekstre', async () => {

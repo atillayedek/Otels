@@ -23,7 +23,7 @@
 - Satır iptali ve aktarımı ayrı satırlarla izlenir; satır silinmez
 - Şirkete/acenteye (city ledger) aktarım ile cari hesaba borç kaydı
 - Kasa vardiyası: açılış kasası, ödeme tipi ve para birimine göre döküm; TL ve her döviz için ayrı beklenen/sayılan nakit ve fark
-- Dövizli tahsilat ve iade: misafirden alınan döviz ve uygulanan kur satırda saklanır, folyoya tesis para birimi karşılığı işlenir. Kur günlük girilir (**Ön Kasa → Döviz Kurları**), istenirse TCMB'nin günlük bülteninden alınır (efektif/döviz alış-satış seçilebilir; yalnız tesis para birimi TRY iken). İş gününde kur yoksa en fazla 3 gün önceki kur kullanılır. Elle kur `exchange_rate.manage` yetkisi ister.
+- Dövizli tahsilat ve iade: misafirden alınan döviz ve uygulanan kur satırda saklanır, folyoya tesis para birimi karşılığı işlenir. Kur günlük girilir (**Ön Kasa → Döviz Kurları**), istenirse TCMB'nin günlük bülteninden alınır (efektif/döviz alış-satış seçilebilir; yalnız tesis para birimi TRY iken). İş gününde kur yoksa son kur kullanılır: TCMB'nin yayım yapmadığı bayram tatilleri için en fazla 10 gün; 3 günden eski kur kullanılıyorsa gece denetimi uyarır. Elle kur `exchange_rate.manage` yetkisi ister.
 - Fatura numarası kaydı (fatura dış e-fatura/muhasebe programında kesilir)
 
 ## Gece denetimi
@@ -61,7 +61,7 @@ Misafir kartında **Kimlik ve belgeler**, rezervasyonda **Belgeler** sekmesi: ki
 ## Restoran / bar (POS)
 
 - **Menü ve Satış Noktaları**: satış noktası (restoran, bar, oda servisi…), folyo işlem kodu, stok düşülecek depo; ürünler (kategori, KDV dahil fiyat, KDV oranı, satıldığı yerler) ve reçeteler.
-- **Satış Ekranı**: masa/yer ve kişi sayısıyla adisyon, kategori düğmeleriyle ürün ekleme, ürün iptali (kendi eklediği ürünü 2 dakika içinde garson, sonrasını `pos.void` yetkilisi), tutar veya yüzde indirim (gerekçeli).
+- **Satış Ekranı**: masa/yer ve kişi sayısıyla adisyon, kategori düğmeleriyle ürün ekleme, ürün iptali (kendi eklediği ve mutfağa gönderilmemiş ürünü 2 dakika içinde garson; gönderilmiş ürünü ve sonrasını `pos.void` yetkilisi), tutar veya yüzde indirim (gerekçeli).
 - Kapanış: **Ödeme** (bölünmüş, dövizli, kasa vardiyasına işlenir, para üstü hesabı), **Odaya aktar** (konaklayan misafir; KDV oranına göre ayrı folyo satırı, indirim oransal dağıtılır), **İkram** (tamamı gerekçeli indirimle).
 - Kapanmış adisyon aynı iş gününde iptal edilebilir: folyo satırları iptal edilir veya ödemeler kasadan ters kayıtla geri alınır; reçeteyle düşülen stok geri yüklenir.
 - Reçeteli ürünler adisyon kapanınca satış noktasının deposundan düşülür; satış stok yetersizliğinden engellenmez (eksi stok Stok Durumu raporunda görünür).

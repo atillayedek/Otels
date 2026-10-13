@@ -18,7 +18,7 @@ export function VoidLineModal({ line, onClose, onDone }: { line: { id: string; n
     <Modal title={`${line.name} · iptal`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Vazgeç</button>
       <button className="btn danger" disabled={!reason.trim() || act.busy} onClick={() => void act.run()}>İptal et</button></>}>
       <div className="stack">
-        <div className="muted" style={{ fontSize: 12 }}>Kendi eklediğiniz ürünü 2 dakika içinde iptal edebilirsiniz; sonrası için iptal yetkisi gerekir. İptaller raporda görünür.</div>
+        <div className="muted" style={{ fontSize: 12 }}>Kendi eklediğiniz ürünü mutfağa/bara gönderilmeden 2 dakika içinde iptal edebilirsiniz; gönderilmiş ürün ve sonrası için iptal yetkisi gerekir. İptaller raporda görünür.</div>
         <Field label="Gerekçe" required><input className="input" list="pos-void-reasons" value={reason} onChange={e => setReason(e.target.value)} autoFocus maxLength={200} />
           <datalist id="pos-void-reasons">{['Yanlış ürün', 'Misafir vazgeçti', 'Mutfakta yok', 'İade'].map(x => <option key={x} value={x} />)}</datalist></Field>
         <ErrorBox error={act.error} />

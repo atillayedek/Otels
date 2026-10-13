@@ -55,7 +55,7 @@ export default function ExchangeRatesPage() {
         )}
       </div></div>
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        Dövizli tahsilatta o günün kuru kullanılır; bugün kur girilmemişse en fazla 3 gün önceki kur geçerlidir. Alınan döviz ve uygulanan kur folyo satırında saklanır,
+        Dövizli tahsilatta o günün kuru kullanılır; bugün kur girilmemişse son girilen kur kullanılır (resmî tatiller için en fazla 10 gün; 3 günden eskiyse gece denetimi uyarır). Alınan döviz ve uygulanan kur folyo satırında saklanır,
         kur sonradan değişse de eski tahsilatlar etkilenmez.{!v.tcmbAvailable && ' TCMB kurları yalnız tesis para birimi TRY iken alınabilir.'}
       </div>
       {edit && <RateModal currency={edit} base={v.baseCurrency} current={v.rates.find(r => r.currency === edit)} onClose={() => setEdit(null)} />}

@@ -19,7 +19,11 @@ public sealed record TcmbImportResult(DateOnly RateDate, string BulletinDate, st
 public static class ExchangeRateEndpoints
 {
     /// <summary>İş gününde kur yoksa en fazla bu kadar gün önceki kur kullanılır (hafta sonu/bayram); daha eskisi reddedilir.</summary>
-    public const int MaxRateAgeDays = 3;
+    /// <summary>Kullanılabilecek en eski kur (gün). TCMB hafta sonu ve resmî tatillerde kur yayımlamaz; Ramazan/Kurban Bayramı
+    /// köprüleriyle 9 güne varan aralar olur. Bu süreyi aşan kurla işlem yapılmaz.</summary>
+    public const int MaxRateAgeDays = 10;
+    /// <summary>Bu süreden eski kur kullanılırken gece denetiminde uyarı verilir.</summary>
+    public const int FreshRateDays = 3;
     const string TcmbUrl = "https://www.tcmb.gov.tr/kurlar/today.xml";
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
 

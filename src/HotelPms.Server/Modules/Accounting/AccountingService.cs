@@ -18,9 +18,12 @@ namespace HotelPms.Server.Modules.Accounting;
 /// </summary>
 public static class AccountingService
 {
-    sealed class Builder(Dictionary<string, string> map)
+    sealed class Builder(Dictionary<string, string> map, bool dryRun)
     {
         readonly Dictionary<(string Account, string Label), decimal> sums = new();
+        public bool DryRun => dryRun;
+        /// <summary>Gün içinde çözülmüş KDV alt hesapları (her oran için bir kez açılır).</summary>
+        public readonly Dictionary<(string Parent, decimal Rate), string> VatAccounts = new();
         public string Map(string key) => map.TryGetValue(key, out var a) ? a : throw PmsException.Validation($"Muhasebe eşlemesi eksik: {key}");
         public void Add(string account, decimal amount, string label)
         {
@@ -39,20 +42,27 @@ public static class AccountingService
     {
         var net = R(grossCounter / (1 + vatRate / 100m));
         b.Add(revenueAccount, net, label);
-        if (grossCounter - net != 0) b.Add(await VatAccountAsync(tx, b.Map("vat.output"), vatRate, "Hesaplanan KDV"), grossCounter - net, $"KDV %{vatRate:0.##}");
+        if (grossCounter - net != 0) b.Add(await VatAccountAsync(tx, b, b.Map("vat.output"), vatRate, "Hesaplanan KDV"), grossCounter - net, $"KDV %{vatRate:0.##}");
     }
 
-    /// <summary>KDV oranına göre alt hesap (ör. 391.10); yoksa açılır.</summary>
-    static async Task<string> VatAccountAsync(Tx tx, string parent, decimal rate, string title)
+    /// <summary>KDV oranına göre alt hesap kodu: tam sayı oranlar iki hane (391.01, 391.10, 391.20), kesirli oranlar
+    /// yüzde yüzlük dört hane (%0,5 → 391.0050, %1,5 → 391.0150); böylece farklı oranlar aynı hesapta birleşmez.</summary>
+    internal static string VatAccountCode(string parent, decimal rate) =>
+        rate == decimal.Truncate(rate) ? $"{parent}.{(int)rate:00}" : $"{parent}.{(int)decimal.Round(rate * 100):0000}";
+
+    /// <summary>KDV oranına göre alt hesap; yoksa açılır (gün içinde her oran için bir kez).</summary>
+    static async Task<string> VatAccountAsync(Tx tx, Builder b, string parent, decimal rate, string title)
     {
         if (rate == 0) return parent;
-        // KDV oranları tam sayıdır (1, 10, 20): 391.01, 391.10, 391.20
-        var code = $"{parent}.{(int)decimal.Round(rate):00}";
-        await tx.ExecAsync("""
-            INSERT INTO pms.gl_accounts (code, name, kind, is_system)
-            SELECT @code, @name, kind, true FROM pms.gl_accounts WHERE code = @parent
-            ON CONFLICT (code) DO NOTHING
-            """, new { code, parent, name = $"{title} %{rate:0.##}" });
+        if (b.VatAccounts.TryGetValue((parent, rate), out var known)) return known;
+        var code = VatAccountCode(parent, rate);
+        if (!b.DryRun)
+            await tx.ExecAsync("""
+                INSERT INTO pms.gl_accounts (code, name, kind, is_system)
+                SELECT @code, @name, kind, true FROM pms.gl_accounts WHERE code = @parent
+                ON CONFLICT (code) DO NOTHING
+                """, new { code, parent, name = $"{title} %{rate:0.##}" });
+        b.VatAccounts[(parent, rate)] = code;
         return code;
     }
 
@@ -72,14 +82,28 @@ public static class AccountingService
 
     sealed record FolioRow(string LineType, decimal Amount, decimal? VatRate, bool IsAccountFolio, Guid? CodeId, string? Category, string? CodeGl,
         string? MethodKind, string? RelType, decimal? RelVat, Guid? RelCodeId, string? RelCategory, string? RelCodeGl, string? RelMethodKind, bool RelHasCode,
-        bool IsForeign);
+        bool IsForeign, decimal? RelRelVat, bool RelRelHasCode);
+
+    /// <summary>
+    /// Gece denetimi önizlemesi için: günün fişinin bugünkü hareketlerle oluşturulabildiğini, hiçbir şey yazmadan doğrular.
+    /// Sorun varsa açıklamasını döner (eşleme eksik, fiş dengelenemiyor); sorun yoksa null.
+    /// </summary>
+    public static async Task<string?> CheckDayAsync(Tx tx, DateOnly bd)
+    {
+        try { await BuildDayAsync(tx, bd, dryRun: true); return null; }
+        catch (PmsException ex) { return ex.Message; }
+    }
 
     /// <summary>İş günü için gün sonu fişi oluşturur; varsa yeniden oluşturmaz. Fiş yoksa (hareket yoksa) null döner.</summary>
-    public static async Task<Guid?> GenerateDayAsync(Tx tx, DateOnly bd)
+    public static Task<Guid?> GenerateDayAsync(Tx tx, DateOnly bd) => BuildDayAsync(tx, bd, dryRun: false);
+
+    static async Task<Guid?> BuildDayAsync(Tx tx, DateOnly bd, bool dryRun)
     {
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.gl_entries WHERE kind = 'day' AND business_date = @bd)", new { bd })) return null;
         var map = (await tx.ListAsync<(string Key, string Account)>("SELECT key, account_code FROM pms.gl_mappings")).ToDictionary(x => x.Key, x => x.Account);
-        var b = new Builder(map);
+        var b = new Builder(map, dryRun);
+        // Gece denetiminin bu iş günü için yazacağı oda ücreti ve konaklama vergisinin eşlemeleri de önceden doğrulanır.
+        b.Map("revenue.room"); b.Map("tax.accommodation"); b.Map("receivable.guest"); b.Map("vat.output");
         var dayLabel = "Gün sonu";
 
         // ---- Folyo hareketleri
@@ -88,11 +112,13 @@ public static class AccountingService
                    l.transaction_code_id AS code_id, tc.category, tc.gl_account AS code_gl, pm.kind AS method_kind,
                    o.line_type AS rel_type, o.vat_rate AS rel_vat, o.transaction_code_id AS rel_code_id, otc.category AS rel_category,
                    otc.gl_account AS rel_code_gl, opm.kind AS rel_method_kind, (o.transaction_code_id IS NOT NULL) AS rel_has_code,
-                   (l.tendered_currency IS NOT NULL) AS is_foreign
+                   (l.tendered_currency IS NOT NULL) AS is_foreign,
+                   oo.vat_rate AS rel_rel_vat, (oo.transaction_code_id IS NOT NULL) AS rel_rel_has_code
             FROM pms.folio_lines l JOIN pms.folios f ON f.id = l.folio_id
             LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
             LEFT JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
             LEFT JOIN pms.folio_lines o ON o.id = l.related_line_id
+            LEFT JOIN pms.folio_lines oo ON oo.id = o.related_line_id
             LEFT JOIN pms.transaction_codes otc ON otc.id = o.transaction_code_id
             LEFT JOIN pms.payment_methods opm ON opm.id = o.payment_method_id
             WHERE l.business_date = @bd AND l.migration_job_id IS NULL
@@ -126,7 +152,8 @@ public static class AccountingService
                             if (!IsLedgerMethod(l.RelMethodKind)) b.Add(b.Map(CashKey(l.RelMethodKind, l.IsForeign)), counter, "Tahsilat iptali");
                             break;
                         case "discount" or "allowance":
-                            await RevenueAsync(tx, b, b.Map("discount"), counter, 0, "İndirim iptali");
+                            // İndirim, bağlı olduğu masrafın KDV oranıyla bölünerek yazılmıştı; iptali aynı oranla ters çevrilir.
+                            await RevenueAsync(tx, b, b.Map("discount"), counter, l.RelRelHasCode ? l.RelRelVat ?? 0 : 0, "İndirim iptali");
                             break;
                     }
                     break;
@@ -140,10 +167,14 @@ public static class AccountingService
             FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id JOIN pms.transaction_codes tc ON tc.id = o.transaction_code_id
             WHERE c.status = 'closed' AND c.settlement = 'payment' AND c.closed_business_date = @bd
             """, new { bd });
+        var checkIds = checks.Select(c => c.Id).ToArray();
+        var vatGroups = (await tx.ListAsync<(Guid CheckId, decimal Vat, decimal Amount)>("""
+            SELECT check_id, vat_rate, sum(amount) FROM pms.pos_check_lines WHERE check_id = ANY(@checkIds) AND NOT is_void
+            GROUP BY check_id, vat_rate ORDER BY check_id, vat_rate
+            """, new { checkIds })).ToLookup(x => x.CheckId, x => (x.Vat, x.Amount));
         foreach (var c in checks)
         {
-            var groups = await tx.ListAsync<(decimal Vat, decimal Amount)>(
-                "SELECT vat_rate, sum(amount) FROM pms.pos_check_lines WHERE check_id = @id AND NOT is_void GROUP BY vat_rate ORDER BY vat_rate", new { id = c.Id });
+            var groups = vatGroups[c.Id].ToList();
             var subtotal = groups.Sum(x => x.Amount);
             decimal posted = 0;
             for (var i = 0; i < groups.Count; i++)
@@ -173,23 +204,23 @@ public static class AccountingService
             if (m.Kind == "receipt")
             {
                 var vat = R(v * m.VatRate / 100m);
-                if (vat != 0) b.Add(await VatAccountAsync(tx, b.Map("vat.input"), m.VatRate, "İndirilecek KDV"), vat, $"KDV %{m.VatRate:0.##}");
+                if (vat != 0) b.Add(await VatAccountAsync(tx, b, b.Map("vat.input"), m.VatRate, "İndirilecek KDV"), vat, $"KDV %{m.VatRate:0.##}");
                 b.Add(b.Map("stock.payable"), -(v + vat), "Mal alımları");
             }
             else b.Add(b.Map("stock.consumption"), -v, m.Kind == "pos" ? "Satış tüketimi" : m.Kind == "count" ? "Sayım farkı" : "Bölüm çıkışları");
         }
 
-        // ---- Dövizli tahsilat kuruş farkları
+        // ---- Restoran tahsilatındaki kuruş farkları
+        // Adisyon kapanışında ödemeler toplamla en fazla 0,05 farklı olabilir (dövizle ödemede kurdan doğan kuruş). Bu fark kambiyo
+        // kâr/zarar hesabına yazılır. Fişte başka bir fark kalırsa (hatalı eşleme veya hesaplama) fiş kesilmez; fark gizlenmez.
+        var posDiff = posPays.Sum(p => p.Amount) - checks.Sum(c => c.Total);
         var diff = b.Imbalance;
-        if (diff != 0)
-        {
-            if (Math.Abs(diff) > 1m)
-                throw PmsException.Validation($"Gün sonu muhasebe fişi dengelenemedi (fark {diff:N2}). Hesap eşlemelerini kontrol edin.");
-            b.Add(b.Map(diff > 0 ? "fx.gain" : "fx.loss"), -diff, "Kur farkı");
-        }
+        if (diff != posDiff)
+            throw PmsException.Validation($"Gün sonu muhasebe fişi dengelenemedi (fark {diff - posDiff:N2}). Hesap eşlemelerini kontrol edin veya destek ekibine bildirin.");
+        if (diff != 0) b.Add(b.Map(diff > 0 ? "fx.gain" : "fx.loss"), -diff, "Kur farkı");
 
         var lines = b.Lines.ToList();
-        if (lines.Count == 0) return null;
+        if (lines.Count == 0 || dryRun) return null;
         var id = await tx.ScalarAsync<Guid>("""
             INSERT INTO pms.gl_entries (entry_date, kind, business_date, description, created_by) VALUES (@bd, 'day', @bd, @desc, @uid) RETURNING id
             """, new { bd, desc = $"Gün sonu fişi {bd:dd.MM.yyyy}", uid = tx.Ctx.User?.Id });
