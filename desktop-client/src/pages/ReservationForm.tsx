@@ -3,8 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Crown, Save, Search, UserPlus, X } from 'lucide-react';
 import { api, ApiError, get, newKey, qs } from '../lib/api';
-import type { GuestListItem, Paged, RatePreview, Reservation } from '../lib/types';
-import { addDays, fmtDate, fmtMoney, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
+import type { ExchangeRatesView, GuestListItem, Paged, RatePreview, Reservation } from '../lib/types';
+import { addDays, fmtDate, fmtMoney, fmtRate, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
 import { useAgencies, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
@@ -14,7 +14,7 @@ import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../compon
 type Mode = 'new' | 'walkin' | 'edit';
 
 interface Draft {
-  roomTypeId: string; roomId: string; arrival: string; departure: string; adults: number; children: number; ratePlanId: string; nightlyRate: string; overrideRate: boolean;
+  roomTypeId: string; roomId: string; arrival: string; departure: string; adults: number; children: number; ratePlanId: string; nightlyRate: string; overrideRate: boolean; rateCurrency: string;
   mealPlan: string; companyId: string; agencyId: string; source: string; status: string; optionUntil: string; eta: string; etd: string; notes: string; specialRequests: string; depositRequired: string;
 }
 
@@ -68,12 +68,12 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   const [newGuest, setNewGuest] = useState<GuestDraft | null>(null);
   const [d, setD] = useState<Draft>(() => initial ? {
     roomTypeId: initial.roomTypeId, roomId: initial.roomId ?? '', arrival: initial.arrival, departure: initial.departure, adults: initial.adults, children: initial.children,
-    ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.nightlyRate, overrideRate: false, mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
+    ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.rateCurrency ? initial.fxNightlyRate ?? '' : initial.nightlyRate, overrideRate: false, rateCurrency: initial.rateCurrency ?? '', mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
     source: initial.source, status: initial.status, optionUntil: initial.optionUntil ?? '', eta: initial.eta?.slice(0, 5) ?? '', etd: initial.etd?.slice(0, 5) ?? '', notes: initial.notes ?? '',
     specialRequests: initial.specialRequests ?? '', depositRequired: initial.depositRequired,
   } : {
     roomTypeId: sp.get('type') ?? '', roomId: sp.get('room') ?? '', arrival: mode === 'walkin' ? bd : (sp.get('arrival') ?? bd), departure: addDays(mode === 'walkin' ? bd : (sp.get('arrival') ?? bd), 1),
-    adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
+    adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, rateCurrency: '', mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
     status: 'confirmed', optionUntil: '', eta: '', etd: '', notes: '', specialRequests: '', depositRequired: '0.00',
   });
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD(s => ({ ...s, [k]: v }));
@@ -93,7 +93,14 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   });
 
   const plan = plans.data?.find(p => p.id === d.ratePlanId);
-  useEffect(() => { if (plan) setD(s => ({ ...s, mealPlan: plan.mealPlan })); }, [plan]);
+  useEffect(() => { if (plan) setD(s => ({ ...s, mealPlan: plan.mealPlan, rateCurrency: plan.currency ?? '' })); }, [plan]);
+  // Dövizli fiyat: kurlar (yetki yoksa döviz seçeneği gösterilmez).
+  const fx = useQuery({ queryKey: ['exchangeRates'], queryFn: () => get<ExchangeRatesView>('/api/v1/exchange-rates'), enabled: can('folio.view'), retry: false });
+  const foreign = !!d.rateCurrency;
+  const priceCur = d.rateCurrency || property?.currency;
+  const fxRate = foreign ? fx.data?.rates.find(r => r.currency === d.rateCurrency)?.rate : undefined;
+  // Döviz seçildi ama plan bu dövizde değilse fiyat elle girilmelidir.
+  const needsManual = foreign && (plan?.currency ?? '') !== d.rateCurrency;
 
   const rooms = useMemo(() => (status.data ?? []).filter(r => r.roomTypeId === d.roomTypeId && !r.blockKind && (mode !== 'walkin' || r.foStatus === 'vacant' || r.id === d.roomId)), [status.data, d.roomTypeId, d.roomId, mode]);
 
@@ -103,7 +110,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
       guestId: guest?.id ?? null, newGuest: guest ? null : newGuest ? draftToBody(newGuest) : null,
       companyId: n(d.companyId), agencyId: n(d.agencyId), groupId: initial?.groupId ?? null, roomTypeId: d.roomTypeId, roomId: n(d.roomId),
       arrival: d.arrival, departure: d.departure, adults: d.adults, children: d.children, ratePlanId: n(d.ratePlanId),
-      nightlyRate: d.overrideRate && d.nightlyRate ? d.nightlyRate : null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
+      nightlyRate: (d.overrideRate || needsManual) && d.nightlyRate ? d.nightlyRate : null, rateCurrency: d.rateCurrency || null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
       source: d.source, market: initial?.market ?? null, segment: initial?.segment ?? null, eta: d.eta ? `${d.eta}:00` : null, etd: d.etd ? `${d.etd}:00` : null,
       notes: n(d.notes), specialRequests: n(d.specialRequests), depositRequired: d.depositRequired || '0', optionUntil: d.status === 'tentative' ? n(d.optionUntil) : null,
       version: initial?.version ?? null,
@@ -127,7 +134,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   }, { success: mode === 'walkin' ? 'Walk-in giriş tamamlandı.' : mode === 'edit' ? 'Rezervasyon güncellendi.' : 'Rezervasyon oluşturuldu.' });
 
   const guestOk = !!guest || (!!newGuest && newGuest.firstName.trim() && newGuest.lastName.trim());
-  const valid = guestOk && d.roomTypeId && nights >= 1 && d.adults >= 1 && (mode !== 'walkin' || d.roomId) && (!d.overrideRate || !!d.nightlyRate);
+  const valid = guestOk && d.roomTypeId && nights >= 1 && d.adults >= 1 && (mode !== 'walkin' || d.roomId) && (!(d.overrideRate || needsManual) || !!d.nightlyRate);
 
   return (
     <div className="split">
@@ -194,19 +201,28 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
           <div className="card-body stack">
             <Field label="Fiyat planı"><select className="input" value={d.ratePlanId} onChange={e => set('ratePlanId', e.target.value)}><option value="">Oda tipi varsayılan fiyatı</option>{plans.data?.filter(p => p.isActive).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>
             <Field label="Pansiyon"><select className="input" value={d.mealPlan} onChange={e => set('mealPlan', e.target.value)}>{Object.entries(MEAL_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
-            {preview.data && !d.overrideRate && (
+            {(fx.data?.currencies.length ?? 0) > 0 && (
+              <Field label="Fiyat para birimi" hint={plan?.currency ? 'Fiyat planının para birimi' : foreign ? (fxRate ? `Bugünkü kur ${fmtRate(fxRate)} · oda ücreti her gece o günün kuruyla çevrilir` : 'Bu döviz için kur girilmemiş') : undefined}>
+                <select className="input" value={d.rateCurrency} disabled={!!plan?.currency} onChange={e => setD(s => ({ ...s, rateCurrency: e.target.value, nightlyRate: '' }))}>
+                  <option value="">{property?.currency}</option>{fx.data!.currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+            )}
+            {preview.data && !d.overrideRate && !needsManual && (
               <div className="table-wrap" style={{ maxHeight: 220 }}>
                 <table className="dt">
                   <thead><tr><th>Gece</th><th style={{ textAlign: 'right' }}>Fiyat</th></tr></thead>
                   <tbody>{preview.data.nights.map(n => <tr key={n.date}><td>{fmtDate(n.date)}</td><td className="num">{fmtMoney(n.rate)}</td></tr>)}</tbody>
-                  <tfoot><tr><td>Toplam ({preview.data.nights.length} gece)</td><td className="num"><b>{fmtMoney(preview.data.total, property?.currency)}</b></td></tr></tfoot>
+                  <tfoot><tr><td>Toplam ({preview.data.nights.length} gece)</td><td className="num"><b>{fmtMoney(preview.data.total, preview.data.currency ?? property?.currency)}</b></td></tr></tfoot>
                 </table>
               </div>
             )}
             <ErrorBox error={preview.error} />
-            {can('rate.override') && <label className="check"><input type="checkbox" checked={d.overrideRate} onChange={e => set('overrideRate', e.target.checked)} /> Gecelik fiyatı elle belirle</label>}
-            {d.overrideRate && <Field label="Gecelik fiyat" required><MoneyInput value={d.nightlyRate} onChange={v => set('nightlyRate', v)} /></Field>}
-            {mode === 'edit' && initial && !d.overrideRate && <div className="muted" style={{ fontSize: 12 }}>Kayıtlı gecelik fiyat: {fmtMoney(initial.nightlyRate, initial.currency)}. Tarih veya plan değişirse fiyatlar yeniden hesaplanır.</div>}
+            {can('rate.override') && !needsManual && <label className="check"><input type="checkbox" checked={d.overrideRate} onChange={e => set('overrideRate', e.target.checked)} /> Gecelik fiyatı elle belirle</label>}
+            {(d.overrideRate || needsManual) && <Field label={`Gecelik fiyat (${priceCur})`} required hint={needsManual && !can('rate.override') ? 'Dövizli elle fiyat için fiyat aşımı yetkisi gerekir; aynı dövizde fiyat planı seçebilirsiniz.' : undefined}>
+              <MoneyInput value={d.nightlyRate} onChange={v => set('nightlyRate', v)} /></Field>}
+            {foreign && fxRate && d.nightlyRate && (d.overrideRate || needsManual) && <div className="muted" style={{ fontSize: 12 }}>≈ {fmtMoney((Number(d.nightlyRate) * Number(fxRate)).toFixed(2), property?.currency)} / gece (bugünkü kurla)</div>}
+            {mode === 'edit' && initial && !d.overrideRate && <div className="muted" style={{ fontSize: 12 }}>Kayıtlı gecelik fiyat: {initial.rateCurrency ? `${fmtMoney(initial.fxNightlyRate, initial.rateCurrency)} (≈ ${fmtMoney(initial.nightlyRate, initial.currency)})` : fmtMoney(initial.nightlyRate, initial.currency)}. Tarih veya plan değişirse fiyatlar yeniden hesaplanır.</div>}
           </div>
         </div>
         <ErrorBox error={save.error} />

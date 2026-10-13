@@ -406,3 +406,14 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
   .pos-layout { grid-template-columns: 1fr; height: auto; }
   .pos-check-screen { grid-template-columns: 1fr; }
 }
+
+/* ---- Telefon garson ekranı */
+.m-check { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 2px; font: inherit; color: var(--text); min-height: 90px; }
+.m-check .m-no { font-size: 22px; font-weight: 700; }
+.m-check small { color: var(--muted); font-size: 12px; }
+.m-pos { display: flex; flex-direction: column; gap: 8px; }
+.m-products { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.m-products button { min-height: 70px; border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: space-between; text-align: left; font: inherit; font-size: 15px; color: var(--text); }
+.m-products button:active { background: var(--primary-50); border-color: var(--primary); }
+.m-products button b { color: var(--primary); font-size: 14px; }
+.m-pos-bar { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0; display: grid; }

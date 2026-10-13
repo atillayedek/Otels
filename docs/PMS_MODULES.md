@@ -42,6 +42,10 @@ Temiz / kirli / temizleniyor / kontrol edildi, rahatsız etmeyin, kat notu, topl
 
 Doluluk/ADR/RevPAR, geliş, çıkış, konaklayanlar, misafir listesi, no-show ve iptaller, oda durumu, kat hizmetleri, kasa, gelir/masraf dökümü, tahsilat detayı, açık folyolar, şirket ve acente carisi, üretim, misafir geçmişi, uyruk, gece denetimi geçmişi, denetim kayıtları, veri aktarım raporu. Ekranda görüntüleme, yazdırma, Excel (XLSX) ve CSV.
 
+## Dövizli fiyat (acente sözleşmeleri)
+
+Fiyat planına para birimi verilebilir (ör. EUR); plan fiyatları bu dövizde girilir. Rezervasyonda "Fiyat para birimi" seçilir; plan aynı dövizde değilse gecelik fiyat elle girilir. Rezervasyondaki TL tutarlar rezervasyon anındaki kurla tahminidir; gece denetimi her gecenin oda ücretini **o günün kuruyla** TL'ye çevirerek yazar ve döviz tutarını ve kuru folyo satırında saklar (konaklama vergisi varsa döviz tutarı satırlara oransal bölünür). Dövizli konaklama varken güncel kur girilmemişse gün kapatılmaz. Uzatma ve erken girişte anlaşmalı döviz fiyatı korunur.
+
 ## Grup rezervasyonları
 
 **Rezervasyon → Grup Rezervasyonları**: grup kartı (ad, şirket/acente, tarih, opsiyon, not) ve gruba toplu oda ekleme (oda tipi başına adet, 1–200). Ekleme ya tamamen yapılır ya hiç yapılmaz; müsaitlik yetmezse hiçbir rezervasyon oluşmaz. Fazla satış yalnız `reservation.overbook` yetkisiyle ve açık onayla yapılır. Grup içindeki rezervasyonlar normal rezervasyon gibi check-in/check-out edilir.
@@ -62,6 +66,8 @@ Misafir kartında **Kimlik ve belgeler**, rezervasyonda **Belgeler** sekmesi: ki
 - Kapanmış adisyon aynı iş gününde iptal edilebilir: folyo satırları iptal edilir veya ödemeler kasadan ters kayıtla geri alınır; reçeteyle düşülen stok geri yüklenir.
 - Reçeteli ürünler adisyon kapanınca satış noktasının deposundan düşülür; satış stok yetersizliğinden engellenmez (eksi stok Stok Durumu raporunda görünür).
 - Açık adisyonlar gece denetiminde uyarı olarak listelenir. Doğrudan ödenen adisyonlar günlük diğer gelire ve tahsilata, odaya aktarılanlar folyo masrafı olarak dahil edilir.
+- **Sipariş yazıcıları**: ağa bağlı fiş yazıcıları (ESC/POS, genellikle TCP 9100) Menü ve Satış Noktaları ekranında tanımlanır; her ürüne yazıcı atanır (boşsa fiş basılmaz). "Mutfağa gönder" yalnız gönderilmemiş ürünleri basar; gönderildikten sonra iptal edilen ürün için İPTAL fişi çıkar. Ulaşılamayan yazıcının ürünleri "gönderilmedi" olarak bekler. Türkçe karakterler PC857 kod sayfasıyla basılır; desteklemeyen yazıcıda ASCII seçilir. Fiş sunucudan doğrudan gönderilir, Windows yazıcı kurulumu gerekmez.
+- **Telefon (garson)**: Android uygulamasında restoran yetkili kullanıcıya "Adisyon" sekmesi: masa açma, ürün ekleme, kendi yanlışını iptal, mutfağa gönderme. Hesap kasada kapatılır.
 - Raporlar: Restoran Satışları, Ürün Satışları, Adisyon Listesi, Ürün İptalleri.
 
 ## Stok ve satın alma

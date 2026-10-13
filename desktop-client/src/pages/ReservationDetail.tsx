@@ -76,7 +76,8 @@ export default function ReservationDetailPage() {
         </div></div>
         <div className="card"><div className="card-head"><h3>Fiyat ve hesap</h3></div><div className="card-body">
           <Kv items={[
-            ['Gecelik', fmtMoney(r.nightlyRate, r.currency)], ['Toplam', fmtMoney(r.totalRate, r.currency)], ['Fiyat planı', r.ratePlanCode ?? 'Varsayılan'],
+            ['Gecelik', r.rateCurrency ? `${fmtMoney(r.fxNightlyRate, r.rateCurrency)} (≈ ${fmtMoney(r.nightlyRate, r.currency)}, günün kuruyla)` : fmtMoney(r.nightlyRate, r.currency)],
+            ['Toplam', r.rateCurrency ? `≈ ${fmtMoney(r.totalRate, r.currency)}` : fmtMoney(r.totalRate, r.currency)], ['Fiyat planı', r.ratePlanCode ?? 'Varsayılan'],
             ['Bakiye', <b key="b" className={r.balance.startsWith('-') ? 'amount-neg' : ''}>{fmtMoney(r.balance, r.currency)}</b>],
             ['Depozito', fmtMoney(r.depositRequired, r.currency)], ['Şirket', r.companyName], ['Acente', r.agencyName], ['Kaynak', SOURCE_LABEL[r.source] ?? r.source],
           ]} />

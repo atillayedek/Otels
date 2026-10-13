@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellOff, Brush, ClipboardList, LogOut, RefreshCw, Wrench } from 'lucide-react';
+import { BellOff, Brush, ClipboardList, LogOut, RefreshCw, Utensils, Wrench } from 'lucide-react';
 import { api, get, qs } from '../lib/api';
 import type { HkTask, Room, RoomStatus } from '../lib/types';
 import { BLOCK_LABEL, fmtDate, HK_LABEL, TASK_LABEL, TASK_STATUS } from '../lib/format';
@@ -8,13 +8,19 @@ import { useRooms, useRoomStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { Empty, ErrorBox, Modal, Spinner, useToast } from '../components/ui';
 import { TicketModal } from '../components/RoomActions';
+import { MobilePos } from '../components/MobilePos';
 
 type Filter = 'dirty' | 'cleaning' | 'clean' | 'all';
 
-/** Telefon arayüzü: kat şefi, kat görevlisi, resepsiyon ve müdür için oda temizlik durumları ve görevler. */
+/** Telefon arayüzü: kat hizmetleri (oda durumları, görevler) ve restoran garson ekranı; sekmeler yetkiye göre görünür. */
 export function MobileApp() {
   const { me, property, connected, can, logout } = useSession();
-  const [tab, setTab] = useState<'rooms' | 'tasks'>('rooms');
+  const tabs = [
+    ...(can('housekeeping.view') ? [{ key: 'rooms' as const, label: 'Odalar', icon: <Brush /> }, { key: 'tasks' as const, label: 'Görevler', icon: <ClipboardList /> }] : []),
+    ...(can('pos.view') ? [{ key: 'pos' as const, label: 'Adisyon', icon: <Utensils /> }] : []),
+  ];
+  const [tab, setTab] = useState<'rooms' | 'tasks' | 'pos' | null>(null);
+  const current = tab && tabs.some(t => t.key === tab) ? tab : tabs[0]?.key;
   const qc = useQueryClient();
   return (
     <div className="m-shell">
@@ -26,14 +32,15 @@ export function MobileApp() {
       </header>
       {!connected && <div className="banner danger">Sunucu bağlantısı yok; yeniden bağlanılıyor…</div>}
       <main className="m-main">
-        {!can('housekeeping.view')
-          ? <Empty title="Bu ekran için yetkiniz yok" text="Telefon uygulaması kat hizmetleri yetkisi olan kullanıcılar içindir." />
-          : tab === 'rooms' ? <MobileRooms /> : <MobileTasks />}
+        {!current
+          ? <Empty title="Bu ekran için yetkiniz yok" text="Telefon uygulaması kat hizmetleri ve restoran yetkisi olan kullanıcılar içindir." />
+          : current === 'rooms' ? <MobileRooms /> : current === 'tasks' ? <MobileTasks /> : <MobilePos />}
       </main>
-      <nav className="m-tabs">
-        <button className={tab === 'rooms' ? 'active' : ''} onClick={() => setTab('rooms')}><Brush /><span>Odalar</span></button>
-        <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}><ClipboardList /><span>Görevler</span></button>
-      </nav>
+      {tabs.length > 1 && (
+        <nav className="m-tabs" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
+          {tabs.map(t => <button key={t.key} className={current === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>{t.icon}<span>{t.label}</span></button>)}
+        </nav>
+      )}
     </div>
   );
 }

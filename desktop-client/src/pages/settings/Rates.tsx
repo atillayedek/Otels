@@ -14,7 +14,7 @@ export default function RatesSettingsPage() {
   const [edit, setEdit] = useState<RatePlan | 'new' | null>(null);
   const plan = plans.data?.find(p => p.id === (sel ?? plans.data?.[0]?.id));
   const cols: Column<RatePlan>[] = [
-    { key: 'code', header: 'Kod', width: 90 }, { key: 'name', header: 'Ad' }, { key: 'mealPlan', header: 'Pansiyon', width: 110 },
+    { key: 'code', header: 'Kod', width: 90 }, { key: 'name', header: 'Ad' }, { key: 'mealPlan', header: 'Pansiyon', width: 110 }, { key: 'currency', header: 'Para birimi', width: 100, value: (p: RatePlan) => p.currency ?? 'Tesis' },
     { key: 'isActive', header: '', width: 70, render: p => p.isActive ? <Badge color="green">Aktif</Badge> : <Badge color="gray">Pasif</Badge> },
   ];
   return (
@@ -56,14 +56,14 @@ function Prices({ plan }: { plan: RatePlan }) {
           <Field label="Oda tipi"><select className="input" value={f.roomTypeId} onChange={e => setF(s => ({ ...s, roomTypeId: e.target.value }))}><option value="">Seçin</option>{types.data?.map(t => <option key={t.id} value={t.id}>{t.code}</option>)}</select></Field>
           <Field label="Başlangıç"><input type="date" className="input" value={f.dateFrom} onChange={e => setF(s => ({ ...s, dateFrom: e.target.value }))} /></Field>
           <Field label="Bitiş (dahil değil)"><input type="date" className="input" value={f.dateTo} onChange={e => setF(s => ({ ...s, dateTo: e.target.value }))} /></Field>
-          <Field label="Gecelik fiyat"><MoneyInput value={f.price} onChange={v => setF(s => ({ ...s, price: v }))} /></Field>
+          <Field label={`Gecelik fiyat${plan.currency ? ` (${plan.currency})` : ''}`}><MoneyInput value={f.price} onChange={v => setF(s => ({ ...s, price: v }))} /></Field>
           <Field label="Min. gece"><input className="input" value={f.minStay} onChange={e => setF(s => ({ ...s, minStay: e.target.value.replace(/\D/g, '') }))} /></Field>
           <button className="btn primary" disabled={!f.roomTypeId || !f.dateFrom || !f.dateTo || !f.price || add.busy} onClick={() => void add.run()}><Plus /> Ekle</button>
         </div>
         <ErrorBox error={add.error} />
         <table className="dt">
           <thead><tr><th>Oda tipi</th><th>Başlangıç</th><th>Bitiş</th><th style={{ textAlign: 'right' }}>Fiyat</th><th>Min. gece</th><th /></tr></thead>
-          <tbody>{prices.data?.map(p => <tr key={p.id}><td>{p.roomTypeCode}</td><td>{fmtDate(p.dateFrom)}</td><td>{fmtDate(p.dateTo)}</td><td className="num">{fmtMoney(p.price)}</td><td>{p.minStay ?? ''}</td><td style={{ textAlign: 'right' }}><button className="btn sm ghost icon" title="Kaldır" onClick={() => void remove(p)}><Trash2 /></button></td></tr>)}</tbody>
+          <tbody>{prices.data?.map(p => <tr key={p.id}><td>{p.roomTypeCode}</td><td>{fmtDate(p.dateFrom)}</td><td>{fmtDate(p.dateTo)}</td><td className="num">{fmtMoney(p.price, plan.currency)}</td><td>{p.minStay ?? ''}</td><td style={{ textAlign: 'right' }}><button className="btn sm ghost icon" title="Kaldır" onClick={() => void remove(p)}><Trash2 /></button></td></tr>)}</tbody>
         </table>
         {prices.data?.length === 0 && <Empty title="Bu planda tanımlı fiyat yok" />}
       </div>
@@ -73,9 +73,9 @@ function Prices({ plan }: { plan: RatePlan }) {
 
 function PlanModal({ p, onClose }: { p?: RatePlan; onClose: () => void }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ code: p?.code ?? '', name: p?.name ?? '', mealPlan: p?.mealPlan ?? 'BB', description: p?.description ?? '', isActive: p?.isActive ?? true });
+  const [f, setF] = useState({ code: p?.code ?? '', name: p?.name ?? '', mealPlan: p?.mealPlan ?? 'BB', description: p?.description ?? '', isActive: p?.isActive ?? true, currency: p?.currency ?? '' });
   const save = useAction(async () => {
-    const body = { ...f, code: f.code.trim().toUpperCase(), description: f.description || null, version: p?.version ?? null };
+    const body = { ...f, code: f.code.trim().toUpperCase(), description: f.description || null, currency: f.currency.trim().toUpperCase() || null, version: p?.version ?? null };
     if (p) await api('PUT', `/api/v1/rate-plans/${p.id}`, body); else await api('POST', '/api/v1/rate-plans', body);
     await qc.invalidateQueries({ queryKey: ['ratePlans'] });
   }, { success: 'Fiyat planı kaydedildi.' });
@@ -86,7 +86,8 @@ function PlanModal({ p, onClose }: { p?: RatePlan; onClose: () => void }) {
         <Field label="Ad" required className="span-3"><input className="input" value={f.name} onChange={e => setF(s => ({ ...s, name: e.target.value }))} /></Field>
         <Field label="Pansiyon" className="span-2"><select className="input" value={f.mealPlan} onChange={e => setF(s => ({ ...s, mealPlan: e.target.value }))}>{Object.entries(MEAL_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
         <div className="span-2" style={{ alignSelf: 'end' }}><label className="check"><input type="checkbox" checked={f.isActive} onChange={e => setF(s => ({ ...s, isActive: e.target.checked }))} /> Aktif</label></div>
-        <Field label="Açıklama" className="span-4"><input className="input" value={f.description} onChange={e => setF(s => ({ ...s, description: e.target.value }))} /></Field>
+        <Field label="Para birimi" hint="Boşsa tesis para birimi. Acente sözleşmesi dövizliyse (ör. EUR) girin; fiyat girildikten sonra değiştirilemez."><input className="input" value={f.currency} maxLength={3} onChange={e => setF(s => ({ ...s, currency: e.target.value.toUpperCase() }))} /></Field>
+        <Field label="Açıklama" className="span-3"><input className="input" value={f.description} onChange={e => setF(s => ({ ...s, description: e.target.value }))} /></Field>
       </div>
       <ErrorBox error={save.error} />
     </Modal>

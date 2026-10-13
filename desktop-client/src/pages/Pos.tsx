@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BedDouble, Ban, Gift, Percent, Plus, Receipt, Search, Utensils, Wallet, X } from 'lucide-react';
+import { BedDouble, Ban, ChefHat, Gift, Percent, Plus, Receipt, Search, Utensils, Wallet, X } from 'lucide-react';
 import { get, post, put, qs } from '../lib/api';
-import type { ExchangeRatesView, InHouseRoom, Outlet, PosCheck, PosCheckDetail, PosProduct } from '../lib/types';
+import type { ExchangeRatesView, InHouseRoom, Outlet, PosCheck, PosCheckDetail, PosProduct, PosSendResult } from '../lib/types';
 import { fmtDateTime, fmtMoney, fmtQty, parseDecimal } from '../lib/format';
 import { usePaymentMethods } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
-import { Badge, Empty, ErrorBox, Field, Modal, MoneyInput, Spinner, Tabs } from '../components/ui';
+import { Badge, Empty, ErrorBox, Field, Modal, MoneyInput, Spinner, Tabs, useToast } from '../components/ui';
 
 const OUTLET_KEY = 'pms.pos.outlet';
 const SETTLE_LABEL: Record<string, string> = { room: 'Odaya', payment: 'Ödeme', complimentary: 'İkram' };
@@ -110,6 +110,14 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
   const [q, setQ] = useState('');
   const [dlg, setDlg] = useState<'settle' | 'discount' | 'edit' | 'cancel' | null>(null);
   const [voiding, setVoiding] = useState<{ id: string; name: string } | null>(null);
+  const toast = useToast();
+  const send = useAction(async (key: string) => {
+    const r = await post<PosSendResult>(`/api/v1/pos/checks/${id}/send`, {}, key);
+    setDetail(r.detail);
+    if (r.failed.length) toast.error(new Error(r.failed.map(f => `${f.printer}: ${f.error}`).join(' · ')));
+    else if (r.lines) toast.ok(`Sipariş gönderildi: ${r.sent.join(', ')}`);
+    return r;
+  });
   const setDetail = (r: PosCheckDetail) => { qc.setQueryData(['pos', 'check', id], r); void qc.invalidateQueries({ queryKey: ['pos', 'checks'] }); };
   const add = useAction(async (key: string, productId: string) => { const r = await post<PosCheckDetail>(`/api/v1/pos/checks/${id}/lines`, { productId, quantity: '1' }, key); setDetail(r); return r; }, { silentError: false });
 
@@ -118,6 +126,8 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
   const open = c.status === 'open';
   const shown = (products.data ?? []).filter(p => (!cat || p.category === cat) && (!q.trim() || `${p.name} ${p.code}`.toLocaleLowerCase('tr-TR').includes(q.trim().toLocaleLowerCase('tr-TR'))));
   const lines = d.data.lines;
+  // Gönderilmemiş yazdırılabilir ürünler ve gönderildikten sonra iptal edilenler (iptal fişi bekler).
+  const pending = lines.filter(l => l.printable && !l.isVoid && !l.sentAt).length;
 
   return (
     <div className="pos-check-screen">
@@ -146,7 +156,8 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
             <table className="dt"><tbody>{lines.map(l => (
               <tr key={l.id} className={l.isVoid ? 'strike muted' : ''} title={l.isVoid ? `İptal: ${l.voidReason} (${l.voidedBy})` : `${l.addedBy} · ${fmtDateTime(l.addedAt)}`}>
                 <td style={{ width: 50 }} className="num">{fmtQty(l.quantity)}×</td>
-                <td>{l.name}{l.note && <div className="muted" style={{ fontSize: 11 }}>{l.note}</div>}</td>
+                <td>{l.name}{l.printable && !l.isVoid && (l.sentAt ? <ChefHat size={12} className="muted" style={{ marginLeft: 4 }} /> : <Badge color="orange">Gönderilmedi</Badge>)}
+                  {l.note && <div className="muted" style={{ fontSize: 11 }}>{l.note}</div>}</td>
                 <td className="num">{fmtMoney(l.amount)}</td>
                 <td style={{ width: 34 }}>{open && !l.isVoid && <button className="btn sm ghost icon" title="Ürünü iptal et" onClick={() => setVoiding({ id: l.id, name: l.name })}><X /></button>}</td>
               </tr>))}</tbody></table>
@@ -161,12 +172,13 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
           {c.cancelReason && <div className="warn-box">İptal: {c.cancelReason}</div>}
         </div>
         <div className="pos-actions">
+          {open && can('pos.order') && <button className={`btn ${pending ? 'primary' : ''}`} disabled={send.busy} onClick={() => void send.run()}><ChefHat /> {send.busy ? 'Gönderiliyor…' : pending ? `Mutfağa gönder (${pending})` : 'Mutfağa gönder'}</button>}
           {open && can('pos.discount') && <button className="btn" onClick={() => setDlg('discount')}><Percent /> İndirim</button>}
           {open && can('pos.settle') && <button className="btn primary big" disabled={lines.every(l => l.isVoid)} onClick={() => setDlg('settle')}><Wallet /> Kapat / öde</button>}
           {(open || (c.status === 'closed' && can('pos.void'))) && <button className="btn ghost" onClick={() => setDlg('cancel')}><Ban /> {open ? 'Adisyonu iptal et' : 'Kapanmış adisyonu iptal et'}</button>}
         </div>
       </div>
-      {dlg === 'settle' && <SettleModal detail={d.data} onClose={() => setDlg(null)} onDone={r => { setDetail(r); setDlg(null); onClosed(); }} />}
+      {dlg === 'settle' && <SettleModal detail={d.data} pending={pending} onClose={() => setDlg(null)} onDone={r => { setDetail(r); setDlg(null); onClosed(); }} />}
       {dlg === 'discount' && <DiscountModal check={c} onClose={() => setDlg(null)} onDone={r => { setDetail(r); setDlg(null); }} />}
       {dlg === 'edit' && <EditCheckModal check={c} onClose={() => setDlg(null)} onDone={r => { setDetail(r); setDlg(null); }} />}
       {dlg === 'cancel' && <CancelCheckModal check={c} onClose={() => setDlg(null)} onDone={r => { setDetail(r); setDlg(null); onClosed(); }} />}
@@ -251,7 +263,7 @@ function CancelCheckModal({ check, onClose, onDone }: { check: PosCheck; onClose
 
 interface PayRow { methodId: string; currency: string; amount: string; reference: string }
 
-function SettleModal({ detail, onClose, onDone }: { detail: PosCheckDetail; onClose: () => void; onDone: (r: PosCheckDetail) => void }) {
+function SettleModal({ detail, pending, onClose, onDone }: { detail: PosCheckDetail; pending: number; onClose: () => void; onDone: (r: PosCheckDetail) => void }) {
   const { property, can } = useSession();
   const c = detail.check;
   const base = property?.currency ?? 'TRY';
@@ -294,6 +306,7 @@ function SettleModal({ detail, onClose, onDone }: { detail: PosCheckDetail; onCl
       <button className="btn primary" disabled={!ok || close.busy} onClick={() => void close.run()}>{close.busy ? 'Kapatılıyor…' : 'Adisyonu kapat'}</button>
     </>}>
       <div className="stack">
+        {pending > 0 && <div className="warn-box">Mutfağa gönderilmemiş {pending} ürün var. Hazırlanması gerekiyorsa önce gönderin.</div>}
         <Tabs value={mode} onChange={setMode} items={[{ key: 'payment' as const, label: 'Ödeme' }, { key: 'room' as const, label: 'Odaya aktar' }, ...(can('pos.discount') ? [{ key: 'complimentary' as const, label: 'İkram' }] : [])]} />
         {mode === 'payment' && (zero ? <div className="info-box">Tutar sıfır; ikram olarak kapatın.</div> : <>
           {rows.map((r, i) => (
