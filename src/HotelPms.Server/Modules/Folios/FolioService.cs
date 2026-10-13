@@ -9,12 +9,15 @@ public sealed record FolioDto(Guid Id, string FolioNumber, Guid? ReservationId, 
 
 public sealed record FolioLineDto(Guid Id, Guid FolioId, string LineType, string? TransactionCode, string? PaymentMethod, string Description,
     decimal Quantity, decimal? UnitPrice, decimal Amount, string Currency, DateOnly BusinessDate, DateTime PostedAt, string? Username,
-    long? ShiftNo, string? Reference, string? Reason, Guid? RelatedLineId, string? RoomNumber, bool IsVoided, decimal TransferredOut);
+    long? ShiftNo, string? Reference, string? Reason, Guid? RelatedLineId, string? RoomNumber, bool IsVoided, decimal TransferredOut,
+    string? TenderedCurrency, decimal? TenderedAmount, decimal? ExchangeRate);
 
 public sealed record PostChargeRequest(Guid TransactionCodeId, string? Description, decimal Quantity, decimal UnitPrice, string? Reference);
+/// <summary>Dövizli işlemde TenderedCurrency/TenderedAmount misafirden alınan (veya iade edilen) dövizdir; Amount sunucuda kurla hesaplanır.</summary>
 public sealed record PostPaymentRequest(Guid PaymentMethodId, decimal Amount, string? Description, string? Reference, Guid? CompanyId, Guid? AgencyId,
-    bool IsDeposit);
-public sealed record RefundRequest(Guid PaymentMethodId, decimal Amount, string Reason, string? Reference);
+    bool IsDeposit, string? TenderedCurrency = null, decimal? TenderedAmount = null, decimal? ExchangeRate = null);
+public sealed record RefundRequest(Guid PaymentMethodId, decimal Amount, string Reason, string? Reference, string? TenderedCurrency = null,
+    decimal? TenderedAmount = null, decimal? ExchangeRate = null);
 public sealed record DiscountRequest(string Kind, decimal Amount, string Reason, Guid? RelatedLineId);
 public sealed record VoidRequest(string Reason);
 public sealed record TransferLineRequest(Guid TargetFolioId, decimal? Amount, string Reason);
@@ -49,7 +52,8 @@ public static class FolioService
         SELECT l.id, l.folio_id, l.line_type, tc.code AS transaction_code, pm.name AS payment_method, l.description, l.quantity, l.unit_price, l.amount,
                l.currency::text AS currency, l.business_date, l.posted_at, u.username, cs.shift_no, l.reference, l.reason, l.related_line_id, l.room_number,
                EXISTS (SELECT 1 FROM pms.folio_lines v WHERE v.related_line_id = l.id AND v.line_type = 'void') AS is_voided,
-               COALESCE((SELECT -sum(t.amount) FROM pms.folio_lines t WHERE t.related_line_id = l.id AND t.line_type = 'transfer_out'), 0) AS transferred_out
+               COALESCE((SELECT -sum(t.amount) FROM pms.folio_lines t WHERE t.related_line_id = l.id AND t.line_type = 'transfer_out'), 0) AS transferred_out,
+               l.tendered_currency::text AS tendered_currency, l.tendered_amount, l.exchange_rate
         FROM pms.folio_lines l
         LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
         LEFT JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
@@ -126,18 +130,48 @@ public static class FolioService
 
     static Task<Guid> InsertLineAsync(Tx tx, Guid folioId, string type, string description, decimal amount, string currency, DateOnly bd,
         Guid? codeId = null, Guid? methodId = null, decimal quantity = 1, decimal? unitPrice = null, Guid? shiftId = null, string? reference = null,
-        string? reason = null, Guid? related = null, string? room = null, bool isRoomCharge = false, decimal? vat = null) =>
+        string? reason = null, Guid? related = null, string? room = null, bool isRoomCharge = false, decimal? vat = null, Tender? tender = null) =>
         tx.ScalarAsync<Guid>("""
             INSERT INTO pms.folio_lines (folio_id, line_type, transaction_code_id, payment_method_id, description, quantity, unit_price, amount, vat_rate,
-                currency, business_date, user_id, device_id, cashier_shift_id, reference, reason, related_line_id, room_number, is_room_charge)
+                currency, business_date, user_id, device_id, cashier_shift_id, reference, reason, related_line_id, room_number, is_room_charge,
+                tendered_currency, tendered_amount, exchange_rate)
             VALUES (@folioId, @type, @codeId, @methodId, @description, @quantity, @unitPrice, @amount, @vat, @currency, @bd, @uid, @device, @shiftId,
-                @reference, @reason, @related, @room, @isRoomCharge)
+                @reference, @reason, @related, @room, @isRoomCharge, @tCur, @tAmt, @tRate)
             RETURNING id
             """, new
         {
             folioId, type, codeId, methodId, description, quantity, unitPrice, amount, vat, currency, bd, uid = tx.Ctx.User?.Id, device = tx.Ctx.DeviceId,
-            shiftId, reference, reason, related, room, isRoomCharge,
+            shiftId, reference, reason, related, room, isRoomCharge, tCur = tender?.Currency, tAmt = tender?.Amount, tRate = tender?.Rate,
         });
+
+    /// <summary>Misafirden alınan/verilen döviz: Amount döviz cinsinden (folyo satırıyla aynı işaretli), Rate 1 birim dövizin folyo para birimi karşılığı.</summary>
+    public sealed record Tender(string Currency, decimal Amount, decimal Rate);
+
+    /// <summary>
+    /// Dövizli tahsilat/iade için folyo tutarını ve kuru belirler. Döviz seçilmemişse veya folyo para birimiyse (null, istek tutarı) döner.
+    /// Kur iş günündeki (yoksa en son girilen) kurdur; elle kur yalnız exchange_rate.manage yetkisiyle girilebilir.
+    /// </summary>
+    static async Task<(Tender? Tender, decimal Amount)> ResolveTenderAsync(Tx tx, string folioCurrency, string? currency, decimal? tendered,
+        decimal? manualRate, decimal requestAmount, DateOnly bd)
+    {
+        var cur = Validate.Optional(currency, 3)?.ToUpperInvariant();
+        if (cur is null || cur == folioCurrency) return (null, requestAmount);
+        if (tendered is not { } t) throw PmsException.Validation("Döviz tutarını girin.");
+        Validate.Money(t, "Döviz tutarı");
+        decimal rate;
+        if (manualRate is { } m)
+        {
+            tx.Ctx.Require("exchange_rate.manage");
+            if (m <= 0 || decimal.Round(m, 6) != m) throw PmsException.Validation("Kur pozitif ve en fazla 6 ondalıklı olmalıdır.");
+            rate = m;
+        }
+        else rate = await ExchangeRateEndpoints.CrossRateAsync(tx, cur, folioCurrency, bd);
+        var amount = decimal.Round(t * rate, 2, MidpointRounding.AwayFromZero);
+        if (amount <= 0) throw PmsException.Validation("Kurla hesaplanan tutar sıfırdan büyük olmalıdır.");
+        return (new Tender(cur, t, rate), amount);
+    }
+
+    static string TenderText(Tender? t) => t is null ? "" : $" ({Math.Abs(t.Amount):N2} {t.Currency} × {t.Rate:0.######})";
 
     public static async Task<Guid> PostChargeAsync(Tx tx, Guid folioId, PostChargeRequest req)
     {
@@ -162,6 +196,8 @@ public static class FolioService
     {
         var f = await LockOpenFolioAsync(tx, folioId);
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        var (tender, amount) = await ResolveTenderAsync(tx, f.Currency, req.TenderedCurrency, req.TenderedAmount, req.ExchangeRate, req.Amount, bd);
+        req = req with { Amount = amount };
         Validate.Money(req.Amount, "Tutar");
         var method = await tx.OneOrNullAsync<(string Name, string Kind, bool RequiresReference, bool IsActive)>(
             "SELECT name, kind, requires_reference, is_active FROM pms.payment_methods WHERE id = @id", new { id = req.PaymentMethodId });
@@ -170,11 +206,12 @@ public static class FolioService
         if (method.RequiresReference && reference is null) throw PmsException.Validation($"{method.Name} için referans (slip/dekont no) zorunludur.");
         var toAccount = method.Kind is "city_ledger" or "company" or "agency";
         if (req.IsDeposit && toAccount) throw PmsException.Validation("Depozito cari hesaba aktarılarak alınamaz.");
+        if (tender is not null && toAccount) throw PmsException.Validation("Cari hesaba aktarım dövizli yapılamaz; tutarı folyo para biriminde girin.");
         var shift = await CurrentShiftAsync(tx, required: !toAccount);
         var type = req.IsDeposit ? "deposit" : "payment";
-        var desc = Validate.Optional(req.Description, 300) ?? (req.IsDeposit ? "Depozito - " : "Tahsilat - ") + method.Name;
+        var desc = (Validate.Optional(req.Description, 250) ?? (req.IsDeposit ? "Depozito - " : "Tahsilat - ") + method.Name) + TenderText(tender);
         var lineId = await InsertLineAsync(tx, folioId, type, desc, -req.Amount, f.Currency, bd, methodId: req.PaymentMethodId, shiftId: shift,
-            reference: reference, room: f.RoomNumber);
+            reference: reference, room: f.RoomNumber, tender: tender is null ? null : tender with { Amount = -tender.Amount });
 
         if (toAccount)
         {
@@ -195,7 +232,7 @@ public static class FolioService
             tx.Publish("folios", accountFolio);
         }
         await tx.AuditAsync(req.IsDeposit ? "payment.deposit" : "payment.create", "folio", folioId, null,
-            new { lineId, amount = req.Amount, method = method.Name, reference, req.CompanyId, req.AgencyId });
+            new { lineId, amount = req.Amount, method = method.Name, reference, req.CompanyId, req.AgencyId, tender });
         tx.Publish("folios", folioId);
         tx.Publish("cashier");
         return lineId;
@@ -218,6 +255,8 @@ public static class FolioService
     {
         var f = await LockOpenFolioAsync(tx, folioId);
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        var (tender, amount) = await ResolveTenderAsync(tx, f.Currency, req.TenderedCurrency, req.TenderedAmount, req.ExchangeRate, req.Amount, bd);
+        req = req with { Amount = amount };
         Validate.Money(req.Amount, "İade tutarı");
         var reason = Validate.Required(req.Reason, "İade gerekçesi", 300);
         var method = await tx.OneOrNullAsync<(string Name, string Kind, bool RequiresReference)>(
@@ -233,9 +272,9 @@ public static class FolioService
             """, new { folioId });
         if (req.Amount > netCollected) throw PmsException.Validation($"İade tutarı bu folyoda alınan net tahsilatı ({netCollected:N2}) aşamaz.");
         var shift = await CurrentShiftAsync(tx, required: true);
-        var id = await InsertLineAsync(tx, folioId, "refund", "İade - " + method.Name, req.Amount, f.Currency, bd, methodId: req.PaymentMethodId,
-            shiftId: shift, reference: reference, reason: reason, room: f.RoomNumber);
-        await tx.AuditAsync("payment.refund", "folio", folioId, null, new { lineId = id, req.Amount, method = method.Name, reference }, reason);
+        var id = await InsertLineAsync(tx, folioId, "refund", "İade - " + method.Name + TenderText(tender), req.Amount, f.Currency, bd,
+            methodId: req.PaymentMethodId, shiftId: shift, reference: reference, reason: reason, room: f.RoomNumber, tender: tender);
+        await tx.AuditAsync("payment.refund", "folio", folioId, null, new { lineId = id, req.Amount, method = method.Name, reference, tender }, reason);
         tx.Publish("folios", folioId);
         tx.Publish("cashier");
         return id;
@@ -266,8 +305,12 @@ public static class FolioService
 
     public static async Task<Guid> VoidAsync(Tx tx, Guid lineId, VoidRequest req)
     {
-        var line = await tx.OneOrNullAsync<(Guid FolioId, string LineType, decimal Amount, DateOnly BusinessDate, string Description, Guid? MethodId, bool IsRoomCharge)>(
-            "SELECT folio_id, line_type, amount, business_date, description, payment_method_id, is_room_charge FROM pms.folio_lines WHERE id = @lineId", new { lineId });
+        var line = await tx.OneOrNullAsync<(Guid FolioId, string LineType, decimal Amount, DateOnly BusinessDate, string Description, Guid? MethodId,
+            bool IsRoomCharge, string? TCur, decimal? TAmt, decimal? TRate)>("""
+            SELECT folio_id, line_type, amount, business_date, description, payment_method_id, is_room_charge,
+                   tendered_currency::text, tendered_amount, exchange_rate
+            FROM pms.folio_lines WHERE id = @lineId
+            """, new { lineId });
         if (line == default) throw PmsException.NotFound("Folyo satırı");
         var f = await LockOpenFolioAsync(tx, line.FolioId);
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
@@ -279,7 +322,8 @@ public static class FolioService
             throw PmsException.Validation("Bu satır daha önce iptal edilmiş veya aktarılmış.");
         Guid? shift = line.LineType is "payment" or "deposit" or "refund" ? await CurrentShiftAsync(tx, false) : null;
         var id = await InsertLineAsync(tx, line.FolioId, "void", "İPTAL: " + line.Description, -line.Amount, f.Currency, bd, methodId: line.MethodId,
-            shiftId: shift, reason: reason, related: lineId, room: f.RoomNumber);
+            shiftId: shift, reason: reason, related: lineId, room: f.RoomNumber,
+            tender: line.TCur is null ? null : new Tender(line.TCur, -line.TAmt!.Value, line.TRate!.Value));
         // Cari hesaba aktarılmış tahsilatın karşı kaydı da iptal edilir.
         var mirrors = await tx.ListAsync<(Guid Id, Guid FolioId, decimal Amount, string Description)>(
             "SELECT id, folio_id, amount, description FROM pms.folio_lines WHERE related_line_id = @lineId AND line_type = 'charge'", new { lineId });
@@ -357,17 +401,42 @@ public static class FolioService
         return inId;
     }
 
-    public static async Task<Guid> PostRoomChargeAsync(Tx tx, Guid reservationId, int window, string currency, DateOnly bd, decimal rate, string roomNumber,
-        string reservationNumber, Guid roomCodeId)
+    /// <summary>Konaklama vergisi yapılandırması. Rate ve VatRate yüzde; Included: gecelik fiyat vergiyi içerir (ayrıştırılır), değilse üstüne eklenir.</summary>
+    public sealed record AccommodationTax(decimal Rate, bool Included, Guid CodeId);
+
+    /// <summary>
+    /// Gecelik oda ücretini (ve tanımlıysa konaklama vergisini) yazar; yazılan toplamı döner.
+    /// Konaklama vergisi KDV hariç oda bedeli üzerinden hesaplanır ve KDV matrahına dahildir:
+    /// net = fiyat / ((1 + kv) × (1 + kdv)), vergi satırı = net × kv × (1 + kdv). "Üstüne eklenir" modunda vergi = fiyat × kv.
+    /// </summary>
+    public static async Task<decimal> PostRoomChargeAsync(Tx tx, Guid reservationId, int window, string currency, DateOnly bd, decimal rate, string roomNumber,
+        string reservationNumber, Guid roomCodeId, decimal roomVatRate, AccommodationTax? kv)
     {
         var folioId = await tx.ScalarAsync<Guid?>(
             "SELECT id FROM pms.folios WHERE reservation_id = @reservationId AND window_no = @window AND status = 'open'", new { reservationId, window })
             ?? await tx.ScalarAsync<Guid?>("SELECT id FROM pms.folios WHERE reservation_id = @reservationId AND status = 'open' ORDER BY window_no LIMIT 1", new { reservationId })
             ?? throw PmsException.Conflict($"{reservationNumber} için açık folyo yok.");
-        var lineId = await InsertLineAsync(tx, folioId, "charge", $"Konaklama {bd:dd.MM.yyyy}", rate, currency, bd, codeId: roomCodeId, unitPrice: rate,
-            room: roomNumber, isRoomCharge: true);
+        decimal tax = 0;
+        var roomAmount = rate;
+        if (kv is { Rate: > 0 })
+        {
+            var t = kv.Rate / 100m;
+            var v = roomVatRate / 100m;
+            if (kv.Included)
+            {
+                var net = rate / ((1 + t) * (1 + v));
+                tax = decimal.Round(net * t * (1 + v), 2, MidpointRounding.AwayFromZero);
+                roomAmount = rate - tax;
+            }
+            else tax = decimal.Round(rate * t, 2, MidpointRounding.AwayFromZero);
+        }
+        var lineId = await InsertLineAsync(tx, folioId, "charge", $"Konaklama {bd:dd.MM.yyyy}", roomAmount, currency, bd, codeId: roomCodeId, unitPrice: roomAmount,
+            room: roomNumber, isRoomCharge: true, vat: roomVatRate);
         await tx.ExecAsync("INSERT INTO pms.room_charge_postings (reservation_id, business_date, folio_line_id) VALUES (@reservationId, @bd, @lineId)",
             new { reservationId, bd, lineId });
-        return lineId;
+        if (tax > 0)
+            await InsertLineAsync(tx, folioId, "charge", $"Konaklama vergisi %{kv!.Rate:0.##} {bd:dd.MM.yyyy}", tax, currency, bd, codeId: kv.CodeId,
+                unitPrice: tax, room: roomNumber, vat: roomVatRate);
+        return roomAmount + tax;
     }
 }

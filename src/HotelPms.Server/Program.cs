@@ -164,6 +164,7 @@ try
     ReservationEndpoints.Map(app);
     GroupEndpoints.Map(app);
     FolioEndpoints.Map(app);
+    ExchangeRateEndpoints.Map(app);
     NightAuditEndpoints.Map(app);
     ReportEndpoints.Map(app);
     KbsService.Map(app);

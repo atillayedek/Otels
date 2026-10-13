@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRightLeft, Ban, CreditCard, FilePlus2, Lock, Percent, Plus, Printer, Receipt, RotateCcw, Undo2, Unlock } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
-import type { Folio, FolioDetail, FolioLine, Reservation } from '../lib/types';
-import { fmtDate, fmtDateTime, fmtMoney, isZero, LINE_LABEL } from '../lib/format';
+import type { ExchangeRatesView, Folio, FolioDetail, FolioLine, Reservation } from '../lib/types';
+import { fmtDate, fmtDateTime, fmtMoney, fmtRate, isZero, LINE_LABEL, parseRate } from '../lib/format';
 import { useAgencies, useCompanies, usePaymentMethods, useTransactionCodes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useAction } from './common';
@@ -122,19 +122,30 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   const agencies = useAgencies();
   const { can } = useSession();
   const cashier = useQuery({ queryKey: ['cashier', 'current'], queryFn: () => get<unknown>('/api/v1/cashier/current'), enabled: can('cashier.manage') });
+  const isMoney = dlg.kind === 'payment' || dlg.kind === 'refund';
+  const fx = useQuery({ queryKey: ['exchangeRates'], queryFn: () => get<ExchangeRatesView>('/api/v1/exchange-rates'), enabled: isMoney });
   const [v, setV] = useState<Record<string, string>>({ quantity: '1', kind: 'discount', payerKind: 'guest', invoiceDate: new Date().toISOString().slice(0, 10) });
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV(s => ({ ...s, [k]: e.target.value }));
   const setVal = (k: string) => (x: string) => setV(s => ({ ...s, [k]: x }));
   const method = methods.data?.find(m => m.id === v.methodId);
   const code = codes.data?.find(c => c.id === v.codeId);
   const others = folios.filter(x => x.id !== folio?.id && x.status === 'open');
+  // Dövizli işlem: tutar sunucuda kurla hesaplanır; burada yalnız bilgi amaçlı yaklaşık karşılık gösterilir.
+  const tCur = v.currency && v.currency !== folio?.currency ? v.currency : null;
+  const fxRate = tCur ? fx.data?.rates.find(r => r.currency === tCur) : undefined;
+  const manualRate = v.rate ? parseRate(v.rate) : null;
+  const appliedRate = manualRate ?? fxRate?.rate;
+  const approx = tCur && v.tendered && appliedRate ? (Math.round(Number(v.tendered) * Number(appliedRate) * 100) / 100).toFixed(2) : null;
+  const money = tCur
+    ? { tenderedCurrency: tCur, tenderedAmount: v.tendered, exchangeRate: manualRate, amount: approx ?? '0' }
+    : { amount: v.amount };
 
   const act = useAction(async (key: string) => {
     const id = folio?.id;
     switch (dlg.kind) {
       case 'charge': await post(`/api/v1/folios/${id}/charges`, { transactionCodeId: v.codeId, description: v.description || null, quantity: v.quantity, unitPrice: v.unitPrice, reference: v.reference || null }, key); break;
-      case 'payment': await post(`/api/v1/folios/${id}/payments`, { paymentMethodId: v.methodId, amount: v.amount, description: v.description || null, reference: v.reference || null, companyId: v.companyId || null, agencyId: v.agencyId || null, isDeposit: v.isDeposit === '1' }, key); break;
-      case 'refund': await post(`/api/v1/folios/${id}/refunds`, { paymentMethodId: v.methodId, amount: v.amount, reason: v.reason, reference: v.reference || null }, key); break;
+      case 'payment': await post(`/api/v1/folios/${id}/payments`, { paymentMethodId: v.methodId, ...money, description: v.description || null, reference: v.reference || null, companyId: v.companyId || null, agencyId: v.agencyId || null, isDeposit: v.isDeposit === '1' }, key); break;
+      case 'refund': await post(`/api/v1/folios/${id}/refunds`, { paymentMethodId: v.methodId, ...money, reason: v.reason, reference: v.reference || null }, key); break;
       case 'discount': await post(`/api/v1/folios/${id}/discounts`, { kind: v.kind, amount: v.amount, reason: v.reason, relatedLineId: dlg.line?.id ?? null }, key); break;
       case 'void': await post(`/api/v1/folio-lines/${dlg.line.id}/void`, { reason: v.reason }, key); break;
       case 'transfer': await post(`/api/v1/folio-lines/${dlg.line.id}/transfer`, { targetFolioId: v.target, amount: v.amount || null, reason: v.reason }, key); break;
@@ -150,8 +161,8 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   const needsShift = (dlg.kind === 'payment' || dlg.kind === 'refund') && !toAccount && cashier.isFetched && !cashier.data;
   const ok = {
     charge: !!v.codeId && !!v.unitPrice && Number(v.quantity) > 0,
-    payment: !!v.methodId && !!v.amount && (!method?.requiresReference || !!v.reference) && (!toAccount || !!v.companyId || !!v.agencyId) && !needsShift,
-    refund: !!v.methodId && !!v.amount && !!v.reason?.trim() && !needsShift,
+    payment: !!v.methodId && (tCur ? !!v.tendered && !!appliedRate && !toAccount : !!v.amount) && (!method?.requiresReference || !!v.reference) && (!toAccount || !!v.companyId || !!v.agencyId) && !needsShift,
+    refund: !!v.methodId && (tCur ? !!v.tendered && !!appliedRate : !!v.amount) && !!v.reason?.trim() && !needsShift,
     discount: !!v.amount && !!v.reason?.trim(),
     void: !!v.reason?.trim(),
     transfer: !!v.target && !!v.reason?.trim(),
@@ -189,9 +200,29 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
               <option value="">Seçin</option>{methods.data?.filter(m => m.isActive && (dlg.kind === 'payment' || !['city_ledger', 'company', 'agency'].includes(m.kind))).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </Field>
-          <Field label="Tutar" required className="span-2" hint={folio && dlg.kind === 'payment' ? `Bakiye ${fmtMoney(folio.balance, folio.currency)}` : undefined}>
-            <div className="row"><MoneyInput value={v.amount ?? ''} onChange={setVal('amount')} />{folio && dlg.kind === 'payment' && !folio.balance.startsWith('-') && !isZero(folio.balance) && <button className="btn sm" onClick={() => setVal('amount')(folio.balance)}>Tamamı</button>}</div>
-          </Field>
+          {(fx.data?.currencies.length ?? 0) > 0 && !toAccount && (
+            <Field label="Para birimi" className="span-2">
+              <select className="input" value={v.currency ?? folio?.currency ?? ''} onChange={e => setV(s => ({ ...s, currency: e.target.value, tendered: '', rate: '' }))}>
+                <option value={folio?.currency}>{folio?.currency}</option>
+                {fx.data!.currencies.filter(c => c !== folio?.currency).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+          )}
+          {!tCur ? (
+            <Field label="Tutar" required className="span-2" hint={folio && dlg.kind === 'payment' ? `Bakiye ${fmtMoney(folio.balance, folio.currency)}` : undefined}>
+              <div className="row"><MoneyInput value={v.amount ?? ''} onChange={setVal('amount')} />{folio && dlg.kind === 'payment' && !folio.balance.startsWith('-') && !isZero(folio.balance) && <button className="btn sm" onClick={() => setVal('amount')(folio.balance)}>Tamamı</button>}</div>
+            </Field>
+          ) : <>
+            <Field label={`${dlg.kind === 'payment' ? 'Alınan' : 'Verilen'} ${tCur}`} required className="span-2"
+              hint={fxRate ? `Kur ${fmtRate(fxRate.rate)} (${fmtDate(fxRate.rateDate)})` : 'Bu döviz için kur girilmemiş'}>
+              <div className="row"><MoneyInput value={v.tendered ?? ''} onChange={setVal('tendered')} />
+                {folio && dlg.kind === 'payment' && appliedRate && Number(folio.balance) > 0 && <button className="btn sm" title="Bakiyenin döviz karşılığı" onClick={() => setVal('tendered')((Math.ceil(Number(folio.balance) / Number(appliedRate) * 100) / 100).toFixed(2))}>Tamamı</button>}</div>
+            </Field>
+            {can('exchange_rate.manage') && <Field label="Kur (elle, isteğe bağlı)" className="span-2" hint="Boşsa günün kuru kullanılır"><input className="input num" value={v.rate ?? ''} onChange={set('rate')} inputMode="decimal" placeholder={fxRate ? fmtRate(fxRate.rate) : ''} /></Field>}
+            <div className="span-4 info-box">
+              {approx ? <>Folyoya işlenecek tutar ≈ <b>{fmtMoney(approx, folio?.currency)}</b> (kesin tutar kayıtta hesaplanır).</> : !appliedRate ? <>{tCur} için kur yok. Ön Kasa → Döviz Kurları ekranından girin.</> : <>Döviz tutarını girin.</>}
+            </div>
+          </>}
           {toAccount && dlg.kind === 'payment' && <>
             <Field label="Şirket" className="span-2"><select className="input" value={v.companyId ?? ''} onChange={e => setV(s => ({ ...s, companyId: e.target.value, agencyId: '' }))}><option value="">—</option>{companies.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
             <Field label="veya Acente" className="span-2"><select className="input" value={v.agencyId ?? ''} onChange={e => setV(s => ({ ...s, agencyId: e.target.value, companyId: '' }))}><option value="">—</option>{agencies.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>

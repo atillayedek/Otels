@@ -15,13 +15,13 @@
 |---|---|
 | Süper Yönetici, Otel Yöneticisi | Tüm yetkiler |
 | Genel Müdür | Yönetim ayarları (kullanıcı, cihaz, yedek, aktarım, entegrasyon, yazıcı, oda tanımı) dışında her şey |
-| Ön Büro Müdürü | Rezervasyon (fiyat aşımı ve overbook dahil), giriş/çıkış, oda değişikliği, misafir ve kara liste, şirket/acente, fiyat planları, tüm folyo ve kasa işlemleri (iade, indirim, iptal), kat hizmetleri durumu ve görev ataması, arıza ve oda blokajı, gece denetimi, finansal raporlar, KBS, denetim kayıtları |
+| Ön Büro Müdürü | Rezervasyon (fiyat aşımı ve overbook dahil), giriş/çıkış, oda değişikliği, misafir ve kara liste, şirket/acente, fiyat planları, tüm folyo ve kasa işlemleri (iade, indirim, iptal), döviz kuru girişi, kat hizmetleri durumu ve görev ataması, arıza ve oda blokajı, gece denetimi, finansal raporlar, KBS, denetim kayıtları |
 | Resepsiyon | Rezervasyon oluşturma/düzenleme/iptal, giriş/çıkış, walk-in, oda değişikliği, misafir kartı (kimlik görme), folyo görüntüleme, masraf, tahsilat, aktarım, folyo kapatma ve fatura no, kasa vardiyası, oda temizlik durumu, arıza bildirme, operasyon raporları, KBS |
-| Gece Denetçisi | Gece resepsiyonu (rezervasyon, giriş/çıkış, oda değişikliği, misafir), masraf, tahsilat, aktarım, folyo kapatma, kasa, no-show, oda durumu, arıza bildirme, gece denetimi, finansal raporlar, KBS |
+| Gece Denetçisi | Gece resepsiyonu (rezervasyon, giriş/çıkış, oda değişikliği, misafir), masraf, tahsilat, aktarım, folyo kapatma, kasa, döviz kuru girişi, no-show, oda durumu, arıza bildirme, gece denetimi, finansal raporlar, KBS |
 | Kat Hizmetleri Müdürü | Oda durumları, kontrol onayı (inspected), görev ataması, arıza ve oda blokajı, raporlar |
 | Kat Görevlisi | Oda durumları, görevleri güncelleme, arıza bildirme |
-| Muhasebe | Folyo ve cari işlemleri (iade, indirim, iptal dahil), şirket/acente, tüm kasa vardiyaları, finansal raporlar, denetim kayıtları |
-| Kasiyer | Folyo görüntüleme, masraf, tahsilat, folyo kapatma, kasa vardiyası |
+| Muhasebe | Folyo ve cari işlemleri (iade, indirim, iptal dahil), şirket/acente, tüm kasa vardiyaları, döviz kuru girişi, finansal raporlar, denetim kayıtları |
+| Kasiyer | Folyo görüntüleme, masraf, tahsilat, folyo kapatma, kasa vardiyası, döviz kuru girişi |
 | Satış | Rezervasyon oluşturma/düzenleme/iptal, misafir, şirket/acente, fiyat planları ve elle fiyat, raporlar |
 | Teknik Servis | Arıza kayıtları ve oda blokajı |
 | Yalnız Rapor | Gösterge paneli ve raporlar |

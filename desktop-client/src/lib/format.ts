@@ -110,3 +110,18 @@ export function fmtPct(value?: string | null): string {
   if (!value.includes('.')) return value;
   return value.replace(/0+$/, '').replace(/\.$/, '').replace('.', ',') || '0';
 }
+
+/** Kur gösterimi: 6 ondalığa kadar, Türkçe ondalık ayırıcıyla. */
+export function fmtRate(rate?: string | null) {
+  if (!rate) return '';
+  const [i, d = ''] = rate.split('.');
+  const frac = d.replace(/0+$/, '').padEnd(4, '0');
+  return `${i.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${frac}`;
+}
+
+export function parseRate(s: string): string | null {
+  // "37,5421" ve "1.234,5" Türkçe biçim; virgül yoksa tek nokta ondalık sayılır ("37.5421").
+  const t = s.includes(',') ? s.trim().replace(/\./g, '').replace(',', '.') : s.trim();
+  if (!/^\d+(\.\d{1,6})?$/.test(t) || Number(t) <= 0) return null;
+  return t;
+}

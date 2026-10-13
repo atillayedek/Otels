@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
-import { api } from '../../lib/api';
-import type { PaymentMethod, TransactionCode } from '../../lib/types';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Save } from 'lucide-react';
+import { api, get } from '../../lib/api';
+import type { PaymentMethod, Setting, TransactionCode } from '../../lib/types';
+import { useSession } from '../../lib/session';
 import { fmtMoney } from '../../lib/format';
 import { usePaymentMethods, useTransactionCodes } from '../../lib/queries';
 import { PageHead, useAction } from '../../components/common';
@@ -30,6 +31,7 @@ export default function FinanceSettingsPage() {
   return (
     <div className="page">
       <PageHead title="İşlem Kodları ve Ödeme Tipleri" />
+      <CurrencyTaxCard />
       <div className="grid cols-2" style={{ alignItems: 'start' }}>
         <div className="card"><div className="card-head"><h3>İşlem kodları (masraflar)</h3><div className="right"><button className="btn sm primary" onClick={() => setCode('new')}><Plus /> Ekle</button></div></div>
           <div className="card-body tight"><DataTable rows={codes.data ?? []} columns={ccols} rowKey={c => c.id} onRowClick={setCode} empty={<Empty title="İşlem kodu yok" />} /></div></div>
@@ -38,6 +40,66 @@ export default function FinanceSettingsPage() {
       </div>
       {code && <CodeModal c={code === 'new' ? undefined : code} onClose={() => setCode(null)} />}
       {method && <MethodModal m={method === 'new' ? undefined : method} onClose={() => setMethod(null)} />}
+    </div>
+  );
+}
+
+const RATE_TYPES: Record<string, string> = { BanknoteBuying: 'Efektif alış', BanknoteSelling: 'Efektif satış', ForexBuying: 'Döviz alış', ForexSelling: 'Döviz satış' };
+
+/** Döviz listesi, TCMB kur türü ve konaklama vergisi ayarları. */
+function CurrencyTaxCard() {
+  const qc = useQueryClient();
+  const { property } = useSession();
+  const settings = useQuery({ queryKey: ['settings', 'all'], queryFn: () => get<Setting[]>('/api/v1/property/settings') });
+  const val = (k: string) => settings.data?.find(s => s.key === k)?.value;
+  const [f, setF] = useState<{ currencies: string; rateType: string; kvRate: string; kvIncluded: boolean } | null>(null);
+  useEffect(() => {
+    if (!settings.data || f) return;
+    setF({
+      currencies: ((val('finance.currencies') as string[] | undefined) ?? []).join(', '),
+      rateType: String(val('finance.tcmb_rate_type') ?? 'BanknoteBuying'),
+      kvRate: String(val('tax.accommodation_rate') ?? '0'),
+      kvIncluded: val('tax.accommodation_included') !== false,
+    });
+  }, [settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = useAction(async () => {
+    const list = f!.currencies.split(/[\s,;]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+    const rate = Number(f!.kvRate.replace(',', '.'));
+    await api('PUT', '/api/v1/property/settings/finance.currencies', list);
+    await api('PUT', '/api/v1/property/settings/finance.tcmb_rate_type', f!.rateType);
+    await api('PUT', '/api/v1/property/settings/tax.accommodation_rate', Number.isFinite(rate) ? rate : -1);
+    await api('PUT', '/api/v1/property/settings/tax.accommodation_included', f!.kvIncluded);
+    await qc.invalidateQueries({ queryKey: ['settings'] });
+    await qc.invalidateQueries({ queryKey: ['exchangeRates'] });
+  }, { success: 'Döviz ve vergi ayarları kaydedildi.' });
+  if (!f) return null;
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card-head"><h3>Döviz ve konaklama vergisi</h3><div className="right"><button className="btn sm primary" disabled={save.busy} onClick={() => void save.run()}><Save /> Kaydet</button></div></div>
+      <div className="card-body">
+        <div className="form-grid">
+          <Field label="Kabul edilen dövizler" className="span-2" hint={`ISO kodları, virgülle (ör. EUR, USD, GBP). Tesis para birimi: ${property?.currency ?? ''}`}>
+            <input className="input" value={f.currencies} onChange={e => setF(s => ({ ...s!, currencies: e.target.value }))} />
+          </Field>
+          <Field label="TCMB'den alınacak kur" className="span-2" hint="Ön Kasa → Döviz Kurları ekranındaki 'TCMB kurlarını al' bu kuru kaydeder">
+            <select className="input" value={f.rateType} onChange={e => setF(s => ({ ...s!, rateType: e.target.value }))}>{Object.entries(RATE_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+          </Field>
+          <Field label="Konaklama vergisi %" hint="0 ise uygulanmaz">
+            <input className="input num" value={f.kvRate} onChange={e => setF(s => ({ ...s!, kvRate: e.target.value }))} inputMode="decimal" />
+          </Field>
+          <Field label="Fiyatlara göre" className="span-3">
+            <select className="input" value={f.kvIncluded ? '1' : '0'} onChange={e => setF(s => ({ ...s!, kvIncluded: e.target.value === '1' }))}>
+              <option value="1">Gecelik fiyatlara dahil (gece denetiminde fiyattan ayrıştırılır)</option>
+              <option value="0">Gecelik fiyatın üstüne eklenir</option>
+            </select>
+          </Field>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+          Konaklama vergisi gece denetiminde oda ücretinden ayrı bir satır olarak ("KV" işlem kodu) yazılır. Hesap KDV hariç oda bedeli üzerinden yapılır ve vergi KDV matrahına dahil edilir;
+          oda KDV oranı "ROOM" işlem kodundan alınır. Oranı ve uygulamayı mali müşavirinizle teyit edin.
+        </div>
+        <ErrorBox error={save.error} />
+      </div>
     </div>
   );
 }

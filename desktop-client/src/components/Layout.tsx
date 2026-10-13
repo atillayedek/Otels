@@ -39,6 +39,7 @@ export const NAV: NavGroup[] = [
   {
     label: 'Ön Kasa', icon: <Wallet size={17} />, items: [
       { to: '/cashier', label: 'Kasa Vardiyası', perm: 'cashier.manage' },
+      { to: '/exchange-rates', label: 'Döviz Kurları', perm: 'folio.view' },
       { to: '/reports/folio-balances', label: 'Açık Folyolar', perm: 'financial_report.view' },
       { to: '/reports/company-ledger', label: 'Şirket Cari', perm: 'financial_report.view' },
       { to: '/settings/finance', label: 'İşlem Kodları ve Ödeme Tipleri', perm: 'settings.manage' },

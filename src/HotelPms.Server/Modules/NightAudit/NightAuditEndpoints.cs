@@ -12,9 +12,9 @@ namespace HotelPms.Server.Modules.NightAudit;
 public sealed record AuditIssue(string Code, string Severity, string Message, Guid? ReservationId, string? Reference);
 public sealed record NightAuditPreview(DateOnly BusinessDate, DateOnly NextBusinessDate, bool AlreadyClosed, IReadOnlyList<AuditIssue> Blockers,
     IReadOnlyList<AuditIssue> Warnings, int RoomChargesToPost, decimal RoomChargeTotal, int InHouse, bool CanRun);
-public sealed record RunNightAuditRequest(DateOnly BusinessDate, bool AutoNoShow);
+public sealed record RunNightAuditRequest(DateOnly BusinessDate, bool AutoNoShow, bool CancelExpiredOptions = false);
 public sealed record NightAuditResult(DateOnly ClosedDate, DateOnly NewBusinessDate, int RoomChargesPosted, decimal RoomChargeTotal, int NoShows,
-    IReadOnlyList<AuditIssue> Warnings);
+    IReadOnlyList<AuditIssue> Warnings, int OptionsCancelled = 0, decimal AccommodationTaxTotal = 0);
 public sealed record NightAuditHistoryDto(Guid Id, DateOnly BusinessDate, DateTime StartedAt, DateTime CompletedAt, string Username, JsonElement Summary);
 
 public static class NightAuditEndpoints
@@ -24,7 +24,8 @@ public static class NightAuditEndpoints
         var g = app.MapGroup("/api/v1/night-audit").WithTags("NightAudit").RequirePermission("night_audit.execute");
 
         // autoNoShow: gelmeyen bugünkü rezervasyonlar engel değil, no-show yapılacak uyarısı olarak gösterilir.
-        g.MapGet("/preview", (CommandRunner cmd, bool? autoNoShow) => cmd.ReadAsync(tx => PreviewAsync(tx, autoNoShow ?? false)));
+        g.MapGet("/preview", (CommandRunner cmd, bool? autoNoShow, bool? cancelExpiredOptions) =>
+            cmd.ReadAsync(tx => PreviewAsync(tx, autoNoShow ?? false, cancelExpiredOptions ?? false)));
 
         g.MapGet("/history", (Db db) => db.QueryAsync<NightAuditHistoryDto>("""
             SELECT n.id, n.business_date, n.started_at, n.completed_at, u.username, n.summary
@@ -53,20 +54,37 @@ public static class NightAuditEndpoints
                 }
             }
 
-            var preview = await PreviewAsync(tx, req.AutoNoShow);
+            // Opsiyon süresi bugün veya daha önce dolmuş, girişi henüz gelmemiş opsiyonlu rezervasyonlar iptal edilir (kapasite serbest kalır).
+            var optionsCancelled = 0;
+            if (req.CancelExpiredOptions)
+            {
+                var expired = await tx.ListAsync<(Guid Id, int Version, DateOnly OptionUntil)>(ExpiredOptionsSql, new { bd });
+                foreach (var o in expired)
+                {
+                    await ReservationService.CancelAsync(tx, o.Id, new CancelRequest($"Opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}) — gece denetimi", o.Version));
+                    optionsCancelled++;
+                }
+            }
+
+            var preview = await PreviewAsync(tx, req.AutoNoShow, req.CancelExpiredOptions);
             if (preview.Blockers.Count > 0)
                 throw new PmsException(409, "night_audit_blocked", "Gece denetimi tamamlanamaz. Önce engelleri giderin.", preview.Blockers);
 
             // Oda ücretleri: her in-house konaklama için bu gecenin ücreti bir kez.
-            var roomCode = await tx.OneAsync<Guid>("SELECT id FROM pms.transaction_codes WHERE code = 'ROOM'");
+            var roomCode = await tx.OneAsync<(Guid Id, decimal VatRate)>("SELECT id, vat_rate FROM pms.transaction_codes WHERE code = 'ROOM'");
+            var kv = await AccommodationTaxAsync(tx);
             var currency = await PropertyEndpoints.CurrencyAsync(tx);
             var toPost = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd });
-            decimal total = 0;
+            decimal total = 0, posted = 0;
             foreach (var c in toPost.Where(c => c.Rate > 0))
             {
-                await FolioService.PostRoomChargeAsync(tx, c.ReservationId, c.Window, currency, bd, c.Rate, c.RoomNumber, c.ReservationNumber, roomCode);
+                posted += await FolioService.PostRoomChargeAsync(tx, c.ReservationId, c.Window, currency, bd, c.Rate, c.RoomNumber, c.ReservationNumber,
+                    roomCode.Id, roomCode.VatRate, kv);
                 total += c.Rate;
             }
+            var taxTotal = kv is null ? 0 : await tx.ScalarAsync<decimal>(
+                "SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines WHERE business_date = @bd AND transaction_code_id = @code AND line_type = 'charge'",
+                new { bd, code = kv.CodeId });
             // Ücretsiz (0) gece için de tek kayıt tutulmaz; complimentary istatistiğe yansır.
             var stats = await ComputeStatisticsAsync(tx, bd);
             await tx.ExecAsync("""
@@ -79,7 +97,8 @@ public static class NightAuditEndpoints
             var next = bd.AddDays(1);
             var summary = new
             {
-                roomChargesPosted = toPost.Count(c => c.Rate > 0), roomChargeTotal = total, noShows, stats.RoomsSold, stats.OccupancyPct,
+                roomChargesPosted = toPost.Count(c => c.Rate > 0), roomChargeTotal = total, postedTotal = posted, accommodationTax = taxTotal, noShows,
+                optionsCancelled, stats.RoomsSold, stats.OccupancyPct,
                 stats.Adr, stats.Revpar, stats.RoomRevenue, stats.OtherRevenue, stats.Payments,
             };
             await tx.ExecAsync("""
@@ -97,9 +116,25 @@ public static class NightAuditEndpoints
             tx.Publish("reservations");
             tx.Publish("availability");
             tx.Publish("rooms");
-            return new NightAuditResult(bd, next, summary.roomChargesPosted, total, noShows, preview.Warnings);
+            return new NightAuditResult(bd, next, summary.roomChargesPosted, total, noShows, preview.Warnings, optionsCancelled, taxTotal);
         }, isolation: IsolationLevel.ReadCommitted));
     }
+
+    /// <summary>Konaklama vergisi açıksa (oran > 0) yapılandırmayı döner.</summary>
+    static async Task<FolioService.AccommodationTax?> AccommodationTaxAsync(Tx tx)
+    {
+        var rate = await PropertyEndpoints.SettingAsync<decimal>(tx, "tax.accommodation_rate");
+        if (rate <= 0) return null;
+        var code = await tx.ScalarAsync<Guid?>("SELECT id FROM pms.transaction_codes WHERE code = 'KV' AND is_active")
+            ?? throw PmsException.Validation("Konaklama vergisi açık ancak 'KV' işlem kodu bulunamadı veya pasif. Yönetim → Finans ekranından kontrol edin.");
+        return new(rate, await PropertyEndpoints.SettingAsync<bool>(tx, "tax.accommodation_included"), code);
+    }
+
+    const string ExpiredOptionsSql = """
+        SELECT id, version, option_until FROM pms.reservations
+        WHERE status = 'tentative' AND option_until IS NOT NULL AND option_until <= @bd AND arrival > @bd
+        ORDER BY option_until, reservation_number
+        """;
 
     sealed record ChargeCandidate(Guid ReservationId, string ReservationNumber, string RoomNumber, int Window, decimal Rate);
 
@@ -113,7 +148,7 @@ public static class NightAuditEndpoints
         ORDER BY rm.number
         """;
 
-    public static async Task<NightAuditPreview> PreviewAsync(Tx tx, bool autoNoShow)
+    public static async Task<NightAuditPreview> PreviewAsync(Tx tx, bool autoNoShow, bool cancelExpiredOptions = false)
     {
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
         var blockers = new List<AuditIssue>();
@@ -164,6 +199,16 @@ public static class NightAuditEndpoints
         foreach (var u in unbalanced)
             warnings.Add(new("unbalanced_folio", "warning", $"Kapanmış konaklamada bakiyeli folyo {u.No}: {u.Balance:N2}", null, u.No));
 
+        var options = await tx.ListAsync<(Guid Id, string No, string Guest, DateOnly OptionUntil)>("""
+            SELECT r.id, r.reservation_number, g.first_name || ' ' || g.last_name, r.option_until FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id
+            WHERE r.status = 'tentative' AND r.option_until IS NOT NULL AND r.option_until <= @bd AND r.arrival > @bd
+            ORDER BY r.option_until, r.reservation_number
+            """, new { bd });
+        foreach (var o in options)
+            warnings.Add(new("expired_option", "warning", cancelExpiredOptions
+                ? $"{o.No} {o.Guest}: opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}), iptal edilecek"
+                : $"{o.No} {o.Guest}: opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}). Onaylayın, süreyi uzatın veya iptal edin.", o.Id, o.No));
+
         var candidates = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd });
         var zero = candidates.Count(c => c.Rate == 0);
         if (zero > 0) warnings.Add(new("zero_rate", "warning", $"{zero} konaklamanın bu gece fiyatı 0 (ücretsiz/complimentary).", null, null));
@@ -195,7 +240,7 @@ public static class NightAuditEndpoints
                    (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
                      WHERE l.business_date = @bd AND l.line_type IN ('charge','void','discount','allowance') AND (l.is_room_charge OR tc.category = 'room')),
                    (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
-                     WHERE l.business_date = @bd AND l.line_type = 'charge' AND NOT l.is_room_charge AND COALESCE(tc.category, '') <> 'room'
+                     WHERE l.business_date = @bd AND l.line_type = 'charge' AND NOT l.is_room_charge AND COALESCE(tc.category, '') NOT IN ('room', 'tax')
                        AND NOT EXISTS (SELECT 1 FROM pms.folio_lines o WHERE o.id = l.related_line_id AND o.line_type IN ('payment','deposit'))),
                    (SELECT COALESCE(-sum(l.amount), 0) FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
                      WHERE l.business_date = @bd AND l.line_type IN ('payment','deposit','refund') AND pm.kind NOT IN ('city_ledger','company','agency'))

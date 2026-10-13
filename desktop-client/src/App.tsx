@@ -25,6 +25,7 @@ const Guests = lazy(() => import('./pages/Guests'));
 const GuestDetail = lazy(() => import('./pages/GuestDetail'));
 const Accounts = lazy(() => import('./pages/Accounts'));
 const Cashier = lazy(() => import('./pages/Cashier'));
+const ExchangeRates = lazy(() => import('./pages/ExchangeRates'));
 const Housekeeping = lazy(() => import('./pages/Housekeeping'));
 const HkTasks = lazy(() => import('./pages/HkTasks'));
 const Maintenance = lazy(() => import('./pages/Maintenance'));
@@ -124,6 +125,7 @@ export function App() {
           <Route path="/companies" element={<Accounts kind="companies" />} />
           <Route path="/agencies" element={<Accounts kind="agencies" />} />
           <Route path="/cashier" element={<Cashier />} />
+          <Route path="/exchange-rates" element={<ExchangeRates />} />
           <Route path="/housekeeping" element={<Housekeeping />} />
           <Route path="/housekeeping/tasks" element={<HkTasks />} />
           <Route path="/maintenance" element={<Maintenance />} />

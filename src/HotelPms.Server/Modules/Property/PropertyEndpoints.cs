@@ -23,6 +23,11 @@ public static class PropertyEndpoints
         ["frontoffice.checkout_requires_zero_balance"] = true,
         ["night_audit.block_on_open_shifts"] = false,
         ["night_audit.auto_no_show"] = false,
+        ["night_audit.cancel_expired_options"] = false,
+        ["finance.currencies"] = new[] { "EUR", "USD", "GBP" },
+        ["finance.tcmb_rate_type"] = "BanknoteBuying",
+        ["tax.accommodation_rate"] = 0m,
+        ["tax.accommodation_included"] = true,
         ["guest.require_identity_on_checkin"] = true,
         ["print.default_printers"] = new Dictionary<string, string>(),
         ["markets"] = Array.Empty<string>(),
@@ -78,6 +83,7 @@ public static class PropertyEndpoints
             var expectedKind = JsonSerializer.SerializeToElement(def).ValueKind;
             var ok = expectedKind == value.ValueKind || (expectedKind is JsonValueKind.True or JsonValueKind.False && value.ValueKind is JsonValueKind.True or JsonValueKind.False);
             if (!ok) throw PmsException.Validation("Ayar değeri türü geçersiz.");
+            await ValidateSettingAsync(tx, key, value);
             var old = await tx.ScalarAsync<string?>("SELECT value::text FROM pms.settings WHERE key = @key", new { key });
             await tx.ExecAsync("""
                 INSERT INTO pms.settings (key, value, updated_by) VALUES (@key, @value::jsonb, @uid)
@@ -90,6 +96,32 @@ public static class PropertyEndpoints
 
         g.MapGet("/time-zones", (Db db) => db.QueryAsync<string>(
             "SELECT name FROM pg_timezone_names WHERE name ~ '^(Europe|Asia|Africa|America|Atlantic|Australia|Pacific|Indian)/' ORDER BY name"));
+    }
+
+    /// <summary>Türü doğru olsa da anlamca geçersiz ayar değerlerini reddeder.</summary>
+    static async Task ValidateSettingAsync(Tx tx, string key, JsonElement value)
+    {
+        switch (key)
+        {
+            case "finance.currencies":
+                var list = value.EnumerateArray().Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "").ToList();
+                var baseCur = await CurrencyAsync(tx);
+                if (list.Count > 12) throw PmsException.Validation("En fazla 12 döviz tanımlanabilir.");
+                if (list.Any(c => !global::System.Text.RegularExpressions.Regex.IsMatch(c, "^[A-Z]{3}$")))
+                    throw PmsException.Validation("Dövizler 3 harfli büyük ISO kodu olmalıdır (ör. EUR).");
+                if (list.Contains(baseCur)) throw PmsException.Validation("Tesis para birimi döviz listesine eklenmez.");
+                if (list.Distinct().Count() != list.Count) throw PmsException.Validation("Döviz listesinde tekrar var.");
+                break;
+            case "finance.tcmb_rate_type":
+                if (!Folios.ExchangeRateEndpoints.TcmbRateTypes.ContainsKey(value.GetString() ?? ""))
+                    throw PmsException.Validation("Geçersiz TCMB kur türü.");
+                break;
+            case "tax.accommodation_rate":
+                var rate = value.ValueKind == JsonValueKind.Number ? value.GetDecimal() : -1;
+                if (rate < 0 || rate > 20 || decimal.Round(rate, 2) != rate)
+                    throw PmsException.Validation("Konaklama vergisi oranı 0 ile 20 arasında, en fazla 2 ondalıklı yüzde olmalıdır (kapalı için 0).");
+                break;
+        }
     }
 
     public static async Task<DateOnly> BusinessDateAsync(Tx tx, bool forUpdate = false) =>

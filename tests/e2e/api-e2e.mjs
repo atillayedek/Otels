@@ -207,18 +207,57 @@ try {
     assert.equal(after.folio.balance, '99.99');
   });
 
-  await step('Gece denetimi: engel kontrolü ve tek seferlik kapanış', async () => {
+  await step('Konaklama vergisi ayarı ve süresi dolan opsiyon', async () => {
+    const codes = await api('GET', '/api/v1/finance/transaction-codes');
+    const room = codes.find(c => c.code === 'ROOM');
+    assert.ok(codes.find(c => c.code === 'KV' && c.isSystem), 'KV sistem kodu');
+    await api('PUT', `/api/v1/finance/transaction-codes/${room.id}`, { code: 'ROOM', name: room.name, category: 'room', defaultPrice: null, vatRate: '10', isActive: true });
+    await api('PUT', `/api/v1/finance/transaction-codes/${room.id}`, { code: 'ROOM', name: room.name, category: 'misc', defaultPrice: null, vatRate: '10', isActive: true }, { expect: 422 });
+    await api('PUT', '/api/v1/property/settings/tax.accommodation_rate', 25, { expect: 422 });
+    await api('PUT', '/api/v1/property/settings/tax.accommodation_rate', 2);
+    await api('PUT', '/api/v1/property/settings/tax.accommodation_included', true);
+    state.opt = (await api('POST', '/api/v1/reservations', { guestId: state.guest, roomTypeId: state.std, arrival: addDays(state.bd, 10), departure: addDays(state.bd, 11), adults: 1, children: 0, status: 'tentative', depositRequired: '0', optionUntil: state.bd }, { key: randomUUID() })).id;
+    const pv = await api('GET', '/api/v1/night-audit/preview');
+    assert.ok(pv.warnings.some(w => w.code === 'expired_option' && w.reservationId === state.opt), 'opsiyon uyarısı');
+  });
+
+  await step('Gece denetimi: engel kontrolü, tek seferlik kapanış, vergi ayrıştırma, opsiyon iptali', async () => {
     const pv = await api('GET', '/api/v1/night-audit/preview');
     assert.equal(pv.businessDate, state.bd);
     assert.equal(pv.roomChargesToPost, 1);
     const key = randomUUID();
-    const run = await api('POST', '/api/v1/night-audit/run', { businessDate: state.bd, autoNoShow: true }, { key });
+    const body = { businessDate: state.bd, autoNoShow: true, cancelExpiredOptions: true };
+    const run = await api('POST', '/api/v1/night-audit/run', body, { key });
     assert.equal(run.newBusinessDate, addDays(state.bd, 1));
     assert.equal(run.roomChargeTotal, '1500.00');
-    await api('POST', '/api/v1/night-audit/run', { businessDate: state.bd, autoNoShow: true }, { key: randomUUID(), expect: 409 });
-    const replay = await api('POST', '/api/v1/night-audit/run', { businessDate: state.bd, autoNoShow: true }, { key });
+    assert.equal(run.optionsCancelled, 1);
+    // 1500 dahil fiyat, KDV %10, KV %2: net = 1500 / (1,02 × 1,10); KV satırı = net × 0,02 × 1,10 = 29,41; oda satırı = 1470,59
+    assert.equal(run.accommodationTaxTotal, '29.41');
+    const f = await api('GET', `/api/v1/folios/${state.folio}`);
+    const bdLines = f.lines.filter(l => l.businessDate === state.bd && l.lineType === 'charge');
+    assert.ok(bdLines.some(l => l.transactionCode === 'ROOM' && l.amount === '1470.59'), 'oda satırı');
+    assert.ok(bdLines.some(l => l.transactionCode === 'KV' && l.amount === '29.41'), 'KV satırı');
+    assert.equal((await api('GET', `/api/v1/reservations/${state.opt}`)).status, 'cancelled');
+    await api('POST', '/api/v1/night-audit/run', body, { key: randomUUID(), expect: 409 });
+    const replay = await api('POST', '/api/v1/night-audit/run', body, { key });
     assert.equal(replay.newBusinessDate, run.newBusinessDate);
     state.bd = run.newBusinessDate;
+  });
+
+  await step('Döviz: kur girişi, dövizli tahsilat, kur yoksa red, dövizli iptal', async () => {
+    await api('PUT', '/api/v1/exchange-rates/EUR', { rate: '0' }, { expect: 422 });
+    await api('PUT', '/api/v1/exchange-rates/TRY', { rate: '1' }, { expect: 422 });
+    await api('POST', `/api/v1/folios/${state.folio}/payments`, { paymentMethodId: state.cash, amount: '0', tenderedCurrency: 'USD', tenderedAmount: '5.00', isDeposit: false }, { key: randomUUID(), expect: 422 });
+    await api('PUT', '/api/v1/exchange-rates/EUR', { rate: '37.5' });
+    const v = await api('GET', '/api/v1/exchange-rates');
+    assert.equal(Number(v.rates.find(r => r.currency === 'EUR').rate), 37.5);
+    const p = await api('POST', `/api/v1/folios/${state.folio}/payments`, { paymentMethodId: state.cash, amount: '0', tenderedCurrency: 'EUR', tenderedAmount: '10.00', isDeposit: false }, { key: randomUUID() });
+    const extra = await api('POST', `/api/v1/folios/${state.folio}/payments`, { paymentMethodId: state.cash, amount: '0', tenderedCurrency: 'EUR', tenderedAmount: '4.00', isDeposit: false }, { key: randomUUID() });
+    await api('POST', `/api/v1/folio-lines/${extra.id}/void`, { reason: 'yanlış döviz' }, { key: randomUUID() });
+    const f = await api('GET', `/api/v1/folios/${state.folio}`);
+    const line = f.lines.find(l => l.id === p.id);
+    assert.equal(line.amount, '-375.00'); assert.equal(line.tenderedCurrency, 'EUR'); assert.equal(line.tenderedAmount, '-10.00');
+    assert.equal(f.folio.balance, '1224.99');
   });
 
   await step('Bakiyeli check-out engellenir; tahsilat sonrası check-out', async () => {
@@ -234,10 +273,14 @@ try {
     assert.equal(r.status, 'checked_out'); assert.equal(r.departure, state.bd); assert.equal(r.balance, '0.00');
   });
 
-  await step('Kasa kapanışı beklenen nakit', async () => {
-    const close = await api('POST', '/api/v1/cashier/close', { countedCash: '1699.99' }, { key: randomUUID() });
-    assert.equal(close.expected, '1699.99'); // 100 açılış + 1599.99 nakit
+  await step('Kasa kapanışı: TL ve döviz ayrı sayılır', async () => {
+    await api('POST', '/api/v1/cashier/close', { countedCash: '1324.99' }, { key: randomUUID(), expect: 422 }); // EUR sayımı eksik
+    const close = await api('POST', '/api/v1/cashier/close', { countedCash: '1324.99', countedForeign: { EUR: '9.00' } }, { key: randomUUID() });
+    assert.equal(close.expected, '1324.99'); // 100 açılış + 1224.99 TL nakit (375 TL karşılığı 10 EUR olarak alındı)
     assert.equal(close.difference, '0.00');
+    const rep = await api('GET', `/api/v1/cashier/shifts/${close.id}`);
+    const eur = rep.cash.find(c => c.currency === 'EUR');
+    assert.equal(eur.expected, '10.00'); assert.equal(eur.counted, '9.00'); assert.equal(eur.difference, '-1.00');
   });
 
   await step('Optimistic concurrency: eski sürümle güncelleme reddedilir', async () => {
@@ -265,7 +308,7 @@ try {
 
   await step('Raporlar ve dışa aktarma (CSV/XLSX)', async () => {
     const occ = await api('GET', `/api/v1/reports/occupancy?from=${addDays(state.bd, -1)}&to=${state.bd}`);
-    assert.equal(occ.rows[0].source, 'Gerçekleşen'); assert.equal(occ.rows[0].roomRevenue, '1500.00');
+    assert.equal(occ.rows[0].source, 'Gerçekleşen'); assert.equal(occ.rows[0].roomRevenue, '1470.59'); // konaklama vergisi oda gelirine dahil değil
     const csv = await api('GET', `/api/v1/reports/cashier/export?format=csv&from=${addDays(state.bd, -1)}&to=${state.bd}`, undefined, { raw: true });
     assert.equal(csv.status, 200); const text = await csv.text(); assert.ok(text.includes('Nakit'));
     const xlsx = await api('GET', `/api/v1/reports/inhouse/export?format=xlsx`, undefined, { raw: true });

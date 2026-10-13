@@ -7,10 +7,13 @@ namespace HotelPms.Server.Modules.Folios;
 public sealed record FolioDetail(FolioDto Folio, IReadOnlyList<FolioLineDto> Lines);
 public sealed record ShiftDto(Guid Id, long ShiftNo, Guid UserId, string Username, DateOnly BusinessDate, DateTime OpenedAt, decimal OpeningFloat,
     DateTime? ClosedAt, decimal? CountedCash, decimal? ExpectedCash, decimal? Difference, string? CloseNote, string Status);
-public sealed record ShiftTotalDto(string PaymentMethod, string Kind, decimal Collected, decimal Refunded, decimal Net, int Count);
-public sealed record ShiftReport(ShiftDto Shift, IReadOnlyList<ShiftTotalDto> Totals, decimal ExpectedCash);
+/// <summary>Ödeme tipi ve alınan para birimi bazında toplam. Dövizli satırlarda tutarlar döviz cinsindendir.</summary>
+public sealed record ShiftTotalDto(string PaymentMethod, string Kind, string Currency, decimal Collected, decimal Refunded, decimal Net, int Count);
+public sealed record ShiftCashDto(string Currency, decimal Expected, decimal? Counted, decimal? Difference);
+public sealed record ShiftReport(ShiftDto Shift, IReadOnlyList<ShiftTotalDto> Totals, decimal ExpectedCash, IReadOnlyList<ShiftCashDto> Cash);
 public sealed record OpenShiftRequest(decimal OpeningFloat);
-public sealed record CloseShiftRequest(decimal CountedCash, string? Note);
+/// <summary>CountedCash tesis para birimindeki nakit; CountedForeign kasadaki dövizlerin sayımı (para birimi → tutar).</summary>
+public sealed record CloseShiftRequest(decimal CountedCash, string? Note, Dictionary<string, decimal>? CountedForeign = null);
 
 public static class FolioEndpoints
 {
@@ -151,11 +154,27 @@ public static class FolioEndpoints
                 ?? throw PmsException.Validation("Açık kasa vardiyanız yok.");
             var report = await ShiftReportAsync(tx, s);
             var diff = req.CountedCash - report.ExpectedCash;
+            var baseCur = await PropertyEndpoints.CurrencyAsync(tx);
+            var foreign = (req.CountedForeign ?? new()).ToDictionary(kv => kv.Key.Trim().ToUpperInvariant(), kv => kv.Value);
+            foreach (var c in report.Cash.Where(c => c.Currency != baseCur && c.Expected != 0 && !foreign.ContainsKey(c.Currency)))
+                throw PmsException.Validation($"Kasadaki {c.Currency} sayımını girin (beklenen {c.Expected:N2} {c.Currency}).");
+            var counts = new List<ShiftCashDto> { new(baseCur, report.ExpectedCash, req.CountedCash, diff) };
+            foreach (var (cur, counted) in foreign)
+            {
+                if (cur == baseCur) continue;
+                Validate.Money(counted, $"Sayılan {cur}", allowZero: true);
+                var exp = report.Cash.FirstOrDefault(c => c.Currency == cur)?.Expected ?? 0;
+                counts.Add(new(cur, exp, counted, counted - exp));
+            }
+            foreach (var c in counts)
+                await tx.ExecAsync("""
+                    INSERT INTO pms.cashier_shift_counts (shift_id, currency, expected, counted, difference) VALUES (@id, @Currency, @Expected, @Counted, @Difference)
+                    """, new { id = s.Id, c.Currency, c.Expected, c.Counted, c.Difference });
             await tx.ExecAsync("""
                 UPDATE pms.cashier_shifts SET status = 'closed', closed_at = now(), counted_cash = @CountedCash, expected_cash = @exp, difference = @diff, close_note = @note
                 WHERE id = @id
                 """, new { id = s.Id, req.CountedCash, exp = report.ExpectedCash, diff, note = Validate.Optional(req.Note, 500) });
-            await tx.AuditAsync("cashier.close", "cashier_shift", s.Id, null, new { req.CountedCash, report.ExpectedCash, diff });
+            await tx.AuditAsync("cashier.close", "cashier_shift", s.Id, null, new { req.CountedCash, report.ExpectedCash, diff, counts });
             tx.Publish("cashier");
             return new { id = s.Id, expected = report.ExpectedCash, difference = diff };
         })).RequirePermission("cashier.manage");
@@ -176,8 +195,12 @@ public static class FolioEndpoints
         cfg.MapPut("/transaction-codes/{id:guid}", (Guid id, SaveTransactionCodeRequest req, CommandRunner cmd) => cmd.RunAsync("transaction_code.update", new { id, req }, async tx =>
         {
             var p = CodeParams(req);
-            var system = await tx.ScalarAsync<bool?>("SELECT is_system FROM pms.transaction_codes WHERE id = @id", new { id }) ?? throw PmsException.NotFound("İşlem kodu");
-            if (system && (p.code != "ROOM" || !p.active)) throw PmsException.Validation("Sistem işlem kodunun kodu değiştirilemez veya pasifleştirilemez.");
+            var cur = await tx.OneOrNullAsync<(bool IsSystem, string Code, string Category)>(
+                "SELECT is_system, code, category FROM pms.transaction_codes WHERE id = @id", new { id });
+            if (cur == default) throw PmsException.NotFound("İşlem kodu");
+            // Sistem kodlarında (ROOM, KV) yalnız ad, fiyat ve KDV oranı değiştirilebilir.
+            if (cur.IsSystem && (p.code != cur.Code || p.category != cur.Category || !p.active))
+                throw PmsException.Validation("Sistem işlem kodunun kodu ve kategorisi değiştirilemez, pasifleştirilemez.");
             await tx.ExecAsync("UPDATE pms.transaction_codes SET code = @code, name = @name, category = @category, default_price = @price, vat_rate = @vat, is_active = @active WHERE id = @id",
                 new { p.code, p.name, p.category, p.price, p.vat, p.active, id });
             await tx.AuditAsync("transaction_code.update", "transaction_code", id, null, req);
@@ -241,15 +264,27 @@ public static class FolioEndpoints
 
     static async Task<ShiftReport> ShiftReportAsync(Tx tx, ShiftDto s)
     {
+        // Dövizli satırlarda misafirden alınan döviz tutarı esas alınır (kasada fiziksel olarak o para durur).
         var totals = await tx.ListAsync<ShiftTotalDto>("""
-            SELECT pm.name AS payment_method, pm.kind,
-                   COALESCE(-sum(l.amount) FILTER (WHERE l.amount < 0), 0) AS collected,
-                   COALESCE(sum(l.amount) FILTER (WHERE l.amount > 0), 0) AS refunded,
-                   COALESCE(-sum(l.amount), 0) AS net, count(*)::int AS count
+            SELECT pm.name AS payment_method, pm.kind, COALESCE(l.tendered_currency, l.currency)::text AS currency,
+                   COALESCE(-sum(COALESCE(l.tendered_amount, l.amount)) FILTER (WHERE l.amount < 0), 0) AS collected,
+                   COALESCE(sum(COALESCE(l.tendered_amount, l.amount)) FILTER (WHERE l.amount > 0), 0) AS refunded,
+                   COALESCE(-sum(COALESCE(l.tendered_amount, l.amount)), 0) AS net, count(*)::int AS count
             FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
-            WHERE l.cashier_shift_id = @id GROUP BY pm.name, pm.kind, pm.sort_order ORDER BY pm.sort_order
+            WHERE l.cashier_shift_id = @id
+            GROUP BY pm.name, pm.kind, pm.sort_order, COALESCE(l.tendered_currency, l.currency)
+            ORDER BY pm.sort_order, COALESCE(l.tendered_currency, l.currency)
             """, new { id = s.Id });
-        var cashNet = totals.Where(t => t.Kind == "cash").Sum(t => t.Net);
-        return new ShiftReport(s, totals, s.OpeningFloat + cashNet);
+        var baseCur = await PropertyEndpoints.CurrencyAsync(tx);
+        var stored = await tx.ListAsync<ShiftCashDto>(
+            "SELECT currency::text AS currency, expected, counted, difference FROM pms.cashier_shift_counts WHERE shift_id = @id", new { id = s.Id });
+        var expected = totals.Where(t => t.Kind == "cash").GroupBy(t => t.Currency).ToDictionary(g => g.Key, g => g.Sum(t => t.Net));
+        expected[baseCur] = s.OpeningFloat + expected.GetValueOrDefault(baseCur);
+        var cash = expected.OrderBy(kv => kv.Key == baseCur ? 0 : 1).ThenBy(kv => kv.Key)
+            .Select(kv => stored.FirstOrDefault(c => c.Currency == kv.Key) ?? new ShiftCashDto(kv.Key, kv.Value, null, null))
+            .Concat(stored.Where(c => !expected.ContainsKey(c.Currency))).ToList();
+        if (s.Status == "closed" && stored.Count == 0)
+            cash = [new ShiftCashDto(baseCur, s.ExpectedCash ?? expected[baseCur], s.CountedCash, s.Difference)];
+        return new ShiftReport(s, totals, expected[baseCur], cash);
     }
 }

@@ -22,12 +22,17 @@
 - Masraf (işlem kodu, miktar, birim fiyat, KDV oranı), tahsilat, depozito, iade, indirim/allowance
 - Satır iptali ve aktarımı ayrı satırlarla izlenir; satır silinmez
 - Şirkete/acenteye (city ledger) aktarım ile cari hesaba borç kaydı
-- Kasa vardiyası: açılış kasası, ödeme tipine göre döküm, beklenen ve sayılan nakit, fark
+- Kasa vardiyası: açılış kasası, ödeme tipi ve para birimine göre döküm; TL ve her döviz için ayrı beklenen/sayılan nakit ve fark
+- Dövizli tahsilat ve iade: misafirden alınan döviz ve uygulanan kur satırda saklanır, folyoya tesis para birimi karşılığı işlenir. Kur günlük girilir (**Ön Kasa → Döviz Kurları**), istenirse TCMB'nin günlük bülteninden alınır (efektif/döviz alış-satış seçilebilir; yalnız tesis para birimi TRY iken). İş gününde kur yoksa en fazla 3 gün önceki kur kullanılır. Elle kur `exchange_rate.manage` yetkisi ister.
 - Fatura numarası kaydı (fatura dış e-fatura/muhasebe programında kesilir)
 
 ## Gece denetimi
 
-Önizleme: engeller (ör. açık kasa vardiyası ayarı) ve uyarılar. Çalıştırma tek veritabanı işleminde: konaklayan odalara oda ücreti, isteğe bağlı no-show, günlük istatistik, iş gününün ilerlemesi. Aynı gün ikinci kez çalıştırılamaz.
+Önizleme: engeller (ör. açık kasa vardiyası ayarı) ve uyarılar. Çalıştırma tek veritabanı işleminde: konaklayan odalara oda ücreti, isteğe bağlı no-show, opsiyon süresi dolan rezervasyonların isteğe bağlı iptali, günlük istatistik, iş gününün ilerlemesi. Aynı gün ikinci kez çalıştırılamaz.
+
+**Konaklama vergisi:** Yönetim → İşlem Kodları ve Ödeme Tipleri ekranında oran girilirse (0 = kapalı) gece denetimi oda ücretinin yanına "KV" kodlu ayrı satır yazar. Fiyatlara dahil seçilirse gecelik fiyattan ayrıştırılır (net = fiyat / ((1 + KV) × (1 + KDV)), vergi = net × KV × (1 + KDV)); değilse fiyatın üstüne eklenir. Oda KDV oranı "ROOM" işlem kodundan alınır. Konaklama vergisi oda gelirine (ADR/RevPAR) ve diğer gelire dahil edilmez. Oran ve uygulama otelin mali müşaviriyle teyit edilmelidir.
+
+**Opsiyon:** opsiyon tarihi bugün veya daha önce olan, girişi gelmemiş opsiyonlu rezervasyonlar önizlemede uyarı olarak listelenir; "Opsiyon süresi dolanları iptal et" seçiliyse gerekçeyle iptal edilir ve oda kapasitesi serbest kalır.
 
 ## Kat hizmetleri ve teknik servis
 

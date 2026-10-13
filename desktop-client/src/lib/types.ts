@@ -68,13 +68,17 @@ export interface Folio {
 export interface FolioLine {
   id: string; folioId: string; lineType: string; transactionCode?: string; paymentMethod?: string; description: string; quantity: string; unitPrice?: Money; amount: Money;
   currency: string; businessDate: DateStr; postedAt: string; username?: string; shiftNo?: number; reference?: string; reason?: string; relatedLineId?: string; roomNumber?: string;
-  isVoided: boolean; transferredOut: Money;
+  isVoided: boolean; transferredOut: Money; tenderedCurrency?: string; tenderedAmount?: Money; exchangeRate?: string;
 }
 export interface FolioDetail { folio: Folio; lines: FolioLine[] }
 export interface TransactionCode { id: string; code: string; name: string; category: string; defaultPrice?: Money; vatRate: Money; isSystem: boolean; isActive: boolean }
 export interface PaymentMethod { id: string; code: string; name: string; kind: string; requiresReference: boolean; isSystem: boolean; isActive: boolean }
 export interface Shift { id: string; shiftNo: number; userId: string; username: string; businessDate: DateStr; openedAt: string; openingFloat: Money; closedAt?: string; countedCash?: Money; expectedCash?: Money; difference?: Money; closeNote?: string; status: string }
-export interface ShiftReport { shift: Shift; totals: { paymentMethod: string; kind: string; collected: Money; refunded: Money; net: Money; count: number }[]; expectedCash: Money }
+export interface ShiftCash { currency: string; expected: Money; counted?: Money; difference?: Money }
+export interface ShiftReport { shift: Shift; totals: { paymentMethod: string; kind: string; currency: string; collected: Money; refunded: Money; net: Money; count: number }[]; expectedCash: Money; cash: ShiftCash[] }
+export interface ExchangeRate { currency: string; rateDate: DateStr; rate: string; source: 'manual' | 'tcmb'; username?: string; createdAt: string }
+export interface ExchangeRatesView { baseCurrency: string; businessDate: DateStr; currencies: string[]; rates: ExchangeRate[]; tcmbAvailable: boolean }
+export interface TcmbImportResult { rateDate: DateStr; bulletinDate: string; rateType: string; rates: ExchangeRate[]; missing: string[] }
 
 export interface HkTask { id: string; roomId: string; roomNumber: string; floor?: string; taskType: string; status: string; businessDate: DateStr; assignedUserId?: string; assignedTo?: string; notes?: string; createdAt: string; completedAt?: string; version: number }
 export interface Staff { id: string; username: string; fullName: string }
@@ -82,7 +86,7 @@ export interface Ticket { id: string; ticketNo: number; roomId?: string; roomNum
 
 export interface AuditIssue { code: string; severity: string; message: string; reservationId?: string; reference?: string }
 export interface NightAuditPreview { businessDate: DateStr; nextBusinessDate: DateStr; alreadyClosed: boolean; blockers: AuditIssue[]; warnings: AuditIssue[]; roomChargesToPost: number; roomChargeTotal: Money; inHouse: number; canRun: boolean }
-export interface NightAuditResult { closedDate: DateStr; newBusinessDate: DateStr; roomChargesPosted: number; roomChargeTotal: Money; noShows: number; warnings: AuditIssue[] }
+export interface NightAuditResult { closedDate: DateStr; newBusinessDate: DateStr; roomChargesPosted: number; roomChargeTotal: Money; noShows: number; warnings: AuditIssue[]; optionsCancelled: number; accommodationTaxTotal: Money }
 
 export interface Dashboard {
   businessDate: DateStr; hotelName: string; currency: string; roomsTotal: number; occupied: number; vacantClean: number; vacantDirty: number; outOfOrder: number;

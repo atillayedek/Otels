@@ -15,6 +15,7 @@ const TOGGLES: [string, string, string][] = [
   ['guest.require_identity_on_checkin', 'Girişte kimlik bilgisi zorunlu', 'KBS bildirimi için gereklidir.'],
   ['night_audit.auto_no_show', 'Gece denetiminde gelmeyenleri varsayılan olarak no-show yap', ''],
   ['night_audit.block_on_open_shifts', 'Açık kasa vardiyası varken gece denetimini engelle', ''],
+  ['night_audit.cancel_expired_options', 'Gece denetiminde opsiyon süresi dolan rezervasyonları varsayılan olarak iptal et', 'Kapalıyken yalnız uyarı gösterilir.'],
 ];
 
 export default function PropertySettingsPage() {
