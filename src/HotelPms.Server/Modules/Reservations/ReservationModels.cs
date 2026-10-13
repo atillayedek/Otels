@@ -56,7 +56,8 @@ public sealed record AddSharerRequest(Guid GuestId);
 public sealed record WakeupDto(Guid Id, Guid ReservationId, string? RoomNumber, string GuestName, DateTime CallAt, string Status, string? Notes);
 public sealed record CreateWakeupRequest(Guid ReservationId, DateTime CallAt, string? Notes);
 
-public sealed record AvailabilityDay(DateOnly Date, Guid RoomTypeId, string RoomTypeCode, int Total, int Blocked, int Sold, int Available);
+/// <summary>Held: başka acentelere ayrılmış, henüz kullanılmamış ve release süresi dolmamış kontenjan (bu satış için kapalı).</summary>
+public sealed record AvailabilityDay(DateOnly Date, Guid RoomTypeId, string RoomTypeCode, int Total, int Blocked, int Sold, int Held, int Available);
 public sealed record RatePreview(IReadOnlyList<NightRate> Nights, decimal Total, decimal Average, string Source);
 public sealed record NightRate(DateOnly Date, decimal Rate);
 

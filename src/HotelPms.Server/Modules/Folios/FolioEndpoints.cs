@@ -265,15 +265,21 @@ public static class FolioEndpoints
     static async Task<ShiftReport> ShiftReportAsync(Tx tx, ShiftDto s)
     {
         // Dövizli satırlarda misafirden alınan döviz tutarı esas alınır (kasada fiziksel olarak o para durur).
+        // Restoranda doğrudan ödenen adisyonlar (pos_payments) da aynı kasaya dahildir; işaretleri tahsilat pozitif olacak şekilde birleştirilir.
         var totals = await tx.ListAsync<ShiftTotalDto>("""
-            SELECT pm.name AS payment_method, pm.kind, COALESCE(l.tendered_currency, l.currency)::text AS currency,
-                   COALESCE(-sum(COALESCE(l.tendered_amount, l.amount)) FILTER (WHERE l.amount < 0), 0) AS collected,
-                   COALESCE(sum(COALESCE(l.tendered_amount, l.amount)) FILTER (WHERE l.amount > 0), 0) AS refunded,
-                   COALESCE(-sum(COALESCE(l.tendered_amount, l.amount)), 0) AS net, count(*)::int AS count
-            FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
-            WHERE l.cashier_shift_id = @id
-            GROUP BY pm.name, pm.kind, pm.sort_order, COALESCE(l.tendered_currency, l.currency)
-            ORDER BY pm.sort_order, COALESCE(l.tendered_currency, l.currency)
+            WITH x AS (
+                SELECT l.payment_method_id, COALESCE(l.tendered_currency, l.currency) AS currency, -COALESCE(l.tendered_amount, l.amount) AS v
+                FROM pms.folio_lines l WHERE l.cashier_shift_id = @id AND l.payment_method_id IS NOT NULL
+                UNION ALL
+                SELECT p.payment_method_id, COALESCE(p.tendered_currency, p.currency), COALESCE(p.tendered_amount, p.amount)
+                FROM pms.pos_payments p WHERE p.cashier_shift_id = @id)
+            SELECT pm.name AS payment_method, pm.kind, x.currency::text AS currency,
+                   COALESCE(sum(x.v) FILTER (WHERE x.v > 0), 0) AS collected,
+                   COALESCE(-sum(x.v) FILTER (WHERE x.v < 0), 0) AS refunded,
+                   COALESCE(sum(x.v), 0) AS net, count(*)::int AS count
+            FROM x JOIN pms.payment_methods pm ON pm.id = x.payment_method_id
+            GROUP BY pm.name, pm.kind, pm.sort_order, x.currency
+            ORDER BY pm.sort_order, x.currency
             """, new { id = s.Id });
         var baseCur = await PropertyEndpoints.CurrencyAsync(tx);
         var stored = await tx.ListAsync<ShiftCashDto>(

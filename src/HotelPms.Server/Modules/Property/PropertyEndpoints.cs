@@ -28,6 +28,7 @@ public static class PropertyEndpoints
         ["finance.tcmb_rate_type"] = "BanknoteBuying",
         ["tax.accommodation_rate"] = 0m,
         ["tax.accommodation_included"] = true,
+        ["stock.allow_negative"] = false,
         ["guest.require_identity_on_checkin"] = true,
         ["print.default_printers"] = new Dictionary<string, string>(),
         ["markets"] = Array.Empty<string>(),

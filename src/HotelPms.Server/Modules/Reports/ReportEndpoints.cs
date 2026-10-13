@@ -341,6 +341,159 @@ public static class ReportEndpoints
                 FROM pms.import_jobs WHERE created_at >= @from::date AND created_at < @to::date + 1 ORDER BY created_at DESC
                 """,
         },
+
+        new()
+        {
+            Name = "stock_balance", Title = "Stok Durumu", Category = "Stok", Permission = "stock.view",
+            Columns = [new("warehouse", "Depo", "text"), new("itemCode", "Kod", "text"), new("itemName", "Stok", "text"), new("category", "Kategori", "text"),
+                new("unit", "Birim", "text"), new("quantity", "Miktar", "decimal"), new("avgCost", "Ort. Maliyet", "money"), new("value", "Tutar", "money"),
+                new("minQty", "Asgari", "decimal"), new("status", "Durum", "text")],
+            SumColumns = ["value"],
+            Sql = """
+                SELECT w.name AS warehouse, i.code AS item_code, i.name AS item_name, i.category, i.unit, b.quantity, b.avg_cost,
+                       round(GREATEST(b.quantity, 0) * b.avg_cost, 2) AS value, i.min_qty,
+                       CASE WHEN b.quantity < 0 THEN 'Eksi stok' WHEN i.min_qty IS NOT NULL AND b.quantity < i.min_qty THEN 'Kritik' ELSE '' END AS status
+                FROM pms.stock_balances b JOIN pms.warehouses w ON w.id = b.warehouse_id JOIN pms.stock_items i ON i.id = b.item_id
+                WHERE b.quantity <> 0 OR i.min_qty IS NOT NULL
+                ORDER BY w.code, i.category NULLS LAST, i.name
+                """,
+        },
+        new()
+        {
+            Name = "stock_movements", Title = "Stok Hareketleri", Category = "Stok", Permission = "stock.view", Params = [From, To],
+            Columns = [new("date", "Tarih", "date"), new("docNo", "Belge", "text"), new("kind", "Tür", "text"), new("warehouse", "Depo", "text"),
+                new("itemName", "Stok", "text"), new("unit", "Birim", "text"), new("quantity", "Miktar", "decimal"), new("unitCost", "Birim Maliyet", "money"),
+                new("amount", "Tutar", "money"), new("party", "Tedarikçi / Bölüm", "text"), new("username", "Kullanıcı", "text"), new("note", "Not", "text")],
+            Sql = """
+                SELECT m.business_date AS date, d.doc_no, CASE d.kind WHEN 'receipt' THEN 'Mal kabul' WHEN 'issue' THEN 'Çıkış' WHEN 'transfer' THEN 'Transfer' WHEN 'count' THEN 'Sayım' WHEN 'pos' THEN 'Satış tüketimi' END AS kind, w.name AS warehouse, i.name AS item_name, i.unit, m.quantity, m.unit_cost,
+                       round(m.quantity * m.unit_cost, 2) AS amount, COALESCE(s.name, d.department, tw.name) AS party, u.username,
+                       CASE WHEN m.is_reversal THEN 'İptal: ' || COALESCE(d.cancel_reason, '') END AS note
+                FROM pms.stock_movements m JOIN pms.stock_documents d ON d.id = m.document_id JOIN pms.warehouses w ON w.id = m.warehouse_id
+                JOIN pms.stock_items i ON i.id = m.item_id LEFT JOIN pms.suppliers s ON s.id = d.supplier_id
+                LEFT JOIN pms.warehouses tw ON tw.id = d.target_warehouse_id LEFT JOIN pms.users u ON u.id = m.created_by
+                WHERE m.business_date BETWEEN @from AND @to
+                ORDER BY m.created_at
+                """,
+        },
+        new()
+        {
+            Name = "stock_purchases", Title = "Alımlar (Mal Kabul)", Category = "Stok", Permission = "stock.view", Params = [From, To],
+            Columns = [new("date", "Tarih", "date"), new("docNo", "Belge", "text"), new("supplier", "Tedarikçi", "text"), new("invoiceNo", "Fatura No", "text"),
+                new("orderNo", "Sipariş", "text"), new("warehouse", "Depo", "text"), new("itemName", "Stok", "text"), new("quantity", "Miktar", "decimal"),
+                new("unitCost", "Birim Maliyet", "money"), new("amount", "Tutar (KDV hariç)", "money")],
+            SumColumns = ["amount"],
+            Sql = """
+                SELECT d.business_date AS date, d.doc_no, s.name AS supplier, d.invoice_no, po.order_no, w.name AS warehouse, i.name AS item_name,
+                       m.quantity, m.unit_cost, round(m.quantity * m.unit_cost, 2) AS amount
+                FROM pms.stock_documents d JOIN pms.stock_movements m ON m.document_id = d.id AND NOT m.is_reversal
+                JOIN pms.suppliers s ON s.id = d.supplier_id JOIN pms.warehouses w ON w.id = d.warehouse_id JOIN pms.stock_items i ON i.id = m.item_id
+                LEFT JOIN pms.purchase_orders po ON po.id = d.purchase_order_id
+                WHERE d.kind = 'receipt' AND NOT d.is_cancelled AND d.business_date BETWEEN @from AND @to
+                ORDER BY d.business_date, d.doc_no, i.name
+                """,
+        },
+        new()
+        {
+            Name = "stock_consumption", Title = "Tüketim Özeti (çıkış ve satış)", Category = "Stok", Permission = "stock.view", Params = [From, To],
+            Columns = [new("itemCode", "Kod", "text"), new("itemName", "Stok", "text"), new("unit", "Birim", "text"), new("issued", "Bölüm Çıkışı", "decimal"),
+                new("sold", "Satış Tüketimi", "decimal"), new("countDiff", "Sayım Farkı", "decimal"), new("cost", "Maliyet", "money")],
+            SumColumns = ["cost"],
+            Sql = """
+                SELECT i.code AS item_code, i.name AS item_name, i.unit,
+                       COALESCE(-sum(m.quantity) FILTER (WHERE d.kind = 'issue'), 0) AS issued,
+                       COALESCE(-sum(m.quantity) FILTER (WHERE d.kind = 'pos'), 0) AS sold,
+                       COALESCE(sum(m.quantity) FILTER (WHERE d.kind = 'count'), 0) AS count_diff,
+                       round(COALESCE(-sum(m.quantity * m.unit_cost) FILTER (WHERE d.kind IN ('issue', 'pos', 'count')), 0), 2) AS cost
+                FROM pms.stock_movements m JOIN pms.stock_documents d ON d.id = m.document_id JOIN pms.stock_items i ON i.id = m.item_id
+                WHERE m.business_date BETWEEN @from AND @to AND d.kind IN ('issue', 'pos', 'count')
+                GROUP BY i.id ORDER BY cost DESC
+                """,
+        },
+        new()
+        {
+            Name = "pos_sales", Title = "Restoran Satışları (gün ve satış noktası)", Category = "Restoran", Permission = "pos.view", Params = [From, To],
+            Columns = [new("date", "Tarih", "date"), new("outlet", "Satış Noktası", "text"), new("checks", "Adisyon", "int"), new("covers", "Kişi", "int"),
+                new("gross", "Brüt", "money"), new("discount", "İndirim", "money"), new("net", "Net", "money"), new("toRoom", "Odaya", "money"),
+                new("paid", "Ödenen", "money"), new("complimentary", "İkram (brüt)", "money")],
+            SumColumns = ["checks", "covers", "gross", "discount", "net", "toRoom", "paid", "complimentary"],
+            Sql = """
+                SELECT c.closed_business_date AS date, o.name AS outlet, count(*)::int AS checks, sum(c.covers)::int AS covers,
+                       sum(c.total_amount + c.discount_amount) AS gross, sum(c.discount_amount) AS discount, sum(c.total_amount) AS net,
+                       COALESCE(sum(c.total_amount) FILTER (WHERE c.settlement = 'room'), 0) AS to_room,
+                       COALESCE(sum(c.total_amount) FILTER (WHERE c.settlement = 'payment'), 0) AS paid,
+                       COALESCE(sum(c.discount_amount) FILTER (WHERE c.settlement = 'complimentary'), 0) AS complimentary
+                FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id
+                WHERE c.status = 'closed' AND c.closed_business_date BETWEEN @from AND @to
+                GROUP BY c.closed_business_date, o.name ORDER BY 1, 2
+                """,
+        },
+        new()
+        {
+            Name = "pos_products", Title = "Ürün Satışları", Category = "Restoran", Permission = "pos.view", Params = [From, To],
+            Columns = [new("outlet", "Satış Noktası", "text"), new("category", "Kategori", "text"), new("product", "Ürün", "text"),
+                new("quantity", "Adet", "decimal"), new("amount", "Tutar (indirim öncesi)", "money")],
+            SumColumns = ["amount"],
+            Sql = """
+                SELECT o.name AS outlet, p.category, l.name AS product, sum(l.quantity) AS quantity, sum(l.amount) AS amount
+                FROM pms.pos_check_lines l JOIN pms.pos_checks c ON c.id = l.check_id JOIN pms.pos_outlets o ON o.id = c.outlet_id
+                JOIN pms.pos_products p ON p.id = l.product_id
+                WHERE NOT l.is_void AND c.status = 'closed' AND c.closed_business_date BETWEEN @from AND @to
+                GROUP BY o.name, p.category, l.name ORDER BY o.name, amount DESC
+                """,
+        },
+        new()
+        {
+            Name = "pos_checks", Title = "Adisyon Listesi", Category = "Restoran", Permission = "pos.view", Params = [From, To],
+            Columns = [new("checkNo", "No", "int"), new("outlet", "Satış Noktası", "text"), new("tableLabel", "Masa", "text"), new("openedAt", "Açılış", "datetime"),
+                new("closedAt", "Kapanış", "datetime"), new("status", "Durum", "text"), new("settlement", "Kapanış Türü", "text"), new("room", "Oda", "text"),
+                new("discount", "İndirim", "money"), new("total", "Tutar", "money"), new("username", "Kapatan", "text"), new("reason", "Gerekçe", "text")],
+            SumColumns = ["total"],
+            Sql = """
+                SELECT c.check_no, o.name AS outlet, c.table_label, c.opened_at, c.closed_at,
+                       CASE c.status WHEN 'open' THEN 'Açık' WHEN 'closed' THEN 'Kapalı' ELSE 'İptal' END AS status,
+                       CASE c.settlement WHEN 'room' THEN 'Odaya' WHEN 'payment' THEN 'Ödeme' WHEN 'complimentary' THEN 'İkram' END AS settlement,
+                       rm.number AS room, c.discount_amount AS discount, CASE WHEN c.status = 'closed' THEN c.total_amount ELSE 0 END AS total,
+                       u.username, COALESCE(c.cancel_reason, c.discount_reason) AS reason
+                FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id
+                LEFT JOIN pms.reservations r ON r.id = c.reservation_id LEFT JOIN pms.rooms rm ON rm.id = r.room_id LEFT JOIN pms.users u ON u.id = c.closed_by
+                WHERE COALESCE(c.closed_business_date, c.business_date) BETWEEN @from AND @to
+                ORDER BY c.check_no
+                """,
+        },
+        new()
+        {
+            Name = "pos_voids", Title = "Ürün İptalleri", Category = "Restoran", Permission = "pos.view", Params = [From, To],
+            Columns = [new("checkNo", "Adisyon", "int"), new("outlet", "Satış Noktası", "text"), new("product", "Ürün", "text"), new("quantity", "Adet", "decimal"),
+                new("amount", "Tutar", "money"), new("addedBy", "Ekleyen", "text"), new("voidedBy", "İptal Eden", "text"), new("voidedAt", "Zaman", "datetime"),
+                new("reason", "Gerekçe", "text")],
+            SumColumns = ["amount"],
+            Sql = """
+                SELECT c.check_no, o.name AS outlet, l.name AS product, l.quantity, l.amount, au.username AS added_by, vu.username AS voided_by, l.voided_at,
+                       l.void_reason AS reason
+                FROM pms.pos_check_lines l JOIN pms.pos_checks c ON c.id = l.check_id JOIN pms.pos_outlets o ON o.id = c.outlet_id
+                LEFT JOIN pms.users au ON au.id = l.added_by LEFT JOIN pms.users vu ON vu.id = l.voided_by
+                WHERE l.is_void AND c.business_date BETWEEN @from AND @to
+                ORDER BY l.voided_at
+                """,
+        },
+        new()
+        {
+            Name = "allotment_usage", Title = "Acente Kontenjan Kullanımı", Category = "Satış", Permission = "reservation.view", Params = [From, To],
+            Columns = [new("date", "Gece", "date"), new("agency", "Acente", "text"), new("roomType", "Oda Tipi", "text"), new("rooms", "Kontenjan", "int"),
+                new("used", "Kullanılan", "int"), new("remaining", "Kalan", "int"), new("releaseDate", "Release", "date"), new("released", "Serbest", "bool")],
+            SumColumns = ["rooms", "used", "remaining"],
+            Sql = """
+                SELECT d::date AS date, ag.name AS agency, t.code AS room_type, a.rooms,
+                       LEAST(a.rooms, u.cnt)::int AS used, GREATEST(a.rooms - u.cnt, 0)::int AS remaining,
+                       (d::date - a.release_days) AS release_date, (SELECT business_date FROM pms.property LIMIT 1) >= d::date - a.release_days AS released
+                FROM pms.allotments a JOIN pms.agencies ag ON ag.id = a.agency_id JOIN pms.room_types t ON t.id = a.room_type_id
+                CROSS JOIN LATERAL generate_series(GREATEST(a.date_from, @from::date), LEAST(a.date_to - 1, @to::date), interval '1 day') d
+                CROSS JOIN LATERAL (SELECT count(*)::int AS cnt FROM pms.reservations x WHERE x.agency_id = a.agency_id AND x.room_type_id = a.room_type_id
+                    AND x.status IN ('tentative','confirmed','checked_in','checked_out') AND x.arrival <= d::date AND x.departure > d::date) u
+                WHERE a.is_active
+                ORDER BY 1, ag.name, t.code
+                """,
+        },
     ];
 
     public static void Map(WebApplication app)
@@ -526,10 +679,16 @@ public static class ReportEndpoints
                    (SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
                       WHERE l.business_date = @bd AND l.line_type IN ('charge','discount','allowance','void') AND l.payment_method_id IS NULL
                         AND (l.is_room_charge OR tc.category = 'room')) AS room_revenue_today,
-                   (SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
-                      WHERE l.business_date = @bd AND l.line_type = 'charge' AND NOT l.is_room_charge AND COALESCE(tc.category, '') <> 'room' AND l.related_line_id IS NULL) AS other_revenue_today,
+                   (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l
+                      LEFT JOIN pms.folio_lines o ON o.id = l.related_line_id
+                      JOIN pms.transaction_codes tc ON tc.id = CASE WHEN l.line_type = 'void' THEN o.transaction_code_id ELSE l.transaction_code_id END
+                      WHERE l.business_date = @bd AND tc.category NOT IN ('room', 'tax')
+                        AND ((l.line_type = 'charge' AND NOT l.is_room_charge) OR (l.line_type = 'void' AND o.line_type = 'charge' AND NOT o.is_room_charge)))
+                    + (SELECT COALESCE(sum(c.total_amount), 0) FROM pms.pos_checks c
+                        WHERE c.status = 'closed' AND c.settlement = 'payment' AND c.closed_business_date = @bd) AS other_revenue_today,
                    (SELECT COALESCE(-sum(l.amount), 0) FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
-                      WHERE l.business_date = @bd AND pm.kind NOT IN ('city_ledger','company','agency')) AS payments_today,
+                      WHERE l.business_date = @bd AND pm.kind NOT IN ('city_ledger','company','agency'))
+                    + (SELECT COALESCE(sum(p.amount), 0) FROM pms.pos_payments p WHERE p.business_date = @bd) AS payments_today,
                    (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l JOIN pms.folios f ON f.id = l.folio_id WHERE f.status = 'open') AS open_balance,
                    (SELECT count(*)::int FROM pms.maintenance_tickets WHERE status IN ('open','in_progress')) AS open_tickets,
                    (SELECT count(*)::int FROM pms.hk_tasks WHERE status IN ('open','in_progress')) AS open_hk_tasks,

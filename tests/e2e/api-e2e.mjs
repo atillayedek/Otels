@@ -501,6 +501,182 @@ try {
     token = adminToken;
   });
 
+  await step('Stok: depo, kart, tedarikçi, sipariş, mal kabul, çıkış, transfer, sayım, iptal, ortalama maliyet', async () => {
+    const k = () => ({ key: randomUUID() });
+    state.w1 = (await api('POST', '/api/v1/stock/warehouses', { code: 'ANA', name: 'Ana Depo', isActive: true })).id;
+    state.w2 = (await api('POST', '/api/v1/stock/warehouses', { code: 'BAR', name: 'Bar Deposu', isActive: true })).id;
+    await api('POST', '/api/v1/stock/warehouses', { code: 'ANA', name: 'Tekrar', isActive: true }, { expect: 409 });
+    state.item = (await api('POST', '/api/v1/stock/items', { code: 'KOLA-33', name: 'Kola 33 cl', unit: 'adet', category: 'İçecek', minQty: '24', vatRate: '20', isActive: true })).id;
+    const sup = (await api('POST', '/api/v1/stock/suppliers', { name: 'E2E Tedarikçi Çığ', taxNumber: '1234567890', isActive: true })).id;
+    await api('POST', '/api/v1/stock/suppliers', { name: 'Geçersiz', taxNumber: '12AB', isActive: true }, { expect: 422 });
+    const po = await api('POST', '/api/v1/purchase-orders', { supplierId: sup, warehouseId: state.w1, lines: [{ itemId: state.item, quantity: '48', unitCost: '10.00', vatRate: '20' }] }, k());
+    let d = await api('GET', `/api/v1/purchase-orders/${po.id}`);
+    assert.equal(d.order.status, 'draft'); assert.equal(d.order.total, '576.00');
+    const recv = qty => ({ warehouseId: state.w1, supplierId: sup, purchaseOrderId: po.id, invoiceNo: 'A-1', lines: [{ itemId: state.item, quantity: qty, unitCost: '10.0000', purchaseOrderLineId: d.lines[0].id }] });
+    await api('POST', '/api/v1/stock/receipts', recv('24'), { ...k(), expect: 422 }); // taslak siparişe mal kabul yapılamaz
+    await api('POST', `/api/v1/purchase-orders/${po.id}/send`, { version: d.order.version }, k());
+    const r1 = await api('POST', '/api/v1/stock/receipts', recv('24'), k());
+    d = await api('GET', `/api/v1/purchase-orders/${po.id}`);
+    assert.equal(d.order.status, 'partially_received'); assert.equal(Number(d.lines[0].receivedQty), 24);
+    await api('POST', '/api/v1/stock/receipts', { warehouseId: state.w1, supplierId: sup, lines: [{ itemId: state.item, quantity: '24', unitCost: '12' }] }, k());
+    const bal = async w => (await api('GET', `/api/v1/stock/balances?warehouseId=${w}`)).find(x => x.itemId === state.item);
+    let b = await bal(state.w1);
+    assert.equal(Number(b.quantity), 48); assert.equal(Number(b.avgCost), 11); // (24×10 + 24×12) / 48
+    await api('POST', '/api/v1/stock/issues', { warehouseId: state.w1, department: 'Kat hizmetleri', lines: [{ itemId: state.item, quantity: '100' }] }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/stock/issues', { warehouseId: state.w1, department: 'Kat hizmetleri', lines: [{ itemId: state.item, quantity: '6' }] }, k());
+    await api('POST', '/api/v1/stock/transfers', { warehouseId: state.w1, targetWarehouseId: state.w2, lines: [{ itemId: state.item, quantity: '12' }] }, k());
+    const cnt = await api('POST', '/api/v1/stock/counts', { warehouseId: state.w2, lines: [{ itemId: state.item, countedQuantity: '11' }] }, k());
+    assert.equal(cnt.adjusted, 1);
+    await api('POST', '/api/v1/stock/counts', { warehouseId: state.w2, lines: [{ itemId: state.item, countedQuantity: '11' }] }, { ...k(), expect: 422 }); // fark yok
+    await api('POST', `/api/v1/stock/documents/${r1.id}/cancel`, { reason: 'Hatalı fatura' }, k());
+    await api('POST', `/api/v1/stock/documents/${r1.id}/cancel`, { reason: 'tekrar' }, { ...k(), expect: 422 });
+    d = await api('GET', `/api/v1/purchase-orders/${po.id}`);
+    assert.equal(d.order.status, 'ordered'); assert.equal(Number(d.lines[0].receivedQty), 0);
+    b = await bal(state.w1);
+    assert.equal(Number(b.quantity), 6); // 48 − 6 − 12 − 24
+    assert.equal(Number((await bal(state.w2)).quantity), 11);
+    const mv = await api('GET', `/api/v1/stock/items/${state.item}/movements`);
+    assert.ok(mv.some(m => m.isReversal), 'iptal ters hareketi');
+    const low = await api('GET', '/api/v1/stock/balances?lowOnly=true');
+    assert.ok(low.some(x => x.itemId === state.item), 'asgari stok altı listede');
+    const rep = await api('GET', `/api/v1/reports/stock_movements?from=${state.bd}&to=${state.bd}`);
+    assert.ok(rep.rows.length >= 6);
+  });
+
+  await step('Restoran: menü, reçete, adisyon, iptal, indirim, odaya aktarma, ödeme, ikram, stok tüketimi, kasa', async () => {
+    const k = () => ({ key: randomUUID() });
+    state.dlx = (await api('POST', '/api/v1/room-types', { code: 'DLX', name: 'Deluxe', maxAdults: 2, maxChildren: 1, defaultRate: '2500.00', sortOrder: 2, isActive: true })).id;
+    for (const n of ['201', '202', '203']) state['room' + n] = (await api('POST', '/api/v1/rooms', { roomTypeId: state.dlx, number: n, floor: '2', sortOrder: Number(n), isActive: true })).id;
+    for (const r of (await api('GET', '/api/v1/rooms')).filter(x => x.roomTypeId === state.dlx))
+      await api('POST', `/api/v1/rooms/${r.id}/housekeeping`, { hkStatus: 'clean', isDnd: false, version: r.version });
+    state.inhouse = (await api('POST', '/api/v1/reservations', { guestId: state.guest, roomTypeId: state.dlx, arrival: state.bd, departure: addDays(state.bd, 2), adults: 1, children: 0, status: 'confirmed', depositRequired: '0' }, k())).id;
+    const rv = await api('GET', `/api/v1/reservations/${state.inhouse}`);
+    await api('POST', `/api/v1/reservations/${state.inhouse}/check-in`, { roomId: state.room201, earlyCheckIn: false, version: rv.version }, k());
+
+    const fb = (await api('POST', '/api/v1/finance/transaction-codes', { code: 'REST', name: 'Restoran', category: 'food_beverage', vatRate: '10', isActive: true })).id;
+    const roomCode = (await api('GET', '/api/v1/finance/transaction-codes')).find(c => c.code === 'ROOM').id;
+    await api('POST', '/api/v1/pos/outlets', { code: 'X', name: 'Hatalı', transactionCodeId: roomCode, sortOrder: 1, isActive: true }, { expect: 422 });
+    state.outlet = (await api('POST', '/api/v1/pos/outlets', { code: 'REST', name: 'Restoran', transactionCodeId: fb, warehouseId: state.w2, sortOrder: 1, isActive: true })).id;
+    const kola = (await api('POST', '/api/v1/pos/products', { code: 'KOLA', name: 'Kola', category: 'İçecekler', price: '60.00', vatRate: '20', sortOrder: 1, isActive: true, outletIds: [] })).id;
+    const corba = (await api('POST', '/api/v1/pos/products', { code: 'MERCIMEK', name: 'Mercimek Çorbası', category: 'Çorbalar', price: '150.00', vatRate: '10', sortOrder: 1, isActive: true, outletIds: [state.outlet] })).id;
+    await api('PUT', `/api/v1/pos/products/${kola}/recipe`, { lines: [{ stockItemId: state.item, quantity: '1' }] });
+    const menu = await api('GET', `/api/v1/pos/products?outletId=${state.outlet}`);
+    assert.equal(menu.length, 2); assert.equal(menu.find(m => m.id === kola).recipeItems, 1);
+
+    // 1) Odaya aktarma: 2 kola + 1 çorba = 270; 20 indirim → 250; KDV gruplarına oransal dağıtım
+    let c = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, tableLabel: '5', covers: 2 }, k());
+    const cid = c.check.id;
+    await api('POST', `/api/v1/pos/checks/${cid}/lines`, { productId: kola, quantity: '2' }, k());
+    c = await api('POST', `/api/v1/pos/checks/${cid}/lines`, { productId: corba, quantity: '1' }, k());
+    const extra = await api('POST', `/api/v1/pos/checks/${cid}/lines`, { productId: corba, quantity: '1', note: 'yanlış' }, k());
+    const wrong = extra.lines.find(l => l.note === 'yanlış');
+    c = await api('POST', `/api/v1/pos/check-lines/${wrong.id}/void`, { reason: 'Yanlış tuşlama' }, k());
+    assert.equal(c.check.subtotal, '270.00');
+    await api('POST', `/api/v1/pos/checks/${cid}/discount`, { amount: '300.00', reason: 'fazla', version: c.check.version }, { ...k(), expect: 422 });
+    c = await api('POST', `/api/v1/pos/checks/${cid}/discount`, { amount: '20.00', reason: 'Sadakat', version: c.check.version }, k());
+    assert.equal(c.check.total, '250.00');
+    c = await api('POST', `/api/v1/pos/checks/${cid}/close`, { settlement: 'room', reservationId: state.inhouse, version: c.check.version }, k());
+    assert.equal(c.check.status, 'closed'); assert.equal(c.check.roomNumber, '201');
+    const folios = await api('GET', `/api/v1/folios?reservationId=${state.inhouse}`);
+    const fd = await api('GET', `/api/v1/folios/${folios[0].id}`);
+    const posLines = fd.lines.filter(l => l.reference === `ADS-${c.check.checkNo}`);
+    assert.deepEqual(posLines.map(l => l.amount).sort(), ['111.11', '138.89']);
+    const barQty = async () => Number((await api('GET', `/api/v1/stock/balances?warehouseId=${state.w2}`)).find(x => x.itemId === state.item).quantity);
+    assert.equal(await barQty(), 9); // 11 − 2 kola (reçete)
+
+    // 2) Ödemeyle kapanış: nakit TL + EUR; kasa vardiyası gerekir
+    let c2 = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, tableLabel: 'Bar', covers: 1 }, k());
+    c2 = await api('POST', `/api/v1/pos/checks/${c2.check.id}/lines`, { productId: corba, quantity: '2' }, k());
+    const pay = [{ paymentMethodId: state.cash, amount: '262.50' }, { paymentMethodId: state.cash, amount: '0', tenderedCurrency: 'EUR', tenderedAmount: '1.00' }];
+    await api('POST', `/api/v1/pos/checks/${c2.check.id}/close`, { settlement: 'payment', payments: pay, version: c2.check.version }, { ...k(), expect: 422 }); // vardiya yok
+    await api('POST', '/api/v1/cashier/open', { openingFloat: '0' }, k());
+    await api('POST', `/api/v1/pos/checks/${c2.check.id}/close`, { settlement: 'payment', payments: [pay[0]], version: c2.check.version }, { ...k(), expect: 422 }); // eksik ödeme
+    c2 = await api('POST', `/api/v1/pos/checks/${c2.check.id}/close`, { settlement: 'payment', payments: pay, version: c2.check.version }, k());
+    assert.equal(c2.check.paid, '300.00'); assert.equal(c2.payments.length, 2);
+    const shift = await api('GET', '/api/v1/cashier/current');
+    let sr = await api('GET', `/api/v1/cashier/shifts/${shift.id}`);
+    assert.equal(sr.cash.find(x => x.currency === 'TRY').expected, '262.50');
+    assert.equal(sr.cash.find(x => x.currency === 'EUR').expected, '1.00');
+
+    // 3) İkram: önce tamamına indirim gerekir
+    let c3 = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, covers: 1 }, k());
+    c3 = await api('POST', `/api/v1/pos/checks/${c3.check.id}/lines`, { productId: kola, quantity: '1' }, k());
+    await api('POST', `/api/v1/pos/checks/${c3.check.id}/close`, { settlement: 'complimentary', version: c3.check.version }, { ...k(), expect: 422 });
+    c3 = await api('POST', `/api/v1/pos/checks/${c3.check.id}/discount`, { amount: '60.00', reason: 'Müdür ikramı', version: c3.check.version }, k());
+    c3 = await api('POST', `/api/v1/pos/checks/${c3.check.id}/close`, { settlement: 'complimentary', version: c3.check.version }, k());
+    assert.equal(c3.check.total, '0.00');
+    assert.equal(await barQty(), 8);
+
+    // 4) Kapanmış adisyonların iptali: folyo satırları iptal, ödeme ters kaydı, stok geri
+    c = await api('GET', `/api/v1/pos/checks/${cid}`);
+    await api('POST', `/api/v1/pos/checks/${cid}/cancel`, { reason: 'Misafir itiraz etti', version: c.check.version }, k());
+    const fd2 = await api('GET', `/api/v1/folios/${folios[0].id}`);
+    assert.ok(fd2.lines.filter(l => l.reference === `ADS-${c.check.checkNo}`).every(l => l.isVoided));
+    assert.equal(await barQty(), 10);
+    c2 = await api('GET', `/api/v1/pos/checks/${c2.check.id}`);
+    await api('POST', `/api/v1/pos/checks/${c2.check.id}/cancel`, { reason: 'Yanlış masa', version: c2.check.version }, k());
+    sr = await api('GET', `/api/v1/cashier/shifts/${shift.id}`);
+    assert.equal(sr.cash.find(x => x.currency === 'TRY').expected, '0.00');
+
+    // 5) Açık adisyon gece denetiminde uyarı; boş adisyonu açan kapatabilir
+    const c4 = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, covers: 1 }, k());
+    const pv = await api('GET', '/api/v1/night-audit/preview');
+    assert.ok(pv.warnings.some(w => w.code === 'open_pos_check'));
+    await api('POST', `/api/v1/pos/checks/${c4.check.id}/cancel`, { reason: 'Boş', version: c4.check.version }, k());
+
+    // 6) Restoran personeli: adisyon açar, kendi yanlış satırını iptal eder; indirim ve başkasının satırını iptal edemez
+    await api('POST', '/api/v1/users', { username: 'e2egarson', fullName: 'E2E Garson', password: 'Garson12345', roles: ['RESTAURANT'] });
+    const adminToken = token;
+    const other = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, covers: 1 }, k());
+    const otherLine = (await api('POST', `/api/v1/pos/checks/${other.check.id}/lines`, { productId: kola, quantity: '1' }, k())).lines[0];
+    token = '';
+    await api('POST', '/api/v1/auth/login', { username: 'e2egarson', password: 'Garson12345', deviceId, deviceKind: 'browser' });
+    await api('POST', '/api/v1/auth/change-password', { currentPassword: 'Garson12345', newPassword: 'Garson67890' });
+    await api('POST', '/api/v1/auth/login', { username: 'e2egarson', password: 'Garson67890', deviceId, deviceKind: 'browser' });
+    let g = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, tableLabel: '7', covers: 2 }, k());
+    g = await api('POST', `/api/v1/pos/checks/${g.check.id}/lines`, { productId: kola, quantity: '1' }, k());
+    g = await api('POST', `/api/v1/pos/check-lines/${g.lines[0].id}/void`, { reason: 'Yanlış ürün' }, k());
+    assert.ok(g.lines[0].isVoid);
+    await api('POST', `/api/v1/pos/check-lines/${otherLine.id}/void`, { reason: 'x' }, { ...k(), expect: 403 });
+    await api('POST', `/api/v1/pos/checks/${g.check.id}/discount`, { amount: '0', version: g.check.version }, { ...k(), expect: 403 });
+    await api('POST', '/api/v1/pos/products', { code: 'X', name: 'x', category: 'x', price: '1', vatRate: '0', sortOrder: 0, isActive: true }, { expect: 403 });
+    await api('GET', '/api/v1/reservations', undefined, { expect: 403 });
+    const rooms = await api('GET', '/api/v1/pos/in-house');
+    assert.ok(rooms.some(r => r.roomNumber === '201'));
+    token = adminToken;
+    await api('POST', `/api/v1/pos/checks/${other.check.id}/cancel`, { reason: 'Test', version: (await api('GET', `/api/v1/pos/checks/${other.check.id}`)).check.version }, k());
+    await api('POST', `/api/v1/pos/checks/${g.check.id}/cancel`, { reason: 'Test', version: (await api('GET', `/api/v1/pos/checks/${g.check.id}`)).check.version }, k());
+    const sales = await api('GET', `/api/v1/reports/pos_sales?from=${state.bd}&to=${state.bd}`);
+    assert.equal(sales.rows.length, 1); assert.equal(sales.rows[0].complimentary, '60.00');
+  });
+
+  await step('Acente kontenjanı: envanter sınırı, diğer satışlara kapalı kontenjan, acente kullanımı, çakışma', async () => {
+    const k = () => ({ key: randomUUID() });
+    const ag = (await api('POST', '/api/v1/agencies', { name: 'E2E Acente', isCityLedger: false, isActive: true })).id;
+    const d1 = addDays(state.bd, 3), d2 = addDays(state.bd, 4), d3 = addDays(state.bd, 6);
+    const base = { agencyId: ag, roomTypeId: state.dlx, dateFrom: d1, dateTo: d3, releaseDays: 1, isActive: true };
+    await api('POST', '/api/v1/allotments', { ...base, rooms: 4 }, { ...k(), expect: 409 }); // 3 oda var
+    const al = await api('POST', '/api/v1/allotments', { ...base, rooms: 2 }, k());
+    await api('POST', '/api/v1/allotments', { ...base, rooms: 1 }, { ...k(), expect: 409 }); // çakışan aktif kontenjan
+    let av = await api('GET', `/api/v1/availability?from=${d1}&to=${d2}&roomTypeId=${state.dlx}`);
+    assert.equal(av[0].held, 2); assert.equal(av[0].available, 1);
+    av = await api('GET', `/api/v1/availability?from=${d1}&to=${d2}&roomTypeId=${state.dlx}&agencyId=${ag}`);
+    assert.equal(av[0].held, 0); assert.equal(av[0].available, 3);
+    const res = extra => ({ guestId: state.guest, roomTypeId: state.dlx, arrival: d1, departure: d2, adults: 1, children: 0, status: 'confirmed', depositRequired: '0', ...extra });
+    await api('POST', '/api/v1/reservations', res({}), k());                                   // doğrudan satış: son serbest oda
+    await api('POST', '/api/v1/reservations', res({}), { ...k(), expect: 409 });               // kalan 2 oda kontenjanda
+    await api('POST', '/api/v1/reservations', res({ agencyId: ag }), k());                     // acente kendi kontenjanını kullanır
+    await api('POST', '/api/v1/reservations', res({ agencyId: ag }), k());
+    await api('POST', '/api/v1/reservations', res({ agencyId: ag }), { ...k(), expect: 409 }); // oda kalmadı
+    const usage = await api('GET', `/api/v1/allotments/${al.id}/usage`);
+    assert.equal(usage[0].used, 2); assert.equal(usage[0].remaining, 0);
+    assert.equal(usage[1].used, 0); assert.equal(usage[1].remaining, 2);
+    const list = await api('GET', `/api/v1/allotments?agencyId=${ag}`);
+    assert.equal(list[0].usedRoomNights, 2); assert.equal(list[0].totalRoomNights, 6);
+    const rep = await api('GET', `/api/v1/reports/allotment_usage?from=${d1}&to=${d3}`);
+    assert.equal(rep.rows.length, 3);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

@@ -120,7 +120,7 @@ public static class FolioService
         return f;
     }
 
-    static async Task<Guid?> CurrentShiftAsync(Tx tx, bool required)
+    internal static async Task<Guid?> CurrentShiftAsync(Tx tx, bool required)
     {
         var shift = await tx.ScalarAsync<Guid?>("SELECT id FROM pms.cashier_shifts WHERE user_id = @uid AND status = 'open'", new { uid = tx.User.Id });
         if (shift is null && required && await PropertyEndpoints.SettingAsync<bool>(tx, "finance.require_cashier_shift"))
@@ -151,7 +151,7 @@ public static class FolioService
     /// Dövizli tahsilat/iade için folyo tutarını ve kuru belirler. Döviz seçilmemişse veya folyo para birimiyse (null, istek tutarı) döner.
     /// Kur iş günündeki (yoksa en son girilen) kurdur; elle kur yalnız exchange_rate.manage yetkisiyle girilebilir.
     /// </summary>
-    static async Task<(Tender? Tender, decimal Amount)> ResolveTenderAsync(Tx tx, string folioCurrency, string? currency, decimal? tendered,
+    internal static async Task<(Tender? Tender, decimal Amount)> ResolveTenderAsync(Tx tx, string folioCurrency, string? currency, decimal? tendered,
         decimal? manualRate, decimal requestAmount, DateOnly bd)
     {
         var cur = Validate.Optional(currency, 3)?.ToUpperInvariant();
@@ -188,6 +188,21 @@ public static class FolioService
         var id = await InsertLineAsync(tx, folioId, "charge", desc, amount, f.Currency, bd, codeId: req.TransactionCodeId, quantity: req.Quantity,
             unitPrice: req.UnitPrice, reference: Validate.Optional(req.Reference, 100), room: f.RoomNumber, vat: code.VatRate);
         await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, req.TransactionCodeId, desc });
+        tx.Publish("folios", folioId);
+        return id;
+    }
+
+    /// <summary>
+    /// Başka bir modülden (ör. restoran adisyonu) gelen masrafı açık folyoya yazar. KDV oranı kaynaktan gelir (adisyondaki ürünlerin oranı).
+    /// </summary>
+    public static async Task<Guid> PostExternalChargeAsync(Tx tx, Guid folioId, Guid codeId, string description, decimal amount, decimal vatRate, string reference)
+    {
+        var f = await LockOpenFolioAsync(tx, folioId);
+        var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        if (amount <= 0) throw PmsException.Validation("Tutar sıfırdan büyük olmalıdır.");
+        var id = await InsertLineAsync(tx, folioId, "charge", description, amount, f.Currency, bd, codeId: codeId, unitPrice: amount, reference: reference,
+            room: f.RoomNumber, vat: vatRate);
+        await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, codeId, description, reference });
         tx.Publish("folios", folioId);
         return id;
     }

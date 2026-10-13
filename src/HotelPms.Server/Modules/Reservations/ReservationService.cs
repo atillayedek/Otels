@@ -92,8 +92,10 @@ public static class ReservationService
     }
 
     // ------------------------------------------------------------------ Müsaitlik
-    public static Task<List<AvailabilityDay>> AvailabilityAsync(Tx tx, DateOnly from, DateOnly to, Guid? roomTypeId, Guid? excludeReservation = null) =>
-        tx.ListAsync<AvailabilityDay>(AvailabilitySql, new { from, to, roomTypeId, exclude = excludeReservation });
+    /// <param name="agencyId">Satışı yapan acente: kendi kontenjanı bu satış için kapalı sayılmaz.</param>
+    public static Task<List<AvailabilityDay>> AvailabilityAsync(Tx tx, DateOnly from, DateOnly to, Guid? roomTypeId, Guid? excludeReservation = null,
+        Guid? agencyId = null) =>
+        tx.ListAsync<AvailabilityDay>(AvailabilitySql, new { from, to, roomTypeId, exclude = excludeReservation, agencyId });
 
     public const string AvailabilitySql = """
         WITH days AS (SELECT d::date AS d FROM generate_series(@from::date, @to::date - 1, interval '1 day') d),
@@ -104,6 +106,14 @@ public static class ReservationService
                  WHERE r.room_type_id = t.id AND r.is_active AND b.is_active AND b.date_from <= days.d AND b.date_to > days.d) AS blocked,
                (SELECT count(*)::int FROM pms.reservations x WHERE x.room_type_id = t.id AND x.status IN ('tentative','confirmed','checked_in')
                  AND x.arrival <= days.d AND x.departure > days.d AND (@exclude::uuid IS NULL OR x.id <> @exclude)) AS sold,
+               (SELECT COALESCE(sum(GREATEST(a.rooms - (
+                        SELECT count(*) FROM pms.reservations x WHERE x.agency_id = a.agency_id AND x.room_type_id = t.id
+                          AND x.status IN ('tentative','confirmed','checked_in') AND x.arrival <= days.d AND x.departure > days.d
+                          AND (@exclude::uuid IS NULL OR x.id <> @exclude)), 0)), 0)::int
+                 FROM pms.allotments a
+                 WHERE a.is_active AND a.room_type_id = t.id AND a.date_from <= days.d AND a.date_to > days.d
+                   AND days.d - a.release_days > (SELECT business_date FROM pms.property LIMIT 1)
+                   AND (@agencyId::uuid IS NULL OR a.agency_id <> @agencyId)) AS held,
                0 AS available
         FROM types t CROSS JOIN days
         ORDER BY t.sort_order, t.code, days.d
@@ -112,11 +122,12 @@ public static class ReservationService
     /// <summary>Oda tipi envanterini kilitler ve her gece için müsaitlik olduğunu doğrular (son oda yarışında tek kazanan).</summary>
     /// <param name="allowOverbook">Yeni/değişen rezervasyonda kullanıcı aşımı açıkça onayladıysa true. Diğer işlemler (erken giriş, oda değişikliği,
     /// uzatma) zaten odası belli konaklamalar üzerinde yapıldığından yetkiye göre karar verilir.</param>
-    static async Task EnsureAvailabilityAsync(Tx tx, Guid roomTypeId, DateOnly arrival, DateOnly departure, Guid? exclude, bool allowOverbook = true)
+    static async Task EnsureAvailabilityAsync(Tx tx, Guid roomTypeId, DateOnly arrival, DateOnly departure, Guid? exclude, Guid? agencyId,
+        bool allowOverbook = true)
     {
         await tx.LockAsync("inventory", roomTypeId);
-        var days = await AvailabilityAsync(tx, arrival, departure, roomTypeId, exclude);
-        var full = days.Where(d => d.Total - d.Blocked - d.Sold <= 0).Select(d => d.Date).ToList();
+        var days = await AvailabilityAsync(tx, arrival, departure, roomTypeId, exclude, agencyId);
+        var full = days.Where(d => d.Total - d.Blocked - d.Sold - d.Held <= 0).Select(d => d.Date).ToList();
         if (full.Count == 0) return;
         if (allowOverbook && tx.User.Has("reservation.overbook")) return;
         throw PmsException.Conflict($"Seçilen oda tipinde müsaitlik yok: {string.Join(", ", full.Take(5).Select(d => d.ToString("dd.MM.yyyy")))}{(full.Count > 5 ? " ..." : "")}",
@@ -156,7 +167,7 @@ public static class ReservationService
         var guestId = req.GuestId ?? (req.NewGuest is { } ng ? await GuestEndpoints.CreateGuestAsync(tx, ng) : throw PmsException.Validation("Misafir seçilmelidir."));
         await EnsureGuestAllowedAsync(tx, guestId);
         await EnsureCapacityAsync(tx, req.RoomTypeId, req.Adults, req.Children);
-        await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, null, req.AllowOverbook);
+        await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, null, req.AgencyId, req.AllowOverbook);
         if (req.RoomId is { } roomId) await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, null, false);
 
         var (nights, nightly) = await ResolveRatesAsync(tx, req);
@@ -209,7 +220,9 @@ public static class ReservationService
         await EnsureCapacityAsync(tx, req.RoomTypeId, req.Adults, req.Children);
 
         var datesChanged = req.Arrival != r.Arrival || req.Departure != r.Departure || req.RoomTypeId != r.RoomTypeId;
-        if (datesChanged) await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, id, req.AllowOverbook);
+        // Acente değişirse kontenjan dağılımı değişir; müsaitlik yeniden doğrulanır.
+        if (datesChanged || req.AgencyId != r.AgencyId)
+            await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, id, req.AgencyId, req.AllowOverbook);
         if (req.RoomId is { } roomId && (datesChanged || roomId != r.RoomId))
         {
             if (roomId != r.RoomId) tx.Ctx.Require("room.change");
@@ -344,12 +357,12 @@ public static class ReservationService
         {
             if (!req.EarlyCheckIn) throw PmsException.Validation($"Rezervasyonun giriş tarihi {r.Arrival:dd.MM.yyyy}. Erken giriş için 'Erken check-in' seçin.");
             arrival = bd;
-            await EnsureAvailabilityAsync(tx, r.RoomTypeId, bd, r.Arrival, id);
+            await EnsureAvailabilityAsync(tx, r.RoomTypeId, bd, r.Arrival, id, r.AgencyId);
         }
 
         await EnsureRoomUsableAsync(tx, req.RoomId, r.RoomTypeId, arrival, r.Departure, id, tx.User.Has("room.change"));
         var room = await tx.OneAsync<(string Number, string HkStatus, Guid RoomTypeId)>("SELECT number, hk_status, room_type_id FROM pms.rooms WHERE id = @id", new { id = req.RoomId });
-        if (room.RoomTypeId != r.RoomTypeId) await EnsureAvailabilityAsync(tx, room.RoomTypeId, arrival, r.Departure, id);
+        if (room.RoomTypeId != r.RoomTypeId) await EnsureAvailabilityAsync(tx, room.RoomTypeId, arrival, r.Departure, id, r.AgencyId);
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.reservations WHERE room_id = @room AND status = 'checked_in')", new { room = req.RoomId }))
             throw PmsException.Conflict($"Oda {room.Number} şu an dolu.", "room_occupied");
         if (room.HkStatus is "dirty" or "cleaning" && !await PropertyEndpoints.SettingAsync<bool>(tx, "frontoffice.allow_checkin_dirty_room"))
@@ -460,7 +473,7 @@ public static class ReservationService
         if (target == default) throw PmsException.NotFound("Oda");
         if (target.RoomTypeId != r.RoomTypeId && req.Kind == "move")
             throw PmsException.Validation("Farklı oda tipine geçiş için 'upgrade' veya 'downgrade' seçin.");
-        if (target.RoomTypeId != r.RoomTypeId) await EnsureAvailabilityAsync(tx, target.RoomTypeId, bd, r.Departure, id);
+        if (target.RoomTypeId != r.RoomTypeId) await EnsureAvailabilityAsync(tx, target.RoomTypeId, bd, r.Departure, id, r.AgencyId);
         await EnsureRoomUsableAsync(tx, req.RoomId, target.RoomTypeId, bd, r.Departure, id, true);
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.reservations WHERE room_id = @room AND status = 'checked_in')", new { room = req.RoomId }))
             throw PmsException.Conflict($"Oda {target.Number} şu an dolu.", "room_occupied");
@@ -507,7 +520,7 @@ public static class ReservationService
         Validate.DateRange(r.Arrival, req.Departure);
         if (req.Departure > r.Departure)
         {
-            await EnsureAvailabilityAsync(tx, r.RoomTypeId, r.Departure, req.Departure, id);
+            await EnsureAvailabilityAsync(tx, r.RoomTypeId, r.Departure, req.Departure, id, r.AgencyId);
             if (r.RoomId is { } room) await EnsureRoomUsableAsync(tx, room, r.RoomTypeId, r.Departure, req.Departure, id, true);
             var extra = await ComputeRatesAsync(tx, r.RoomTypeId, r.RatePlanId, r.Departure, req.Departure);
             var lastRate = await tx.ScalarAsync<decimal?>("SELECT rate FROM pms.reservation_rates WHERE reservation_id = @id ORDER BY stay_date DESC LIMIT 1", new { id });

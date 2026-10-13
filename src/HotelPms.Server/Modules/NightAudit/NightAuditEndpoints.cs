@@ -191,6 +191,13 @@ public static class NightAuditEndpoints
                 $"{kbs} kimlik bildirimi tamamlanmamış (KBS). Resmi sisteme bildirim yapıp referansı kaydedin.", null, null));
         }
 
+        var openChecks = await tx.ListAsync<(long No, string Outlet, string? Table)>("""
+            SELECT c.check_no, o.name, c.table_label FROM pms.pos_checks c JOIN pms.pos_outlets o ON o.id = c.outlet_id
+            WHERE c.status = 'open' ORDER BY c.check_no LIMIT 50
+            """);
+        foreach (var c in openChecks)
+            warnings.Add(new("open_pos_check", "warning", $"Açık adisyon #{c.No} ({c.Outlet}{(c.Table is null ? "" : " · masa " + c.Table)})", null, c.No.ToString()));
+
         var unbalanced = await tx.ListAsync<(string No, decimal Balance)>("""
             SELECT f.folio_number, sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id
             JOIN pms.reservations r ON r.id = f.reservation_id WHERE r.status IN ('checked_out','cancelled','no_show')
@@ -239,11 +246,18 @@ public static class NightAuditEndpoints
                    (SELECT count(*)::int FROM pms.reservations WHERE status = 'cancelled' AND cancelled_on = @bd),
                    (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
                      WHERE l.business_date = @bd AND l.line_type IN ('charge','void','discount','allowance') AND (l.is_room_charge OR tc.category = 'room')),
-                   (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
-                     WHERE l.business_date = @bd AND l.line_type = 'charge' AND NOT l.is_room_charge AND COALESCE(tc.category, '') NOT IN ('room', 'tax')
-                       AND NOT EXISTS (SELECT 1 FROM pms.folio_lines o WHERE o.id = l.related_line_id AND o.line_type IN ('payment','deposit'))),
+                   -- Diğer gelir: işlem kodlu masraflar ve aynı gün iptalleri (cari aktarım karşı kayıtları işlem kodsuzdur, gelir değildir)
+                   -- + doğrudan ödenerek kapanan adisyonlar (odaya aktarılanlar zaten folyo masrafıdır).
+                   (SELECT COALESCE(sum(l.amount), 0) FROM pms.folio_lines l
+                     LEFT JOIN pms.folio_lines o ON o.id = l.related_line_id
+                     JOIN pms.transaction_codes tc ON tc.id = CASE WHEN l.line_type = 'void' THEN o.transaction_code_id ELSE l.transaction_code_id END
+                     WHERE l.business_date = @bd AND tc.category NOT IN ('room', 'tax')
+                       AND ((l.line_type = 'charge' AND NOT l.is_room_charge) OR (l.line_type = 'void' AND o.line_type = 'charge' AND NOT o.is_room_charge)))
+                   + (SELECT COALESCE(sum(c.total_amount), 0) FROM pms.pos_checks c
+                       WHERE c.status = 'closed' AND c.settlement = 'payment' AND c.closed_business_date = @bd),
                    (SELECT COALESCE(-sum(l.amount), 0) FROM pms.folio_lines l JOIN pms.payment_methods pm ON pm.id = l.payment_method_id
-                     WHERE l.business_date = @bd AND l.line_type IN ('payment','deposit','refund') AND pm.kind NOT IN ('city_ledger','company','agency'))
+                     WHERE l.business_date = @bd AND l.line_type IN ('payment','deposit','refund','void') AND pm.kind NOT IN ('city_ledger','company','agency'))
+                   + (SELECT COALESCE(sum(p.amount), 0) FROM pms.pos_payments p WHERE p.business_date = @bd)
             """, new { bd });
         var available = Math.Max(s.Total - s.Ooo, 0);
         var occ = available == 0 ? 0 : decimal.Round(s.Sold * 100m / available, 2);

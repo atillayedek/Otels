@@ -39,8 +39,18 @@ public sealed class PermissionAttribute(string code) : Attribute
     public string Code { get; } = code;
 }
 
+/// <summary>Listelenen yetkilerden en az birini ister (ör. stok kartlarını hem depo hem restoran menü yöneticisi görür).</summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = true)]
+public sealed class AnyPermissionAttribute(params string[] codes) : Attribute
+{
+    public IReadOnlyList<string> Codes { get; } = codes;
+}
+
 public static class PermissionEndpointExtensions
 {
+    public static TBuilder RequireAnyPermission<TBuilder>(this TBuilder builder, params string[] codes) where TBuilder : IEndpointConventionBuilder =>
+        builder.WithMetadata(new AnyPermissionAttribute(codes));
+
     /// <summary>Uç noktaya sunucu taraflı izin kontrolü ekler. Arayüzde düğme gizlemek yetki değildir.</summary>
     public static TBuilder RequirePermission<TBuilder>(this TBuilder builder, params string[] codes) where TBuilder : IEndpointConventionBuilder
     {

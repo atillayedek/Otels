@@ -49,6 +49,8 @@ public sealed class PmsExceptionHandler(ILogger<PmsExceptionHandler> log) : IExc
         System.Text.Json.JsonException => (400, "bad_request", "İstek verisi okunamadı. Alan biçimlerini kontrol edin.", null),
         PostgresException { SqlState: "23P01" } pe when pe.ConstraintName?.Contains("room") == true =>
             (409, "room_conflict", "Oda seçilen tarihlerde başka bir konaklama veya blokaj ile çakışıyor.", null),
+        PostgresException { SqlState: "23P01" } pe when pe.ConstraintName == "allotments_no_overlap" =>
+            (409, "overlap", "Bu acentenin aynı oda tipi için bu tarihlerle çakışan aktif kontenjanı var.", null),
         PostgresException { SqlState: "23P01" } => (409, "overlap", "Tarih aralığı mevcut bir kayıtla çakışıyor.", null),
         PostgresException { SqlState: "23505" } pe => (409, "duplicate", DuplicateMessage(pe.ConstraintName), null),
         PostgresException { SqlState: "23503" } => (409, "reference", "Kayıt başka kayıtlarla ilişkili veya ilişkili kayıt bulunamadı.", null),
@@ -74,6 +76,12 @@ public sealed class PmsExceptionHandler(ILogger<PmsExceptionHandler> log) : IExc
         "night_audits_business_date_key" => "Bu iş günü için gece denetimi zaten tamamlanmış.",
         "folio_lines_single_void_uq" => "Bu satır zaten iptal edilmiş.",
         "room_charge_postings_pkey" => "Bu gece için oda ücreti zaten postalanmış.",
+        "warehouses_code_uq" => "Bu depo kodu zaten tanımlı.",
+        "stock_items_code_uq" => "Bu stok kodu zaten tanımlı.",
+        "stock_items_barcode_uq" => "Bu barkod başka bir stok kartında kayıtlı.",
+        "suppliers_tax_number_uq" => "Bu vergi numarasıyla kayıtlı bir tedarikçi zaten var.",
+        "pos_outlets_code_uq" => "Bu satış noktası kodu zaten tanımlı.",
+        "pos_products_code_uq" => "Bu ürün kodu zaten tanımlı.",
         _ => "Aynı bilgiye sahip bir kayıt zaten var.",
     };
 

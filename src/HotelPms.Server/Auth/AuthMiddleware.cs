@@ -63,6 +63,8 @@ public sealed class AuthMiddleware(RequestDelegate next)
             throw new PmsException(403, "must_change_password", "Devam etmeden önce parolanızı değiştirmeniz gerekiyor.");
         foreach (var p in endpoint?.Metadata.GetOrderedMetadata<PermissionAttribute>() ?? [])
             if (!user.Has(p.Code)) throw PmsException.Forbidden();
+        foreach (var p in endpoint?.Metadata.GetOrderedMetadata<AnyPermissionAttribute>() ?? [])
+            if (!p.Codes.Any(user.Has)) throw PmsException.Forbidden();
 
         await next(http);
     }

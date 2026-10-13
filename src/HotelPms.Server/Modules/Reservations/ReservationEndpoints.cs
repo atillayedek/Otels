@@ -145,11 +145,11 @@ public static class ReservationEndpoints
             .RequirePermission("reservation.view");
 
         // ---- Müsaitlik ve fiyat
-        app.MapGet("/api/v1/availability", async (DateOnly from, DateOnly to, Guid? roomTypeId, CommandRunner cmd) =>
+        app.MapGet("/api/v1/availability", async (DateOnly from, DateOnly to, Guid? roomTypeId, Guid? agencyId, CommandRunner cmd) =>
         {
             if (to <= from || to.DayNumber - from.DayNumber > 120) throw PmsException.Validation("Tarih aralığı 1-120 gün olmalıdır.");
-            var days = await cmd.ReadAsync(tx => ReservationService.AvailabilityAsync(tx, from, to, roomTypeId));
-            return days.Select(d => d with { Available = d.Total - d.Blocked - d.Sold }).ToList();
+            var days = await cmd.ReadAsync(tx => ReservationService.AvailabilityAsync(tx, from, to, roomTypeId, null, agencyId));
+            return days.Select(d => d with { Available = d.Total - d.Blocked - d.Sold - d.Held }).ToList();
         }).WithTags("Reservations").RequirePermission("reservation.view");
 
         app.MapGet("/api/v1/rates/preview", (Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure, CommandRunner cmd) =>
