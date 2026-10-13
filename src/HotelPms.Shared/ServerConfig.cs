@@ -67,6 +67,9 @@ public sealed class BackupPolicy
 public static class PmsConstants
 {
     public const string ProductName = "HotelPMS";
+    public const string DisplayName = "TSDMR Otel PMS";
+    public const string Vendor = "TSDMR Digital Studio";
+    public const string SupportEmail = "iletisim@tsdmrdigitalstudio.com.tr";
     public const string ServiceName = "HotelPMSServer";
     public const string ServiceDisplayName = "HotelPMS Server Service";
     public const string PostgresServiceName = "HotelPMS-PostgreSQL";

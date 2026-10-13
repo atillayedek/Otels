@@ -13,7 +13,7 @@ using Npgsql;
 namespace HotelPms.Server.Modules.Platform;
 
 public sealed record SystemInfo(string Product, string ServerName, string Hostname, string Version, string MinClientVersion, string ApiVersion,
-    bool SetupRequired, string? HotelName, string? CaFingerprintSha256, int HttpsPort, DateTime ServerTimeUtc);
+    bool SetupRequired, string? HotelName, string? CaFingerprintSha256, int HttpsPort, DateTime ServerTimeUtc, string SupportEmail);
 
 public sealed record ManageStatus(string Status, string Hostname, IReadOnlyList<string> Addresses, int HttpsPort, int HttpPort, string Version,
     string? DatabaseVersion, string SchemaVersion, bool DatabaseReady, string? StartupError, TimeSpan Uptime, int ConnectedClients,
@@ -50,7 +50,7 @@ public static class SystemEndpoints
             }
             string? fp = File.Exists(paths.CaCertFile) ? new CertificateManager(paths, new SecretStore(paths)).CaFingerprintSha256() : null;
             return new SystemInfo(PmsConstants.ProductName, cfg.ServerName, Environment.MachineName, PmsConstants.VersionText,
-                PmsConstants.MinClientVersion.ToString(3), "v1", setup, hotel, fp, cfg.HttpsPort, DateTime.UtcNow);
+                PmsConstants.MinClientVersion.ToString(3), "v1", setup, hotel, fp, cfg.HttpsPort, DateTime.UtcNow, PmsConstants.SupportEmail);
         }).AllowAnonymousPms();
 
         sys.MapGet("/health", (HealthState h) => Results.Json(new

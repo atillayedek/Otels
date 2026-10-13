@@ -166,11 +166,12 @@ public static class MappingCatalog
         foreach (var f in Fields(entity))
         {
             var keyN = NormalizeHeader(f.Key);
-            var exact = normalized.FirstOrDefault(c => !used.Contains(c.Col) && (c.N == keyN || f.Synonyms.Contains(c.N)));
+            var labelN = NormalizeHeader(f.Label);  // PMS şablonundaki Türkçe başlık
+            var exact = normalized.FirstOrDefault(c => !used.Contains(c.Col) && (c.N == keyN || c.N == labelN || f.Synonyms.Contains(c.N)));
             if (exact.Col is not null)
             {
                 used.Add(exact.Col);
-                result.Add(new(f.Key, exact.Col, c_confidence(exact.N == keyN || f.Synonyms.Take(2).Contains(exact.N))));
+                result.Add(new(f.Key, exact.Col, c_confidence(exact.N == keyN || exact.N == labelN || f.Synonyms.Take(2).Contains(exact.N))));
                 continue;
             }
             var partial = normalized.FirstOrDefault(c => !used.Contains(c.Col) && c.N.Length >= 3 && f.Synonyms.Any(s => s.Length >= 4 && (c.N.StartsWith(s) || s.StartsWith(c.N))));

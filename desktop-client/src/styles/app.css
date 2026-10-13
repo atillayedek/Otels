@@ -417,3 +417,19 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .m-products button:active { background: var(--primary-50); border-color: var(--primary); }
 .m-products button b { color: var(--primary); font-size: 14px; }
 .m-pos-bar { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0; display: grid; }
+
+/* ---- Veri aktarım merkezi */
+.import-how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.import-how > div { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.import-how span { color: var(--text-2); }
+.import-order { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.import-step { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 12px; }
+.import-step.done { border-color: var(--success); background: var(--success-50); }
+.import-no { width: 28px; height: 28px; border-radius: 50%; background: var(--primary-50); color: var(--primary); display: grid; place-items: center; font-weight: 700; flex: none; }
+.import-step.done .import-no { background: var(--success); color: #fff; }
+@media (max-width: 1100px) { .import-how, .import-order { grid-template-columns: 1fr; } }
+
+/* ---- Destek */
+.support-mail { display: flex; align-items: center; gap: 10px; background: var(--primary-50); border: 1px solid var(--primary-100); border-radius: var(--radius); padding: 10px 12px; font-size: 15px; }
+.support-mail .mono { flex: 1; color: var(--primary); font-weight: 600; }
+.support-details { margin: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-size: 12.5px; white-space: pre-wrap; }

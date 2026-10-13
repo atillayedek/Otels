@@ -57,6 +57,7 @@ public sealed class MainForm : Form
         tabs.TabPages.Add(BackupTab());
         tabs.TabPages.Add(LogsTab());
         tabs.TabPages.Add(MaintenanceTab());
+        tabs.TabPages.Add(SupportTab());
         tabs.SelectedIndexChanged += async (_, _) =>
         {
             if (tabs.SelectedIndex == 2) await LoadBackupsAsync();
@@ -193,6 +194,45 @@ public sealed class MainForm : Form
         page.Controls.Add(reset);
         page.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 });
         page.Controls.Add(db);
+        return page;
+    }
+
+    TabPage SupportTab()
+    {
+        var page = new TabPage("Destek") { BackColor = Surface, Padding = new Padding(12) };
+        var contact = new GroupBox { Text = $"{PmsConstants.Vendor} destek", Dock = DockStyle.Top, Height = 120, Padding = new Padding(12) };
+        var cflow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        cflow.Controls.Add(new Label { AutoSize = true, Font = new Font("Segoe UI Semibold", 12f), ForeColor = Primary, Text = PmsConstants.SupportEmail });
+        var copy = Btn("E-posta adresini kopyala");
+        copy.Click += (_, _) => { Clipboard.SetText(PmsConstants.SupportEmail); Info("E-posta adresi panoya kopyalandı."); };
+        cflow.Controls.Add(copy);
+        cflow.Controls.Add(new Label { AutoSize = true, ForeColor = Muted, Text = $"Sürüm {PmsConstants.VersionText} · Bilgisayar {Environment.MachineName}" });
+        contact.Controls.Add(cflow);
+
+        var bundle = new GroupBox { Text = "Destek paketi", Dock = DockStyle.Top, Height = 130, Padding = new Padding(12) };
+        var bflow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        bflow.Controls.Add(new Label { AutoSize = true, MaximumSize = new Size(820, 0), ForeColor = Muted,
+            Text = "Son 14 günün sunucu günlükleri, kurulum günlüğü ve sistem bilgisi tek bir ZIP dosyasında toplanır. Veritabanı, misafir kayıtları, yedekler, belgeler ve parola/sertifika dosyaları pakete eklenmez. Oluşan dosyayı destek e-postasına ekleyin." });
+        var make = Btn("Destek paketi oluştur", primary: true);
+        make.Click += async (_, _) =>
+        {
+            using var dlg = new SaveFileDialog { Filter = "ZIP dosyası|*.zip", FileName = $"TSDMR-destek-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}.zip",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            try
+            {
+                var path = await Task.Run(() => SupportBundle.Create(_client.Paths, _client.Config, dlg.FileName));
+                Info($"Destek paketi oluşturuldu:\n{path}\n\nBu dosyayı {PmsConstants.SupportEmail} adresine e-postayla gönderin.");
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Error("Destek paketi oluşturulamadı: " + ex.Message); }
+        };
+        bflow.Controls.Add(make);
+        bundle.Controls.Add(bflow);
+
+        page.Controls.Add(bundle);
+        page.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 });
+        page.Controls.Add(contact);
         return page;
     }
 

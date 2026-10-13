@@ -1,0 +1,14 @@
+{
+  "name": "tsdmr-restaurant",
+  "private": true,
+  "version": "1.0.0",
+  "description": "TSDMR Restoran (garson uygulaması) Android paketi; arayüz desktop-client'tan restoran modunda derlenir.",
+  "scripts": {
+    "tauri": "tauri",
+    "build:ui": "npm --prefix ../desktop-client run build:restaurant",
+    "android": "npm run build:ui && tauri android build --apk --target aarch64"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.2"
+  }
+}

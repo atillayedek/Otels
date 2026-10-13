@@ -37,6 +37,10 @@ Telefon arayüzü sadeleştirilmiştir: kirli odalar en üstte olmak üzere oda 
 
 İmza anahtarı `%APPDATA%\TSDMRndroid` klasöründedir ve depoya eklenmez. Güncellemelerin eski sürümün üzerine kurulabilmesi için bu klasör yedeklenmelidir; anahtar kaybolursa telefonlardaki uygulama kaldırılıp yeniden kurulmalıdır.
 
+## TSDMR Restoran (garson uygulaması)
+
+`TSDMR-Restoran-Android.apk` de sunucuda `C:\HotelPMS\client-setup` klasöründedir. Garson tableti veya telefonuna kurulur; aynı sunucuya ve aynı kullanıcı hesaplarıyla bağlanır. Masa adisyonu açma, ürün ekleme, kendi yanlış girdiği ürünü iptal, mutfağa gönderme; yetkisi olan kullanıcı için indirim ve hesap kapatma (ödeme veya odaya aktarma). Tüm işlemler PMS'e, kasaya, stoğa ve gün sonu muhasebe fişine anında yansır. Kaynak: `restaurant-app/` (arayüz `desktop-client` ile ortaktır).
+
 ## Sürüm uyumu
 
 İstemci her istekte sürümünü bildirir. Sunucu daha yeni bir istemci sürümü gerektiriyorsa istemci güncelleme uyarısı gösterir; güncel kurulum dosyası sunucudaki `C:\HotelPMS\client-setup` klasöründedir.

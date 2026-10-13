@@ -57,6 +57,8 @@ Source: "{#Stage}\manager\*"; DestDir: "{app}\manager"; Components: manager; Fla
 Source: "{#Stage}\client\PMS-Client-Setup.exe"; DestDir: "{app}\client-setup"; Components: client; Flags: ignoreversion
 ; Telefon uygulaması (kat hizmetleri): sunucu kurulumunda dağıtım için kopyalanır.
 Source: "{#Stage}\client\TSDMR-Otel-PMS-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
+; Garson tableti/telefonu için restoran adisyon uygulaması.
+Source: "{#Stage}\client\TSDMR-Restoran-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\PMS Server Manager"; Filename: "{app}\manager\PMS-Server-Manager.exe"; Components: manager

@@ -24,7 +24,7 @@ public static class ReservationService
                r.special_requests, r.deposit_required, r.option_until, r.checked_in_at, r.checked_out_at, r.cancelled_at, r.cancel_reason,
                r.created_at, cu.username AS created_by,
                COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance,
-               r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate
+               r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate, r.channel, r.channel_ref
         FROM pms.reservations r
         JOIN pms.guests g ON g.id = r.guest_id
         JOIN pms.room_types t ON t.id = r.room_type_id
@@ -98,6 +98,32 @@ public static class ReservationService
 
     /// <summary>Fiyat sonucu: Nights/Nightly tesis para birimindedir (dövizlide rezervasyon anı kuruyla tahmini karşılık).</summary>
     sealed record ResolvedRates(List<NightRate> Nights, decimal Nightly, string? FxCurrency, Dictionary<DateOnly, decimal>? FxNights, decimal? FxNightly);
+
+    /// <summary>Bilinen satış kanalları (rezervasyon formundaki liste ve kanal raporu bu kodları kullanır).</summary>
+    public static readonly Dictionary<string, string> Channels = new()
+    {
+        ["booking"] = "Booking.com", ["expedia"] = "Expedia", ["hotelrunner"] = "HotelRunner", ["airbnb"] = "Airbnb", ["agoda"] = "Agoda",
+        ["hotels_com"] = "Hotels.com", ["etstur"] = "Etstur", ["tatilsepeti"] = "Tatilsepeti", ["jollytur"] = "Jolly Tur", ["otelz"] = "Otelz",
+        ["trip_com"] = "Trip.com", ["website"] = "Otel web sitesi", ["other"] = "Diğer kanal",
+    };
+
+    static async Task<(string? Channel, string? Ref)> ChannelAsync(Tx tx, string? channel, string? channelRef, Guid? exclude)
+    {
+        var c = Validate.Optional(channel, 30)?.ToLowerInvariant();
+        var r = Validate.Optional(channelRef, 60);
+        if (c is null) return (null, r is null ? null : throw PmsException.Validation("Kanal rezervasyon numarası için satış kanalını seçin."));
+        if (!Channels.ContainsKey(c)) throw PmsException.Validation("Tanımsız satış kanalı.");
+        if (r is not null)
+        {
+            var dup = await tx.ScalarAsync<string?>("""
+                SELECT reservation_number FROM pms.reservations
+                WHERE channel = @c AND lower(channel_ref) = lower(@r) AND status IN ('tentative','confirmed','checked_in','checked_out')
+                  AND (@exclude::uuid IS NULL OR id <> @exclude) LIMIT 1
+                """, new { c, r, exclude });
+            if (dup is not null) throw PmsException.Conflict($"{Channels[c]} {r} numaralı rezervasyon zaten kayıtlı ({dup}).", "duplicate_channel_ref");
+        }
+        return (c, r);
+    }
 
     static async Task<string?> NormalizeCurrencyAsync(Tx tx, string? currency)
     {
@@ -186,16 +212,17 @@ public static class ReservationService
         await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, null, req.AgencyId, req.AllowOverbook);
         if (req.RoomId is { } roomId) await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, null, false);
 
+        var ch = await ChannelAsync(tx, req.Channel, req.ChannelRef, null);
         var rates = await ResolveRatesAsync(tx, req);
         var (nights, nightly) = (rates.Nights, rates.Nightly);
         var number = "R" + await tx.ScalarAsync<long>("SELECT nextval('pms.reservation_number_seq')");
         var id = await tx.ScalarAsync<Guid>("""
             INSERT INTO pms.reservations (reservation_number, status, guest_id, company_id, agency_id, group_id, room_type_id, room_id, arrival, departure,
                 adults, children, rate_plan_id, nightly_rate, currency, meal_plan, source, market, segment, is_walk_in, eta, etd, notes, special_requests,
-                deposit_required, option_until, created_by, rate_currency, fx_nightly_rate)
+                deposit_required, option_until, created_by, rate_currency, fx_nightly_rate, channel, channel_ref)
             VALUES (@number, @status, @guestId, @CompanyId, @AgencyId, @GroupId, @RoomTypeId, @RoomId, @Arrival, @Departure,
                 @Adults, @Children, @RatePlanId, @nightly, @currency, @meal, @source, @market, @segment, @walkIn, @Eta, @Etd, @notes, @special,
-                @DepositRequired, @OptionUntil, @uid, @fxCur, @fxNightly)
+                @DepositRequired, @OptionUntil, @uid, @fxCur, @fxNightly, @channel, @channelRef)
             RETURNING id
             """, new
         {
@@ -204,7 +231,7 @@ public static class ReservationService
             market = Validate.Optional(req.Market, 50), segment = Validate.Optional(req.Segment, 50), walkIn, req.Eta, req.Etd,
             notes = Validate.Optional(req.Notes, 4000), special = Validate.Optional(req.SpecialRequests, 2000),
             DepositRequired = Validate.Money(req.DepositRequired, "Depozito", allowZero: true), req.OptionUntil, uid = tx.User.Id,
-            fxCur = rates.FxCurrency, fxNightly = rates.FxNightly,
+            fxCur = rates.FxCurrency, fxNightly = rates.FxNightly, channel = ch.Channel, channelRef = ch.Ref,
         });
         await WriteRatesAsync(tx, id, nights, rates.FxNights);
         await tx.ExecAsync("INSERT INTO pms.reservation_guests (reservation_id, guest_id, is_primary) VALUES (@id, @guestId, true)", new { id, guestId });
@@ -247,6 +274,7 @@ public static class ReservationService
             await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, id, false);
         }
 
+        var ch = await ChannelAsync(tx, req.Channel, req.ChannelRef, id);
         var newCur = await NormalizeCurrencyAsync(tx, req.RateCurrency);
         var currentManual = r.RateCurrency is null ? r.NightlyRate : r.FxNightlyRate;
         var rateChanged = datesChanged || req.RatePlanId != r.RatePlanId || newCur != r.RateCurrency || (req.NightlyRate is { } nr && nr != currentManual);
@@ -271,7 +299,7 @@ public static class ReservationService
             UPDATE pms.reservations SET status = @status, guest_id = @guestId, company_id = @CompanyId, agency_id = @AgencyId, group_id = @GroupId,
                 room_type_id = @RoomTypeId, room_id = @RoomId, arrival = @Arrival, departure = @Departure, adults = @Adults, children = @Children,
                 rate_plan_id = @RatePlanId, nightly_rate = @nightly, rate_currency = @fxCur, fx_nightly_rate = @fxNightly,
-                meal_plan = @meal, source = @source, market = @market, segment = @segment,
+                meal_plan = @meal, source = @source, market = @market, segment = @segment, channel = @channel, channel_ref = @channelRef,
                 eta = @Eta, etd = @Etd, notes = @notes, special_requests = @special, deposit_required = @DepositRequired, option_until = @OptionUntil,
                 updated_at = now(), version = version + 1
             WHERE id = @id AND version = @version
@@ -282,6 +310,7 @@ public static class ReservationService
             source = r.IsWalkIn ? "walk_in" : Source(req.Source), market = Validate.Optional(req.Market, 50), segment = Validate.Optional(req.Segment, 50),
             req.Eta, req.Etd, notes = Validate.Optional(req.Notes, 4000), special = Validate.Optional(req.SpecialRequests, 2000),
             DepositRequired = Validate.Money(req.DepositRequired, "Depozito", allowZero: true), req.OptionUntil, fxCur, fxNightly,
+            channel = ch.Channel, channelRef = ch.Ref,
         });
         if (req.GuestId is { } ng && ng != r.GuestId)
         {

@@ -1,17 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChefHat, Plus, X } from 'lucide-react';
+import { ArrowLeft, ChefHat, Percent, Plus, Wallet, X } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
 import type { Outlet, PosCheck, PosCheckDetail, PosProduct, PosSendResult } from '../lib/types';
 import { fmtMoney, fmtQty } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Empty, ErrorBox, Field, Modal, Spinner, useToast } from './ui';
+import { DiscountModal, SettleModal } from './PosDialogs';
 
 const OUTLET_KEY = 'pms.pos.outlet';
 function readOutlet() { try { return localStorage.getItem(OUTLET_KEY) ?? ''; } catch { return ''; } }
 function saveOutlet(id: string) { try { localStorage.setItem(OUTLET_KEY, id); } catch { /* depolama kapalı olabilir */ } }
 
-/** Telefon garson ekranı: masa adisyonu açma, ürün ekleme, kendi yanlışını iptal, mutfağa gönderme. Hesap kasada kapatılır. */
+/** Telefon/tablet garson ekranı: masa adisyonu, ürün ekleme, kendi yanlışını iptal, mutfağa gönderme; yetkiye göre indirim ve hesap kapatma. */
 export function MobilePos() {
   const outlets = useQuery({ queryKey: ['pos', 'outlets'], queryFn: () => get<Outlet[]>('/api/v1/pos/outlets') });
   const active = (outlets.data ?? []).filter(o => o.isActive);
@@ -91,6 +92,7 @@ function MobileCheck({ id, outletId, onBack }: { id: string; outletId: string; o
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'menu' | 'ticket'>('menu');
   const [voiding, setVoiding] = useState<{ id: string; name: string } | null>(null);
+  const [dlg, setDlg] = useState<'settle' | 'discount' | null>(null);
   const apply = (r: PosCheckDetail) => { qc.setQueryData(['pos', 'check', id], r); void qc.invalidateQueries({ queryKey: ['pos', 'checks'] }); };
   const call = async (fn: () => Promise<void>) => { setBusy(true); try { await fn(); } catch (e) { toast.error(e); } finally { setBusy(false); } };
   const add = (productId: string) => call(async () => apply(await post<PosCheckDetail>(`/api/v1/pos/checks/${id}/lines`, { productId, quantity: '1' }, crypto.randomUUID())));
@@ -124,8 +126,16 @@ function MobileCheck({ id, outletId, onBack }: { id: string; outletId: string; o
       )}
       <div className="m-pos-bar">
         <button className={`btn big ${pending ? 'primary' : ''}`} disabled={busy} onClick={() => void send()}><ChefHat /> {pending ? `Mutfağa gönder (${pending})` : 'Mutfağa gönder'}</button>
+        {(can('pos.settle') || can('pos.discount')) && (
+          <div className="row" style={{ marginTop: 8 }}>
+            {can('pos.discount') && <button className="btn big" style={{ flex: 1 }} onClick={() => setDlg('discount')}><Percent /> İndirim</button>}
+            {can('pos.settle') && <button className="btn big primary" style={{ flex: 2 }} disabled={lines.length === 0} onClick={() => setDlg('settle')}><Wallet /> Hesabı kapat</button>}
+          </div>
+        )}
       </div>
-      <div className="muted" style={{ fontSize: 12, textAlign: 'center' }}>Hesap kasada kapatılır.</div>
+      {!can('pos.settle') && <div className="muted" style={{ fontSize: 12, textAlign: 'center' }}>Hesap kasada kapatılır.</div>}
+      {dlg === 'settle' && <SettleModal detail={d.data} pending={pending} onClose={() => setDlg(null)} onDone={r => { apply(r); setDlg(null); onBack(); }} />}
+      {dlg === 'discount' && <DiscountModal check={c} onClose={() => setDlg(null)} onDone={r => { apply(r); setDlg(null); }} />}
       {voiding && <VoidModal line={voiding} onClose={() => setVoiding(null)} onDone={r => { apply(r); setVoiding(null); }} />}
     </div>
   );

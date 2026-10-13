@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { ArrowLeft, Database, FileUp, Play, RotateCcw, Save, ShieldAlert, Upload } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Database, Download, FileUp, Play, RotateCcw, Save, ShieldAlert, Upload } from 'lucide-react';
 import { api, download, get, qs, upload } from '../../lib/api';
 import type { FieldMapping, ImportJob, InspectResponse, MappingProfile, Paged, SourceCapability, StagingRow, TargetField } from '../../lib/types';
 import { fmtDateTime } from '../../lib/format';
@@ -21,11 +21,30 @@ const TRANSFORMS: Record<string, string> = { none: 'Olduğu gibi', fix_encoding:
 const ENCODINGS = ['', 'utf-8', 'windows-1254', 'iso-8859-9'];
 const DUP: Record<string, string> = { review: 'Mükerrerleri bana sor', skip: 'Mükerrerleri atla', update: 'Mevcut kaydı güncelle', create: 'Yine de yeni kayıt oluştur' };
 
+/** Önerilen aktarım sırası: önce tanımlar, sonra kartlar, en son hareketler (eşleşmeler önceki adımlara dayanır). */
+const ORDER: [string, string][] = [
+  ['room_types', 'Oda tiplerinizi (Standart, Deluxe…) aktarın.'],
+  ['rooms', 'Oda numaralarını ve oda tiplerini aktarın.'],
+  ['companies', 'Anlaşmalı şirketleri, vergi numaralarıyla aktarın.'],
+  ['agencies', 'Acenteleri, komisyon oranlarıyla aktarın.'],
+  ['guests', 'Misafir kartlarını (T.C./pasaport, iletişim) aktarın.'],
+  ['account_ledger', 'Şirket/acente cari borç-alacak hareketlerini aktarın.'],
+  ['reservations', 'Gelecek tarihli rezervasyonları aktarın.'],
+  ['folio_history', 'İsterseniz geçmiş folyo hareketlerini aktarın.'],
+];
+
 export default function ImportCenterPage() {
+  const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectResponse | null>(null);
-  const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState<string | null>(null);
   const jobs = useQuery({ queryKey: ['imports', 'list'], queryFn: () => get<ImportJob[]>('/api/v1/imports') });
+  const done = (entity: string) => (jobs.data ?? []).filter(j => j.entity === entity && (j.status === 'completed' || j.status === 'completed_with_errors'));
+  const template = async (entity: string) => {
+    const path = await save({ defaultPath: `TSDMR-aktarim-sablonu-${entity}.xlsx`, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
+    if (!path) return;
+    try { await download(`/api/v1/imports/template/${entity}`, path); toast.ok('Şablon kaydedildi.', path); } catch (e) { toast.error(e); }
+  };
 
   if (jobId) return <JobView jobId={jobId} initial={inspect} onBack={() => { setJobId(null); setInspect(null); }} />;
 
@@ -38,19 +57,38 @@ export default function ImportCenterPage() {
   ];
   return (
     <div className="page">
-      <PageHead title="Veri Aktarım Merkezi" sub="AmonRa veya başka programlardan misafir, cari kart, vergi no ve cari hareket aktarımı" actions={<button className="btn primary" onClick={() => setStarting(true)}><Upload /> Yeni aktarım</button>} />
-      <div className="info-box" style={{ marginBottom: 12 }}>
-        <ShieldAlert size={14} /> Eski programın veritabanına <b>yalnız okuma</b> amaçlı bağlanılır; eski veriler değiştirilmez. Her aktarımdan önce otomatik yedek alınır, kayıtlar önce önizlenir ve hatalı bir aktarım geri alınabilir.
+      <PageHead title="Veri Aktarım Merkezi" sub="Eski otel programınızdaki (AmonRa, Elektra ve diğerleri) kayıtları adım adım aktarın" actions={<button className="btn primary" onClick={() => setStarting('guests')}><Upload /> Yeni aktarım</button>} />
+      <div className="import-how">
+        <div><b>1. Dışa aktarın</b><span>Eski programdan listeyi Excel veya CSV olarak alın. Alamıyorsanız aşağıdaki <b>şablonu</b> indirip doldurun ya da eski programın veritabanına salt okunur bağlanın.</span></div>
+        <div><b>2. Eşleştirin</b><span>Dosyayı seçin; sütunlar otomatik eşleştirilir. Yanlış eşleşeni listeden düzeltin.</span></div>
+        <div><b>3. Önizleyin ve aktarın</b><span>Hatalı ve mükerrer kayıtları görün, karar verin, aktarın. Sonuç beğenilmezse tek tıkla geri alınır.</span></div>
       </div>
-      <DataTable rows={jobs.data ?? []} columns={cols} rowKey={j => j.id} onRowClick={j => setJobId(j.id)} maxHeight="calc(100vh - 290px)" empty={<Empty icon={<FileUp />} title={jobs.isLoading ? 'Yükleniyor…' : 'Henüz aktarım yapılmadı.'} text="Yeni aktarım ile eski programınızdan dışa aktardığınız Excel/CSV dosyasını veya veritabanını seçin." />} />
-      {starting && <StartModal onClose={() => setStarting(false)} onStarted={r => { setStarting(false); setInspect(r); setJobId(r.job.id); }} />}
+      <div className="info-box" style={{ margin: '10px 0' }}>
+        <ShieldAlert size={14} /> Eski programın verisi <b>değiştirilmez</b> (yalnız okunur). Her aktarımdan önce otomatik yedek alınır.
+      </div>
+      <div className="import-order">
+        {ORDER.map(([entity, text], i) => {
+          const d = done(entity);
+          return (
+            <div key={entity} className={`import-step ${d.length ? 'done' : ''}`}>
+              <div className="import-no">{d.length ? <CheckCircle2 size={18} /> : i + 1}</div>
+              <div style={{ flex: 1, minWidth: 0 }}><b>{ENTITIES[entity]}</b><div className="muted" style={{ fontSize: 12 }}>{d.length ? `${d.reduce((s, j) => s + j.importedRows + j.updatedRows, 0)} kayıt aktarıldı` : text}</div></div>
+              <button className="btn sm ghost" title="Boş Excel şablonu" onClick={() => void template(entity)}><Download /> Şablon</button>
+              <button className={`btn sm ${d.length ? '' : 'primary'}`} onClick={() => setStarting(entity)}><Upload /> Aktar</button>
+            </div>
+          );
+        })}
+      </div>
+      <h3 style={{ margin: '18px 0 8px' }}>Aktarım geçmişi</h3>
+      <DataTable rows={jobs.data ?? []} columns={cols} rowKey={j => j.id} onRowClick={j => setJobId(j.id)} maxHeight="calc(100vh - 290px)" empty={<Empty icon={<FileUp />} title={jobs.isLoading ? 'Yükleniyor…' : 'Henüz aktarım yapılmadı.'} text="Yukarıdaki sıradan başlayın." />} />
+      {starting && <StartModal initialEntity={starting} onClose={() => setStarting(null)} onStarted={r => { setStarting(null); setInspect(r); setJobId(r.job.id); }} />}
     </div>
   );
 }
 
-function StartModal({ onClose, onStarted }: { onClose: () => void; onStarted: (r: InspectResponse) => void }) {
+function StartModal({ initialEntity, onClose, onStarted }: { initialEntity: string; onClose: () => void; onStarted: (r: InspectResponse) => void }) {
   const caps = useQuery({ queryKey: ['imports', 'caps'], queryFn: () => get<{ sources: SourceCapability[] }>('/api/v1/imports/capabilities') });
-  const [entity, setEntity] = useState('guests');
+  const [entity, setEntity] = useState(initialEntity);
   const [mode, setMode] = useState<'file' | 'db'>('file');
   const [db, setDb] = useState({ sourceType: 'sqlserver', host: '', port: '', database: '', username: '', password: '', dsn: '', filePath: '' });
   const go = useAction(async () => {

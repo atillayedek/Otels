@@ -5,7 +5,7 @@ import { Crown, Save, Search, UserPlus, X } from 'lucide-react';
 import { api, ApiError, get, newKey, qs } from '../lib/api';
 import type { ExchangeRatesView, GuestListItem, Paged, RatePreview, Reservation } from '../lib/types';
 import { addDays, fmtDate, fmtMoney, fmtRate, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
-import { useAgencies, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
+import { useAgencies, useChannels, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { ErrorBox, Field, Modal, MoneyInput, useConfirm } from '../components/ui';
@@ -15,6 +15,7 @@ type Mode = 'new' | 'walkin' | 'edit';
 
 interface Draft {
   roomTypeId: string; roomId: string; arrival: string; departure: string; adults: number; children: number; ratePlanId: string; nightlyRate: string; overrideRate: boolean; rateCurrency: string;
+  channel: string; channelRef: string;
   mealPlan: string; companyId: string; agencyId: string; source: string; status: string; optionUntil: string; eta: string; etd: string; notes: string; specialRequests: string; depositRequired: string;
 }
 
@@ -61,6 +62,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   const plans = useRatePlans();
   const companies = useCompanies();
   const agencies = useAgencies();
+  const channels = useChannels();
   const status = useRoomStatus();
   const confirm = useConfirm();
 
@@ -68,12 +70,12 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   const [newGuest, setNewGuest] = useState<GuestDraft | null>(null);
   const [d, setD] = useState<Draft>(() => initial ? {
     roomTypeId: initial.roomTypeId, roomId: initial.roomId ?? '', arrival: initial.arrival, departure: initial.departure, adults: initial.adults, children: initial.children,
-    ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.rateCurrency ? initial.fxNightlyRate ?? '' : initial.nightlyRate, overrideRate: false, rateCurrency: initial.rateCurrency ?? '', mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
+    ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.rateCurrency ? initial.fxNightlyRate ?? '' : initial.nightlyRate, overrideRate: false, rateCurrency: initial.rateCurrency ?? '', channel: initial.channel ?? '', channelRef: initial.channelRef ?? '', mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
     source: initial.source, status: initial.status, optionUntil: initial.optionUntil ?? '', eta: initial.eta?.slice(0, 5) ?? '', etd: initial.etd?.slice(0, 5) ?? '', notes: initial.notes ?? '',
     specialRequests: initial.specialRequests ?? '', depositRequired: initial.depositRequired,
   } : {
     roomTypeId: sp.get('type') ?? '', roomId: sp.get('room') ?? '', arrival: mode === 'walkin' ? bd : (sp.get('arrival') ?? bd), departure: addDays(mode === 'walkin' ? bd : (sp.get('arrival') ?? bd), 1),
-    adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, rateCurrency: '', mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
+    adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, rateCurrency: '', channel: '', channelRef: '', mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
     status: 'confirmed', optionUntil: '', eta: '', etd: '', notes: '', specialRequests: '', depositRequired: '0.00',
   });
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD(s => ({ ...s, [k]: v }));
@@ -110,7 +112,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
       guestId: guest?.id ?? null, newGuest: guest ? null : newGuest ? draftToBody(newGuest) : null,
       companyId: n(d.companyId), agencyId: n(d.agencyId), groupId: initial?.groupId ?? null, roomTypeId: d.roomTypeId, roomId: n(d.roomId),
       arrival: d.arrival, departure: d.departure, adults: d.adults, children: d.children, ratePlanId: n(d.ratePlanId),
-      nightlyRate: (d.overrideRate || needsManual) && d.nightlyRate ? d.nightlyRate : null, rateCurrency: d.rateCurrency || null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
+      nightlyRate: (d.overrideRate || needsManual) && d.nightlyRate ? d.nightlyRate : null, rateCurrency: d.rateCurrency || null, channel: d.channel || null, channelRef: d.channel && d.channelRef.trim() ? d.channelRef.trim() : null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
       source: d.source, market: initial?.market ?? null, segment: initial?.segment ?? null, eta: d.eta ? `${d.eta}:00` : null, etd: d.etd ? `${d.etd}:00` : null,
       notes: n(d.notes), specialRequests: n(d.specialRequests), depositRequired: d.depositRequired || '0', optionUntil: d.status === 'tentative' ? n(d.optionUntil) : null,
       version: initial?.version ?? null,
@@ -187,6 +189,10 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
           <div className="card-body form-grid">
             <Field label="Şirket" className="span-2"><select className="input" value={d.companyId} onChange={e => set('companyId', e.target.value)}><option value="">—</option>{companies.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
             <Field label="Acente" className="span-2"><select className="input" value={d.agencyId} onChange={e => set('agencyId', e.target.value)}><option value="">—</option>{agencies.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+            <Field label="Satış kanalı" hint="Booking.com, Expedia, HotelRunner vb. üzerinden gelen rezervasyon"><select className="input" value={d.channel}
+              onChange={e => setD(s => ({ ...s, channel: e.target.value, channelRef: e.target.value ? s.channelRef : '', source: e.target.value && e.target.value !== 'website' ? 'ota' : e.target.value === 'website' ? 'web' : s.source === 'ota' ? 'direct' : s.source }))}>
+              <option value="">Doğrudan / acente</option>{channels.data?.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}</select></Field>
+            {d.channel && <Field label="Kanal rezervasyon no" hint="Aynı numara ikinci kez girilemez"><input className="input mono" value={d.channelRef} onChange={e => set('channelRef', e.target.value)} maxLength={60} /></Field>}
             <Field label="Kaynak"><select className="input" value={d.source} onChange={e => set('source', e.target.value)}>{Object.entries(SOURCE_LABEL).filter(([k]) => k !== 'migration' || d.source === 'migration').map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
             <Field label="İstenen depozito"><MoneyInput value={d.depositRequired} onChange={v => set('depositRequired', v)} /></Field>
             <Field label="Özel istekler" className="span-2"><input className="input" value={d.specialRequests} onChange={e => set('specialRequests', e.target.value)} maxLength={1000} /></Field>

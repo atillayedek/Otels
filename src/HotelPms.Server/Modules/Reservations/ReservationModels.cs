@@ -9,11 +9,12 @@ public sealed record ReservationDto(
     int Adults, int Children, Guid? RatePlanId, string? RatePlanCode, decimal NightlyRate, decimal TotalRate, string Currency, string MealPlan,
     string Source, string? Market, string? Segment, bool IsWalkIn, TimeOnly? Eta, TimeOnly? Etd, int RoomChargeWindow, string? Notes,
     string? SpecialRequests, decimal DepositRequired, DateOnly? OptionUntil, DateTime? CheckedInAt, DateTime? CheckedOutAt, DateTime? CancelledAt,
-    string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version, string? RateCurrency, decimal? FxNightlyRate);
+    string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version, string? RateCurrency, decimal? FxNightlyRate,
+    string? Channel, string? ChannelRef);
 
 public sealed record ReservationListItem(Guid Id, string ReservationNumber, string Status, string GuestName, bool GuestIsVip, string? CompanyName,
     string? AgencyName, string RoomTypeCode, string? RoomNumber, DateOnly Arrival, DateOnly Departure, int Adults, int Children,
-    decimal NightlyRate, string Currency, string Source, decimal Balance);
+    decimal NightlyRate, string Currency, string Source, decimal Balance, string? Channel, string? ChannelRef);
 
 public sealed record SaveReservationRequest(
     Guid? GuestId,
@@ -44,7 +45,10 @@ public sealed record SaveReservationRequest(
     // Müsaitlik yoksa overbooking ancak açıkça istenirse ve kullanıcının reservation.overbook yetkisi varsa yapılır.
     bool AllowOverbook = false,
     // Dövizli fiyat (ör. acente sözleşmesi EUR): NightlyRate bu dövizdedir; boşsa tesis para birimi.
-    string? RateCurrency = null);
+    string? RateCurrency = null,
+    // Satış kanalı (booking, expedia, hotelrunner…) ve kanalın rezervasyon numarası.
+    string? Channel = null,
+    string? ChannelRef = null);
 
 public sealed record CancelRequest(string Reason, int Version);
 public sealed record VersionRequest(int Version);

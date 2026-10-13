@@ -567,6 +567,30 @@ public static class ReportEndpoints
                 ORDER BY 1, 2 NULLS FIRST
                 """,
         },
+
+        new()
+        {
+            Name = "channel_production", Title = "Satış Kanalı Üretimi", Category = "Satış", Permission = "report.view", Params = [From, To],
+            Columns = [new("channel", "Kanal", "text"), new("reservations", "Rezervasyon", "int"), new("roomNights", "Oda-gece", "int"),
+                new("revenue", "Konaklama tutarı", "money"), new("adr", "Ortalama fiyat", "money"), new("cancelled", "İptal", "int"), new("noShow", "No-show", "int")],
+            SumColumns = ["reservations", "roomNights", "revenue", "cancelled", "noShow"],
+            Sql = """
+                SELECT CASE COALESCE(r.channel, '') WHEN 'booking' THEN 'Booking.com' WHEN 'expedia' THEN 'Expedia' WHEN 'hotelrunner' THEN 'HotelRunner' WHEN 'airbnb' THEN 'Airbnb' WHEN 'agoda' THEN 'Agoda' WHEN 'hotels_com' THEN 'Hotels.com' WHEN 'etstur' THEN 'Etstur' WHEN 'tatilsepeti' THEN 'Tatilsepeti' WHEN 'jollytur' THEN 'Jolly Tur' WHEN 'otelz' THEN 'Otelz' WHEN 'trip_com' THEN 'Trip.com' WHEN 'website' THEN 'Otel web sitesi' WHEN 'other' THEN 'Diğer kanal' ELSE 'Doğrudan / acente' END AS channel,
+                       count(*) FILTER (WHERE r.status IN ('tentative','confirmed','checked_in','checked_out'))::int AS reservations,
+                       COALESCE(sum(r.departure - r.arrival) FILTER (WHERE r.status IN ('tentative','confirmed','checked_in','checked_out')), 0)::int AS room_nights,
+                       COALESCE(sum((SELECT sum(rate) FROM pms.reservation_rates x WHERE x.reservation_id = r.id))
+                           FILTER (WHERE r.status IN ('tentative','confirmed','checked_in','checked_out')), 0) AS revenue,
+                       CASE WHEN COALESCE(sum(r.departure - r.arrival) FILTER (WHERE r.status IN ('tentative','confirmed','checked_in','checked_out')), 0) = 0 THEN 0
+                            ELSE round(COALESCE(sum((SELECT sum(rate) FROM pms.reservation_rates x WHERE x.reservation_id = r.id))
+                                 FILTER (WHERE r.status IN ('tentative','confirmed','checked_in','checked_out')), 0)
+                                 / sum(r.departure - r.arrival) FILTER (WHERE r.status IN ('tentative','confirmed','checked_in','checked_out')), 2) END AS adr,
+                       count(*) FILTER (WHERE r.status = 'cancelled')::int AS cancelled,
+                       count(*) FILTER (WHERE r.status = 'no_show')::int AS no_show
+                FROM pms.reservations r
+                WHERE r.arrival BETWEEN @from AND @to AND r.source <> 'migration'
+                GROUP BY 1 ORDER BY revenue DESC
+                """,
+        },
     ];
 
     public static void Map(WebApplication app)

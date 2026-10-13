@@ -11,6 +11,7 @@ export const useCompanies = () => useQuery({ queryKey: ['accounts', 'companies']
 export const useAgencies = () => useQuery({ queryKey: ['accounts', 'agencies'], queryFn: () => get<Account[]>('/api/v1/agencies?active=true') });
 export const useTransactionCodes = () => useQuery({ queryKey: ['settings', 'tcodes'], queryFn: () => get<TransactionCode[]>('/api/v1/finance/transaction-codes') });
 export const usePaymentMethods = () => useQuery({ queryKey: ['settings', 'pmethods'], queryFn: () => get<PaymentMethod[]>('/api/v1/finance/payment-methods') });
+export const useChannels = () => useQuery({ queryKey: ['channels'], queryFn: () => get<{ code: string; name: string }[]>('/api/v1/channels'), staleTime: Infinity });
 export const useStaff = () => useQuery({ queryKey: ['hk', 'staff'], queryFn: () => get<Staff[]>('/api/v1/housekeeping/staff') });
 export const useWarehouses = () => useQuery({ queryKey: ['stock', 'warehouses'], queryFn: () => get<Warehouse[]>('/api/v1/stock/warehouses') });
 export const useStockItems = (includeInactive = false) =>

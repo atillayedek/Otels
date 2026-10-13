@@ -18,7 +18,7 @@ public static class ReservationEndpoints
             // view: arrivals | departures | inhouse | all
             const string where = """
                 WHERE (@term::text IS NULL OR r.reservation_number ILIKE @term || '%' OR (g.first_name || ' ' || g.last_name) ILIKE '%' || @term || '%'
-                       OR rm.number = @term OR c.name ILIKE '%' || @term || '%' OR a.name ILIKE '%' || @term || '%')
+                       OR rm.number = @term OR c.name ILIKE '%' || @term || '%' OR a.name ILIKE '%' || @term || '%' OR r.channel_ref ILIKE @term)
                   AND (@status::text IS NULL OR r.status = @status)
                   AND (@groupId::uuid IS NULL OR r.group_id = @groupId)
                   AND (@from::date IS NULL OR r.departure > @from)
@@ -38,7 +38,8 @@ public static class ReservationEndpoints
                 SELECT r.id, r.reservation_number, r.status, g.first_name || ' ' || g.last_name AS guest_name, g.is_vip AS guest_is_vip,
                        c.name AS company_name, a.name AS agency_name, t.code AS room_type_code, rm.number AS room_number, r.arrival, r.departure,
                        r.adults, r.children, r.nightly_rate, r.currency::text AS currency, r.source,
-                       COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance
+                       COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance,
+                       r.channel, r.channel_ref
                 {from_} {where}
                 ORDER BY CASE WHEN @view = 'departures' THEN r.departure ELSE r.arrival END, rm.number NULLS LAST, r.reservation_number
                 LIMIT @Limit OFFSET @Offset
@@ -143,6 +144,10 @@ public static class ReservationEndpoints
         g.MapGet("/{id:guid}/rates", (Guid id, Db db) => db.QueryAsync<NightRate>(
             "SELECT stay_date AS date, rate FROM pms.reservation_rates WHERE reservation_id = @id ORDER BY stay_date", new { id }))
             .RequirePermission("reservation.view");
+
+        // ---- Satış kanalları (rezervasyon formundaki liste)
+        app.MapGet("/api/v1/channels", () => ReservationService.Channels.Select(kv => new { code = kv.Key, name = kv.Value }).ToList())
+            .WithTags("Reservations").RequirePermission("reservation.view");
 
         // ---- Müsaitlik ve fiyat
         app.MapGet("/api/v1/availability", async (DateOnly from, DateOnly to, Guid? roomTypeId, Guid? agencyId, CommandRunner cmd) =>

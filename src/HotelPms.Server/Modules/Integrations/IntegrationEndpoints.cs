@@ -33,33 +33,14 @@ public sealed class KbsAdapter(string code, string name) : IIntegrationAdapter
     public string StatusMessage => "KBS entegrasyonu yapılandırılmamış.";
 }
 
-public sealed class PlannedAdapter(string code, string category, string name) : IIntegrationAdapter
-{
-    public string Code { get; } = code;
-    public string Category { get; } = category;
-    public string DisplayName { get; } = name;
-    public bool Implemented => false;
-    public string StatusMessage => "Bu entegrasyon için yapılandırılmış bir sağlayıcı adaptörü yok.";
-}
-
 public sealed class IntegrationRegistry
 {
     public IReadOnlyList<IIntegrationAdapter> Adapters { get; } =
     [
         new KbsAdapter("kbs_egm", "KBS - Emniyet Genel Müdürlüğü"),
         new KbsAdapter("kbs_jandarma", "KBS - Jandarma"),
-        new PlannedAdapter("door_lock", "door_lock", "Kapı kilit sistemi"),
-        new PlannedAdapter("pos", "pos", "POS / Restoran"),
-        new PlannedAdapter("pbx", "pbx", "Santral (PBX)"),
-        new PlannedAdapter("channel_manager", "channel_manager", "Kanal yöneticisi"),
-        new PlannedAdapter("booking_engine", "booking_engine", "Rezervasyon motoru"),
-        new PlannedAdapter("e_invoice", "e_document", "e-Fatura / e-Arşiv"),
-        new PlannedAdapter("accounting_export", "accounting", "Muhasebe aktarımı"),
-        new PlannedAdapter("sms", "messaging", "SMS"),
-        new PlannedAdapter("email", "messaging", "E-posta (SMTP)"),
-        new PlannedAdapter("payment_terminal", "payment", "Ödeme terminali"),
-        new PlannedAdapter("minibar", "minibar", "Minibar"),
-        new PlannedAdapter("iptv", "iptv", "IPTV"),
+        // Dış sistem adaptörleri (kanal yöneticisi, e-fatura, kapı kilidi vb.) yalnız sağlayıcı sözleşmesi ve belgesiyle eklenir;
+        // bağlantısı olmayan entegrasyon listelenmez.
     ];
 
     public bool KbsAvailable => Adapters.Any(a => a.Category == "kbs" && a.Implemented);

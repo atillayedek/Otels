@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LogIn, KeyRound, Settings2 } from 'lucide-react';
 import { api, errorText, newKey } from '../lib/api';
 import { useSession } from '../lib/session';
+import { PRODUCT_NAME, SUPPORT_EMAIL } from '../lib/product';
 import { ErrorBox, Field } from '../components/ui';
 import { fmtDate } from '../lib/format';
 
@@ -12,10 +13,10 @@ function AuthFrame({ children, side }: { children: React.ReactNode; side?: React
       <div className="auth-side">
         <div><img src="/logo.svg" width={48} alt="" /></div>
         <div>
-          <h1>TSDMR Otel PMS</h1>
+          <h1>{PRODUCT_NAME}</h1>
           {side ?? <p>Otelinizin kendi sunucusunda çalışan yönetim sistemi. Tüm veriler otelin içinde kalır; internet bağlantısı gerekmez.</p>}
         </div>
-        <small style={{ color: '#bfdbfe' }}>Sunucu: {client?.activeServer ? `${client.activeServer.name} · ${client.activeServer.host}` : '-'} · İstemci {client?.version}</small>
+        <small style={{ color: '#bfdbfe' }}>Sunucu: {client?.activeServer ? `${client.activeServer.name} · ${client.activeServer.host}` : '-'} · Sürüm {client?.version}<br />Destek: {SUPPORT_EMAIL}</small>
       </div>
       <div className="auth-panel"><div className="auth-box">{children}</div></div>
     </div>

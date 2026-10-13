@@ -786,6 +786,26 @@ try {
     assert.equal(gen.created, 0);
   });
 
+  await step('Satış kanalı, aktarım şablonu, destek bilgisi, bağlantısız entegrasyonların gizlenmesi', async () => {
+    const k = () => ({ key: randomUUID() });
+    const ch = await api('GET', '/api/v1/channels');
+    assert.ok(['booking', 'expedia', 'hotelrunner'].every(c => ch.some(x => x.code === c)));
+    const body = ref => ({ guestId: state.guest, roomTypeId: state.dlx, arrival: addDays(state.bd, 30), departure: addDays(state.bd, 31), adults: 1, children: 0, status: 'confirmed', depositRequired: '0', source: 'ota', channel: 'booking', channelRef: ref });
+    const r1 = await api('POST', '/api/v1/reservations', body('4123456789'), k());
+    await api('POST', '/api/v1/reservations', body('4123456789'), { ...k(), expect: 409 });       // aynı Booking numarası
+    await api('POST', '/api/v1/reservations', { ...body('X1'), channel: 'bilinmeyen' }, { ...k(), expect: 422 });
+    const found = await api('GET', '/api/v1/reservations?q=4123456789');
+    assert.equal(found.items[0].id, r1.id); assert.equal(found.items[0].channel, 'booking');
+    const rep = await api('GET', `/api/v1/reports/channel_production?from=${addDays(state.bd, 30)}&to=${addDays(state.bd, 30)}`);
+    assert.ok(rep.rows.some(x => x.channel === 'Booking.com' && x.reservations === 1));
+    const tpl = await api('GET', '/api/v1/imports/template/guests', undefined, { raw: true });
+    assert.equal(tpl.status, 200); const buf = new Uint8Array(await tpl.arrayBuffer()); assert.equal(buf[0], 0x50);
+    const info = await api('GET', '/api/v1/system/info');
+    assert.equal(info.supportEmail, 'iletisim@tsdmrdigitalstudio.com.tr');
+    const integ = await api('GET', '/api/v1/integrations');
+    assert.ok(integ.every(i => i.category === 'kbs'), 'bağlantısı olmayan entegrasyon listelenmez');
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

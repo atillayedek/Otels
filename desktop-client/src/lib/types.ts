@@ -46,10 +46,12 @@ export interface Reservation {
   nightlyRate: Money; totalRate: Money; currency: string; mealPlan: string; source: string; market?: string; segment?: string; isWalkIn: boolean; eta?: string; etd?: string;
   roomChargeWindow: number; notes?: string; specialRequests?: string; depositRequired: Money; optionUntil?: DateStr; checkedInAt?: string; checkedOutAt?: string;
   cancelledAt?: string; cancelReason?: string; createdAt: string; createdBy?: string; balance: Money; version: number; rateCurrency?: string; fxNightlyRate?: Money;
+  channel?: string; channelRef?: string;
 }
 export interface ReservationListItem {
   id: string; reservationNumber: string; status: string; guestName: string; guestIsVip: boolean; companyName?: string; agencyName?: string; roomTypeCode: string;
   roomNumber?: string; arrival: DateStr; departure: DateStr; adults: number; children: number; nightlyRate: Money; currency: string; source: string; balance: Money;
+  channel?: string; channelRef?: string;
 }
 export interface AvailabilityDay { date: DateStr; roomTypeId: string; roomTypeCode: string; total: number; blocked: number; sold: number; held: number; available: number }
 export interface RatePreview { nights: { date: DateStr; rate: Money }[]; total: Money; average: Money; source: string; currency?: string }
@@ -99,7 +101,6 @@ export interface ReportParam { key: string; label: string; type: string; require
 export interface ReportInfo { name: string; title: string; category: string; params: ReportParam[]; columns: ReportColumn[] }
 export interface ReportResult { name: string; title: string; columns: ReportColumn[]; rows: Record<string, unknown>[]; totals: Record<string, unknown>; generatedAt: string; businessDate: DateStr }
 export interface KbsReport { id: string; reservationId: string; reservationNumber: string; roomNumber?: string; guestId: string; guestName: string; event: string; status: string; manualReference?: string; manualReason?: string; createdAt: string; updatedAt: string }
-export interface Integration { code: string; category: string; displayName: string; implemented: boolean; enabled: boolean; status: string }
 
 export interface User { id: string; username: string; fullName: string; email?: string; isActive: boolean; mustChangePassword: boolean; lastLoginAt?: string; lockedUntil?: string; roles: string[]; version: number }
 export interface Role { code: string; name: string; isSystem: boolean; permissions: string[] }

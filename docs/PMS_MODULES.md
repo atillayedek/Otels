@@ -79,6 +79,15 @@ Misafir kartında **Kimlik ve belgeler**, rezervasyonda **Belgeler** sekmesi: ki
 - Çıkış ve transferde stok yetersizse işlem reddedilir (`stock.allow_negative` ayarı ile açılabilir).
 - Raporlar: Stok Durumu, Stok Hareketleri, Alımlar (Mal Kabul), Tüketim Özeti.
 
+## Muhasebe
+
+- **Hesap planı**: Tek Düzen Hesap Planı'nın otel işlemlerinde kullanılan hesapları (kasa TL/döviz, banka, kredi kartı, misafir ve cari alacakları, stok, indirilecek/hesaplanan KDV, konaklama vergisi, satıcılar, gelirler, iskontolar, kur farkları, hizmet üretim maliyeti). Alt hesaplar eklenebilir; KDV oranına göre alt hesaplar (ör. 391.10, 391.20) otomatik açılır.
+- **Otomatik fiş eşlemeleri**: her işlem türünün yazılacağı hesap Muhasebe → Otomatik fiş eşlemeleri ekranından değiştirilir; işlem koduna özel gelir hesabı verilebilir.
+- **Gün sonu fişi**: gece denetimi gün kapanışıyla aynı işlemde günün yevmiye fişini oluşturur: folyo masrafları (net gelir + hesaplanan KDV, konaklama vergisi), indirimler, iptaller, tahsilat ve iadeler (TL/döviz kasası, banka, kredi kartı), cari hesaba aktarımlar, restoranda doğrudan ödenen adisyonlar, stok alımları (indirilecek KDV, satıcılar), bölüm çıkışları, satış tüketimi ve sayım farkları. Dövizli tahsilattaki kuruş farkları kur farkı hesabına yazılır.
+- Fişler değiştirilemez; dengesiz fiş veritabanı tarafından reddedilir. Düzeltme elle fiş veya ters fişle yapılır. Muhasebe modülünden önce kapatılmış günler için fiş sonradan oluşturulabilir.
+- Raporlar (Excel'e aktarılabilir): Mizan, Mizan (ana hesaplar), Yevmiye dökümü, Hesap ekstresi (muavin). Mali müşavirin programına aktarım için Excel çıktısı kullanılır.
+- Hesap eşlemeleri ve KDV/konaklama vergisi uygulaması otelin mali müşaviriyle kontrol edilmelidir.
+
 ## Bu sürümde bulunmayanlar
 
 - Kanal yöneticisi / online satış kanalları

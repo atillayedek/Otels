@@ -49,6 +49,43 @@ public static class ImportEndpoints
 
         g.MapGet("/", (Db db) => db.QueryAsync<ImportJobDto>(ImportService.JobSelect + " ORDER BY j.created_at DESC LIMIT 200"));
 
+        // Boş Excel şablonu: eski programı düzgün dışa aktaramayan oteller verilerini bu başlıklarla hazırlar.
+        // "Veri" sayfasında yalnız başlıklar vardır (örnek kayıt yoktur); "Alanlar" sayfası her sütunu açıklar.
+        g.MapGet("/template/{entity}", (string entity) =>
+        {
+            var fields = MappingCatalog.Fields(entity);
+            using var wb = new ClosedXML.Excel.XLWorkbook();
+            var data = wb.Worksheets.Add("Veri");
+            for (var i = 0; i < fields.Length; i++)
+            {
+                var c = data.Cell(1, i + 1);
+                c.Value = fields[i].Label + (fields[i].Required ? " *" : "");
+                c.Style.Font.Bold = true;
+                c.Style.Fill.BackgroundColor = fields[i].Required ? ClosedXML.Excel.XLColor.FromHtml("#FDE7C7") : ClosedXML.Excel.XLColor.FromHtml("#E8EEF8");
+                data.Column(i + 1).Width = Math.Max(14, fields[i].Label.Length + 4);
+            }
+            data.SheetView.FreezeRows(1);
+            var help = wb.Worksheets.Add("Alanlar");
+            string[] head = ["Sütun", "Zorunlu", "Biçim", "Açıklama"];
+            for (var i = 0; i < head.Length; i++) { help.Cell(1, i + 1).Value = head[i]; help.Cell(1, i + 1).Style.Font.Bold = true; }
+            for (var r = 0; r < fields.Length; r++)
+            {
+                var f = fields[r];
+                help.Cell(r + 2, 1).Value = f.Label;
+                help.Cell(r + 2, 2).Value = f.Required ? "Evet" : "";
+                help.Cell(r + 2, 3).Value = f.Type switch
+                {
+                    "date" => "Tarih (gg.aa.yyyy)", "decimal" => "Tutar (1234,56)", "int" => "Tam sayı", "bool" => "Evet / Hayır",
+                    "email" => "E-posta", "phone" => "Telefon", "gender" => "Kadın / Erkek", _ => "Metin",
+                };
+                help.Cell(r + 2, 4).Value = f.Note ?? "";
+            }
+            help.Columns().AdjustToContents();
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return Results.File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"TSDMR-aktarim-sablonu-{entity}.xlsx");
+        });
+
         g.MapGet("/{id:guid}", async (Guid id, Db db) =>
             await db.QuerySingleOrDefaultAsync<ImportJobDto>(ImportService.JobSelect + " WHERE j.id = @id", new { id }) ?? throw PmsException.NotFound("Aktarım işi"));
 

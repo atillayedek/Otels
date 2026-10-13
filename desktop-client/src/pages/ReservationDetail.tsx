@@ -5,6 +5,7 @@ import { AlarmClock, ArrowLeft, BedDouble, CalendarClock, Crown, LogIn, LogOut, 
 import { api, del, get, post, qs } from '../lib/api';
 import type { AuditRow, GuestListItem, Paged, Reservation, Sharer } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney, MEAL_LABEL, SOURCE_LABEL, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
+import { CHANNEL_NAME } from '../lib/product';
 import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
 import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs, useConfirm, useToast } from '../components/ui';
@@ -79,7 +80,7 @@ export default function ReservationDetailPage() {
             ['Gecelik', r.rateCurrency ? `${fmtMoney(r.fxNightlyRate, r.rateCurrency)} (≈ ${fmtMoney(r.nightlyRate, r.currency)}, günün kuruyla)` : fmtMoney(r.nightlyRate, r.currency)],
             ['Toplam', r.rateCurrency ? `≈ ${fmtMoney(r.totalRate, r.currency)}` : fmtMoney(r.totalRate, r.currency)], ['Fiyat planı', r.ratePlanCode ?? 'Varsayılan'],
             ['Bakiye', <b key="b" className={r.balance.startsWith('-') ? 'amount-neg' : ''}>{fmtMoney(r.balance, r.currency)}</b>],
-            ['Depozito', fmtMoney(r.depositRequired, r.currency)], ['Şirket', r.companyName], ['Acente', r.agencyName], ['Kaynak', SOURCE_LABEL[r.source] ?? r.source],
+            ['Depozito', fmtMoney(r.depositRequired, r.currency)], ['Şirket', r.companyName], ['Acente', r.agencyName], ['Kaynak', SOURCE_LABEL[r.source] ?? r.source], ['Satış kanalı', r.channel ? `${CHANNEL_NAME[r.channel] ?? r.channel}${r.channelRef ? ` · ${r.channelRef}` : ''}` : 'Doğrudan / acente'],
           ]} />
         </div></div>
         <div className="card"><div className="card-head"><h3>Notlar</h3></div><div className="card-body">

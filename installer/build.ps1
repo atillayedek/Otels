@@ -55,6 +55,9 @@ Step "Android uygulaması alınıyor"
 $apk = Join-Path $root "build\android\TSDMR-Otel-PMS-Android.apk"
 if (Test-Path $apk) { Copy-Item $apk (Join-Path $stage "client\TSDMR-Otel-PMS-Android.apk") }
 else { Write-Host "  Android APK bulunamadı (build\android); kurulum paketine eklenmeyecek." -ForegroundColor Yellow }
+$rapk = Join-Path $root "build\android\TSDMR-Restoran-Android.apk"
+if (Test-Path $rapk) { Copy-Item $rapk (Join-Path $stage "client\TSDMR-Restoran-Android.apk") }
+else { Write-Host "  Restoran APK bulunamadı (build\android); kurulum paketine eklenmeyecek." -ForegroundColor Yellow }
 
 Step "Inno Setup derleniyor"
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1

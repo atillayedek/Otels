@@ -8,9 +8,13 @@ import { Spinner } from './components/ui';
 import { FirstConnectPage, ConnectionSettingsPage } from './pages/Connection';
 import { ForcedPasswordPage, LoginPage, SetupWizard } from './pages/Auth';
 import { MobileApp } from './pages/Mobile';
+import { RestaurantApp } from './pages/RestaurantApp';
+import { IS_RESTAURANT_APP } from './lib/product';
 
 /** Android/iOS: telefon arayüzü (kat hizmetleri). Masaüstü menüsü telefonda kullanılmaz. */
 const IS_MOBILE = /Android|iPhone|iPad/i.test(navigator.userAgent);
+// TSDMR Restoran uygulaması aynı arayüzün restoran modunda derlenmiş halidir (vite --mode restaurant).
+const IS_RESTAURANT = IS_RESTAURANT_APP;
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const RackPage = lazy(() => import('./pages/Rack'));
@@ -49,7 +53,6 @@ const SetUsers = lazy(() => import('./pages/settings/Users'));
 const SetDevices = lazy(() => import('./pages/settings/Devices'));
 const SetBackup = lazy(() => import('./pages/settings/Backup'));
 const SetPrinters = lazy(() => import('./pages/settings/Printers'));
-const SetIntegrations = lazy(() => import('./pages/settings/Integrations'));
 const SetImport = lazy(() => import('./pages/settings/Import'));
 const SetAudit = lazy(() => import('./pages/settings/Audit'));
 
@@ -110,6 +113,7 @@ export function App() {
   if (stage === 'setup') return <SetupWizard onDone={() => void probe()} />;
   if (!me) return <LoginPage onSettings={() => setShowConn(true)} />;
   if (me.mustChangePassword) return <ForcedPasswordPage />;
+  if (IS_RESTAURANT) return <RestaurantApp />;
   if (IS_MOBILE) return <MobileApp />;
 
   return (
@@ -156,7 +160,6 @@ export function App() {
           <Route path="/settings/devices" element={<SetDevices />} />
           <Route path="/settings/backup" element={<SetBackup />} />
           <Route path="/settings/printers" element={<SetPrinters />} />
-          <Route path="/settings/integrations" element={<SetIntegrations />} />
           <Route path="/settings/import" element={<SetImport />} />
           <Route path="/settings/audit" element={<SetAudit />} />
           <Route path="/settings/connection" element={<ConnectionSettingsPage />} />

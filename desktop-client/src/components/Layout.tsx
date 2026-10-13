@@ -3,10 +3,11 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3, BedDouble, Brush, Building2, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, LayoutGrid, LogOut,
   Moon, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, Users, Wrench, AlarmClock, Wallet, UserPlus,
-  Utensils, Package, Calculator,
+  Utensils, Package, Calculator, LifeBuoy,
 } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
+import { SupportModal } from './Support';
 
 interface NavItem { to: string; label: string; perm?: string | string[] }
 interface NavGroup { label: string; icon: ReactNode; items: NavItem[] }
@@ -89,7 +90,6 @@ export const NAV: NavGroup[] = [
       { to: '/settings/backup', label: 'Yedekleme', perm: 'backup.manage' },
       { to: '/settings/import', label: 'Veri Aktarım Merkezi', perm: 'migration.manage' },
       { to: '/settings/printers', label: 'Yazıcılar', perm: 'printer.manage' },
-      { to: '/settings/integrations', label: 'Entegrasyonlar', perm: 'integration.manage' },
       { to: '/settings/audit', label: 'Denetim Kayıtları', perm: 'audit.view' },
       { to: '/settings/connection', label: 'Sunucu Bağlantısı' },
     ],
@@ -127,6 +127,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
   const can = (p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p));
   const [collapsed, setCollapsed] = useState(false);
+  const [support, setSupport] = useState(false);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string[]>(['Resepsiyon', 'Rezervasyon']);
   const loc = useLocation();
@@ -181,10 +182,12 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <div className="top-right">
           <div className="bizdate"><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></div>
+          <button className="btn ghost icon" onClick={() => setSupport(true)} title="Yardım ve destek"><LifeBuoy /></button>
           <button className="btn ghost" onClick={() => nav('/account')} title="Hesabım"><ShieldCheck /><span>{me?.fullName}</span></button>
           <button className="btn ghost icon" onClick={() => void logout()} title="Oturumu kapat"><LogOut /></button>
         </div>
       </header>
+      {support && <SupportModal onClose={() => setSupport(false)} />}
 
       <main className="main">
         {!connected && <div className="banner danger"><span className="dot off" />Sunucu bağlantısı kesildi. Otomatik olarak yeniden bağlanılıyor… Bağlantı kurulana kadar yapılan işlemler kaydedilmez.</div>}

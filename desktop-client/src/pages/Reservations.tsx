@@ -5,6 +5,7 @@ import { ClipboardList, Crown, FileText, LogIn, LogOut, Printer, Search } from '
 import { get, qs } from '../lib/api';
 import type { Paged, Reservation, ReservationListItem } from '../lib/types';
 import { fmtDate, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
+import { CHANNEL_NAME } from '../lib/product';
 import { useSession } from '../lib/session';
 import { PageHead } from '../components/common';
 import { Badge, DataTable, Empty, ErrorBox, Money, Pager, Tabs, useContextMenu, useToast, type Column } from '../components/ui';
@@ -57,7 +58,7 @@ export default function ReservationsPage() {
     { key: 'arrival', header: 'Giriş', width: 95, render: r => fmtDate(r.arrival) },
     { key: 'departure', header: 'Çıkış', width: 95, render: r => fmtDate(r.departure) },
     { key: 'pax', header: 'Kişi', width: 60, value: r => `${r.adults}+${r.children}` },
-    { key: 'account', header: 'Şirket / Acente', filter: true, value: r => r.companyName ?? r.agencyName ?? '' },
+    { key: 'account', header: 'Şirket / Acente / Kanal', filter: true, value: r => r.channel ? `${CHANNEL_NAME[r.channel] ?? r.channel}${r.channelRef ? ' ' + r.channelRef : ''}` : r.companyName ?? r.agencyName ?? '' },
     { key: 'nightlyRate', header: 'Gecelik', align: 'right', width: 110, render: r => <Money value={r.nightlyRate} currency={r.currency} /> },
     { key: 'balance', header: 'Bakiye', align: 'right', width: 110, render: r => <Money value={r.balance} colored /> },
     { key: 'status', header: 'Durum', width: 110, value: r => STATUS_LABEL[r.status], render: r => <Badge color={STATUS_BADGE[r.status]}>{STATUS_LABEL[r.status]}</Badge> },

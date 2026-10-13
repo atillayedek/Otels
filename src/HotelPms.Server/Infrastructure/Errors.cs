@@ -84,6 +84,7 @@ public sealed class PmsExceptionHandler(ILogger<PmsExceptionHandler> log) : IExc
         "pos_products_code_uq" => "Bu ürün kodu zaten tanımlı.",
         "pos_printers_name_uq" => "Bu adla bir yazıcı zaten tanımlı.",
         "gl_accounts_pkey" => "Bu hesap kodu hesap planında zaten var.",
+        "reservations_channel_ref_uq" => "Bu kanal rezervasyon numarası başka bir rezervasyonda kayıtlı.",
         _ => "Aynı bilgiye sahip bir kayıt zaten var.",
     };
 
