@@ -17,11 +17,23 @@ public sealed record DeviceDto(Guid Id, string Name, string Kind, string? Hostna
     string? LastUser, string Status, DateTime RegisteredAt, DateTime LastSeenAt);
 public sealed record SessionDto(Guid Id, string Username, string? DeviceName, string? Ip, DateTime CreatedAt, DateTime LastSeenAt, DateTime ExpiresAt);
 
+// Npgsql dizi sütunlarını System.Array olarak bildirdiği için Dapper kurucu eşlemesi yapamaz; diziler virgüllü metin olarak okunur.
+sealed record UserRow(Guid Id, string Username, string FullName, string? Email, bool IsActive, bool MustChangePassword,
+    DateTime? LastLoginAt, DateTime? LockedUntil, string RolesCsv, int Version)
+{
+    public UserDto ToDto() => new(Id, Username, FullName, Email, IsActive, MustChangePassword, LastLoginAt, LockedUntil, Split(RolesCsv), Version);
+    internal static string[] Split(string csv) => csv.Length == 0 ? [] : csv.Split(',');
+}
+sealed record RoleRow(string Code, string Name, bool IsSystem, string PermissionsCsv)
+{
+    public RoleDto ToDto() => new(Code, Name, IsSystem, UserRow.Split(PermissionsCsv));
+}
+
 public static class UserEndpoints
 {
     const string UserSelect = """
         SELECT u.id, u.username, u.full_name, u.email, u.is_active, u.must_change_password, u.last_login_at, u.locked_until,
-               COALESCE(array_agg(ur.role_code ORDER BY ur.role_code) FILTER (WHERE ur.role_code IS NOT NULL), '{}') AS roles, u.version
+               COALESCE(string_agg(ur.role_code, ',' ORDER BY ur.role_code), '') AS roles_csv, u.version
         FROM pms.users u LEFT JOIN pms.user_roles ur ON ur.user_id = u.id
         """;
 
@@ -29,7 +41,7 @@ public static class UserEndpoints
     {
         var g = app.MapGroup("/api/v1/users").WithTags("Users").RequirePermission("user.manage");
 
-        g.MapGet("/", (Db db) => db.QueryAsync<UserDto>(UserSelect + " GROUP BY u.id ORDER BY u.username"));
+        g.MapGet("/", async (Db db) => (await db.QueryAsync<UserRow>(UserSelect + " GROUP BY u.id ORDER BY u.username")).Select(r => r.ToDto()));
 
         g.MapPost("/", (CreateUserRequest req, CommandRunner cmd) => cmd.RunAsync("user.create", req with { Password = "***" }, async tx =>
         {
@@ -50,7 +62,7 @@ public static class UserEndpoints
 
         g.MapPut("/{id:guid}", (Guid id, UpdateUserRequest req, CommandRunner cmd, SessionService sessions) => cmd.RunAsync("user.update", new { id, req }, async tx =>
         {
-            var before = await tx.OneOrNullAsync<UserDto>(UserSelect + " WHERE u.id = @id GROUP BY u.id", new { id }) ?? throw PmsException.NotFound("Kullanıcı");
+            var before = (await tx.OneOrNullAsync<UserRow>(UserSelect + " WHERE u.id = @id GROUP BY u.id", new { id }))?.ToDto() ?? throw PmsException.NotFound("Kullanıcı");
             if (id == tx.User.Id && (!req.IsActive || !req.Roles.Contains("SUPER_ADMIN") && before.Roles.Contains("SUPER_ADMIN")))
                 throw PmsException.Validation("Kendi hesabınızı pasifleştiremez veya kendi yönetici rolünüzü kaldıramazsınız.");
             await EnsureRolesAssignable(tx, req.Roles);
@@ -91,10 +103,10 @@ public static class UserEndpoints
         }, requireKey: false));
 
         var roles = app.MapGroup("/api/v1/roles").WithTags("Users").RequirePermission("user.manage");
-        roles.MapGet("/", (Db db) => db.QueryAsync<RoleDto>("""
-            SELECT r.code, r.name, r.is_system, COALESCE(array_agg(rp.permission_code ORDER BY rp.permission_code) FILTER (WHERE rp.permission_code IS NOT NULL), '{}') AS permissions
+        roles.MapGet("/", async (Db db) => (await db.QueryAsync<RoleRow>("""
+            SELECT r.code, r.name, r.is_system, COALESCE(string_agg(rp.permission_code, ',' ORDER BY rp.permission_code), '') AS permissions_csv
             FROM pms.roles r LEFT JOIN pms.role_permissions rp ON rp.role_code = r.code GROUP BY r.code ORDER BY r.is_system DESC, r.name
-            """));
+            """)).Select(r => r.ToDto()));
         roles.MapGet("/permissions", (Db db) => db.QueryAsync<PermissionDto>("SELECT code, module, description FROM pms.permissions ORDER BY module, code"));
         roles.MapPost("/", (CreateRoleRequest req, CommandRunner cmd, SessionService sessions) => cmd.RunAsync("role.create", req, async tx =>
         {

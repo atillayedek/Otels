@@ -103,3 +103,10 @@ export const ROLE_LABEL: Record<string, string> = {
   NIGHT_AUDIT: 'Gece Denetçisi', HOUSEKEEPING_MANAGER: 'Kat Hizmetleri Müdürü', HOUSEKEEPING: 'Kat Görevlisi', ACCOUNTING: 'Muhasebe', CASHIER: 'Kasiyer',
   SALES: 'Satış', TECHNICAL: 'Teknik Servis', REPORT_ONLY: 'Yalnız Rapor',
 };
+
+/** Yüzde metni: "45.50" → "45,5", "0.00" → "0". */
+export function fmtPct(value?: string | null): string {
+  if (!value) return '0';
+  if (!value.includes('.')) return value;
+  return value.replace(/0+$/, '').replace(/\.$/, '').replace('.', ',') || '0';
+}

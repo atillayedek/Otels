@@ -3,6 +3,7 @@ import { LogIn, KeyRound, Settings2 } from 'lucide-react';
 import { api, errorText, newKey } from '../lib/api';
 import { useSession } from '../lib/session';
 import { ErrorBox, Field } from '../components/ui';
+import { fmtDate } from '../lib/format';
 
 function AuthFrame({ children, side }: { children: React.ReactNode; side?: React.ReactNode }) {
   const { client } = useSession();
@@ -162,7 +163,7 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
       {step === 3 && (
         <div className="stack">
           <div className="card"><div className="card-body" style={{ lineHeight: 1.8 }}>
-            <b>{f.hotelName}</b><br />Saat dilimi: {f.timeZone} · Para birimi: {f.currency} · İş günü: {f.businessDate}<br />Yönetici: {f.adminFullName} ({f.adminUsername})
+            <b>{f.hotelName}</b><br />Saat dilimi: {f.timeZone} · Para birimi: {f.currency} · İş günü: {fmtDate(f.businessDate)}<br />Yönetici: {f.adminFullName} ({f.adminUsername})
           </div></div>
           <Field label="Kurulum kodu" required hint="Sunucu bilgisayarında PMS Server Manager → Durum ekranında görünür."><input className="input mono" value={f.setupCode} onChange={e => setF(s => ({ ...s, setupCode: e.target.value.toUpperCase() }))} placeholder="XXXXX-XXXXX" autoFocus /></Field>
           {error && <div className="error-box">{error}</div>}

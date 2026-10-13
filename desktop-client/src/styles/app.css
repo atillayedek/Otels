@@ -308,3 +308,31 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .doc .sign { display: flex; justify-content: space-between; margin-top: 18mm; }
 .doc .sign div { width: 40%; border-top: 1px solid #000; padding-top: 2mm; text-align: center; font-size: 9pt; }
 .doc .fine { font-size: 8pt; color: #333; margin-top: 4mm; }
+
+/* Ek düzenler */
+.kpi.clickable { cursor: pointer; }
+.kpi.clickable:hover { box-shadow: var(--shadow); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 13px; }
+.kv .kv-row { display: contents; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; word-break: break-word; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+.split.wide { grid-template-columns: 360px minmax(0, 1fr); }
+@media (max-width: 1200px) { .split, .split.wide { grid-template-columns: 1fr; } }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 6px 12px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--text-2); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
+.mini-bars { display: flex; align-items: flex-end; gap: 3px; height: 70px; }
+.mini-bars div { flex: 1; background: #93c5fd; border-radius: 3px 3px 0 0; min-height: 2px; }
+.mini-bars div.today { background: var(--primary); }
+.list-plain { list-style: none; margin: 0; padding: 0; }
+.list-plain li { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.list-plain li:last-child { border-bottom: 0; }
+.wizard-steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.wizard-steps span { padding: 5px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 12px; }
+.wizard-steps span.on { background: var(--primary); color: #fff; }
+.wizard-steps span.done { background: var(--primary-50); color: var(--primary); }
+@media print { body * { visibility: hidden; } #print-root, #print-root * { visibility: visible; } #print-root { position: absolute; left: 0; top: 0; width: 100%; } }
+#print-root { display: none; }
+@media print { #print-root { display: block; } }

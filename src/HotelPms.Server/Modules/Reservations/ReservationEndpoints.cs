@@ -32,7 +32,7 @@ public static class ReservationEndpoints
                 LEFT JOIN pms.rooms rm ON rm.id = r.room_id LEFT JOIN pms.companies c ON c.id = r.company_id LEFT JOIN pms.agencies a ON a.id = r.agency_id
                 """;
             var prm = new { term, status, from, to, view, bd, p.Limit, p.Offset };
-            var total = await db.ScalarAsync<long>("SELECT count(*) " + from_ + where, prm);
+            var total = await db.ScalarAsync<long>("SELECT count(*) " + from_ + "\n" + where, prm);
             var items = await db.QueryAsync<ReservationListItem>($"""
                 SELECT r.id, r.reservation_number, r.status, g.first_name || ' ' || g.last_name AS guest_name, g.is_vip AS guest_is_vip,
                        c.name AS company_name, a.name AS agency_name, t.code AS room_type_code, rm.number AS room_number, r.arrival, r.departure,

@@ -23,7 +23,8 @@ public static class NightAuditEndpoints
     {
         var g = app.MapGroup("/api/v1/night-audit").WithTags("NightAudit").RequirePermission("night_audit.execute");
 
-        g.MapGet("/preview", (CommandRunner cmd) => cmd.ReadAsync(tx => PreviewAsync(tx, autoNoShow: false)));
+        // autoNoShow: gelmeyen bugünkü rezervasyonlar engel değil, no-show yapılacak uyarısı olarak gösterilir.
+        g.MapGet("/preview", (CommandRunner cmd, bool? autoNoShow) => cmd.ReadAsync(tx => PreviewAsync(tx, autoNoShow ?? false)));
 
         g.MapGet("/history", (Db db) => db.QueryAsync<NightAuditHistoryDto>("""
             SELECT n.id, n.business_date, n.started_at, n.completed_at, u.username, n.summary

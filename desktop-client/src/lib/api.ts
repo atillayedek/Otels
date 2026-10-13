@@ -19,7 +19,7 @@ interface RawResponse { status: number; body: unknown }
 type Listener = (e: ApiError) => void;
 const listeners = new Set<Listener>();
 /** 401 / 426 / ağ hatası gibi genel durumları uygulama düzeyinde dinlemek için. */
-export function onApiError(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
+export function onApiError(fn: Listener) { listeners.add(fn); return () => { listeners.delete(fn); }; }
 
 function toError(status: number, body: unknown): ApiError {
   const b = (body ?? {}) as { code?: string; message?: string; errorId?: string; details?: unknown };

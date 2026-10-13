@@ -15,7 +15,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-if ($Root -match '[^\x00-\x7F]') { throw "Test kökü ASCII olmalı (PostgreSQL initdb kısıtı): $Root" }
+if ($Root -cmatch '[^\x00-\x7F]') { throw "Test kökü ASCII olmalı (PostgreSQL initdb kısıtı): $Root" }
 $data = Join-Path $Root 'data'
 if (-not $PgBin) { $PgBin = Join-Path $Root 'pgsql\bin' }
 $server = Join-Path $repo 'build\server-dev\HotelPms.Server.exe'
