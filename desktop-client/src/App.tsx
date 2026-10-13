@@ -7,6 +7,10 @@ import { Layout } from './components/Layout';
 import { Spinner } from './components/ui';
 import { FirstConnectPage, ConnectionSettingsPage } from './pages/Connection';
 import { ForcedPasswordPage, LoginPage, SetupWizard } from './pages/Auth';
+import { MobileApp } from './pages/Mobile';
+
+/** Android/iOS: telefon arayüzü (kat hizmetleri). Masaüstü menüsü telefonda kullanılmaz. */
+const IS_MOBILE = /Android|iPhone|iPad/i.test(navigator.userAgent);
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const RackPage = lazy(() => import('./pages/Rack'));
@@ -15,6 +19,7 @@ const ReservationList = lazy(() => import('./pages/Reservations'));
 const ReservationNew = lazy(() => import('./pages/ReservationForm').then(m => ({ default: m.ReservationNewPage })));
 const WalkInPage = lazy(() => import('./pages/ReservationForm').then(m => ({ default: m.WalkInPage })));
 const ReservationDetail = lazy(() => import('./pages/ReservationDetail'));
+const Groups = lazy(() => import('./pages/Groups'));
 const Availability = lazy(() => import('./pages/Availability'));
 const Guests = lazy(() => import('./pages/Guests'));
 const GuestDetail = lazy(() => import('./pages/GuestDetail'));
@@ -98,6 +103,7 @@ export function App() {
   if (stage === 'setup') return <SetupWizard onDone={() => void probe()} />;
   if (!me) return <LoginPage onSettings={() => setShowConn(true)} />;
   if (me.mustChangePassword) return <ForcedPasswordPage />;
+  if (IS_MOBILE) return <MobileApp />;
 
   return (
     <Layout>
@@ -111,6 +117,8 @@ export function App() {
           <Route path="/reservations/:id" element={<ReservationDetail />} />
           <Route path="/walk-in" element={<WalkInPage />} />
           <Route path="/availability" element={<Availability />} />
+          <Route path="/groups" element={<Groups />} />
+          <Route path="/groups/:id" element={<Groups />} />
           <Route path="/guests" element={<Guests />} />
           <Route path="/guests/:id" element={<GuestDetail />} />
           <Route path="/companies" element={<Accounts kind="companies" />} />

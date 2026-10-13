@@ -27,6 +27,14 @@ Sol menü ve üst hızlı erişim çubuğu kullanıcının yetkilerine göre gö
 - **Raporlar**: ekranda görüntüleme, yazdırma, Excel ve CSV
 - **Yönetim**: tesis, odalar, kullanıcılar ve roller, cihazlar ve oturumlar, yedekleme, veri aktarım merkezi, yazıcılar, entegrasyonlar, denetim kayıtları, sunucu bağlantısı
 
+## Android uygulaması (kat hizmetleri)
+
+`TSDMR-Otel-PMS-Android.apk` sunucuda `C:\HotelPMS\client-setup` klasörüne kopyalanır. Telefona aktarılıp kurulur (Android ayarlarında bu kaynaktan uygulama yüklemeye izin verilmelidir). Telefon otelin Wi-Fi ağına bağlı olmalıdır; bağlantı ve sertifika doğrulaması masaüstü uygulamasıyla aynıdır.
+
+Telefon arayüzü sadeleştirilmiştir: kirli odalar en üstte olmak üzere oda durumu listesi, tek dokunuşla **Temiz** / **Kontrol edildi** (yetkiye göre), kat filtresi ve arıza bildirme. Kat şefi, resepsiyon ve müdür kendi kullanıcılarıyla girer; yetkiler masaüstüyle aynıdır.
+
+İmza anahtarı `%APPDATA%\TSDMRndroid` klasöründedir ve depoya eklenmez. Güncellemelerin eski sürümün üzerine kurulabilmesi için bu klasör yedeklenmelidir; anahtar kaybolursa telefonlardaki uygulama kaldırılıp yeniden kurulmalıdır.
+
 ## Sürüm uyumu
 
 İstemci her istekte sürümünü bildirir. Sunucu daha yeni bir istemci sürümü gerektiriyorsa istemci güncelleme uyarısı gösterir; güncel kurulum dosyası sunucudaki `C:\HotelPMS\client-setup` klasöründedir.

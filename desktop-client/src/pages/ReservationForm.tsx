@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Crown, Save, Search, UserPlus, X } from 'lucide-react';
-import { api, get, qs } from '../lib/api';
+import { api, ApiError, get, newKey, qs } from '../lib/api';
 import type { GuestListItem, Paged, RatePreview, Reservation } from '../lib/types';
 import { addDays, fmtDate, fmtMoney, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
 import { useAgencies, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
-import { ErrorBox, Field, Modal, MoneyInput } from '../components/ui';
+import { ErrorBox, Field, Modal, MoneyInput, useConfirm } from '../components/ui';
 import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../components/GuestFields';
 
 type Mode = 'new' | 'walkin' | 'edit';
@@ -62,6 +62,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   const companies = useCompanies();
   const agencies = useAgencies();
   const status = useRoomStatus();
+  const confirm = useConfirm();
 
   const [guest, setGuest] = useState<{ id: string; name: string; blacklisted?: boolean } | null>(initial ? { id: initial.guestId, name: initial.guestName } : null);
   const [newGuest, setNewGuest] = useState<GuestDraft | null>(null);
@@ -107,10 +108,20 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
       notes: n(d.notes), specialRequests: n(d.specialRequests), depositRequired: d.depositRequired || '0', optionUntil: d.status === 'tentative' ? n(d.optionUntil) : null,
       version: initial?.version ?? null,
     };
+    const send = async (b: typeof body & { allowOverbook?: boolean }, k: string): Promise<string> => {
+      if (mode === 'walkin') return (await api<{ id: string }>('POST', '/api/v1/reservations/walk-in', { reservation: b, roomId: d.roomId }, { key: k })).id;
+      if (mode === 'edit') { await api('PUT', `/api/v1/reservations/${initial!.id}`, b, { key: k }); return initial!.id; }
+      return (await api<{ id: string }>('POST', '/api/v1/reservations', b, { key: k })).id;
+    };
     let id: string;
-    if (mode === 'walkin') id = (await api<{ id: string }>('POST', '/api/v1/reservations/walk-in', { reservation: body, roomId: d.roomId }, { key })).id;
-    else if (mode === 'edit') { await api('PUT', `/api/v1/reservations/${initial!.id}`, body, { key }); id = initial!.id; }
-    else id = (await api<{ id: string }>('POST', '/api/v1/reservations', body, { key })).id;
+    try { id = await send(body, key); }
+    catch (e) {
+      // Müsaitlik yoksa: yalnız yetkili kullanıcıya açık onayla overbooking sorulur, onaylanırsa yeni anahtarla tekrar gönderilir.
+      if (!(e instanceof ApiError && e.code === 'no_availability' && can('reservation.overbook'))) throw e;
+      const ok = await confirm({ title: 'Müsaitlik yok', message: <>{e.message}<br /><br />Bu oda tipinde seçilen tarihlerde boş oda kalmadı. Yine de kaydederseniz <b>overbooking</b> oluşur ve işlem denetim kaydına yazılır.</>, confirmText: 'Overbooking yap', danger: true });
+      if (!ok) throw e;
+      id = await send({ ...body, allowOverbook: true }, newKey());
+    }
     await qc.invalidateQueries({ predicate: q => ['reservations', 'reservation', 'rack', 'roomStatus', 'dashboard', 'availability'].includes(String(q.queryKey[0])) });
     return id;
   }, { success: mode === 'walkin' ? 'Walk-in giriş tamamlandı.' : mode === 'edit' ? 'Rezervasyon güncellendi.' : 'Rezervasyon oluşturuldu.' });
@@ -123,7 +134,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
       <div className="stack">
         <div className="card">
           <div className="card-head"><h3>Misafir</h3>
-            {guest && mode !== 'edit' && <div className="right"><button className="btn sm ghost" onClick={() => setGuest(null)}><X /> Değiştir</button></div>}
+            {guest && (mode !== 'edit' || initial?.status === 'tentative' || initial?.status === 'confirmed') && <div className="right"><button className="btn sm ghost" onClick={() => setGuest(null)}><X /> Değiştir</button></div>}
             {newGuest && <div className="right"><button className="btn sm ghost" onClick={() => setNewGuest(null)}><X /> Kayıtlı misafir seç</button></div>}
           </div>
           <div className="card-body">

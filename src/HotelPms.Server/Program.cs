@@ -162,6 +162,7 @@ try
     GuestEndpoints.Map(app);
     AccountEndpoints.Map(app);
     ReservationEndpoints.Map(app);
+    GroupEndpoints.Map(app);
     FolioEndpoints.Map(app);
     NightAuditEndpoints.Map(app);
     ReportEndpoints.Map(app);

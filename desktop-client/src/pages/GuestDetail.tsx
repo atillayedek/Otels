@@ -9,13 +9,14 @@ import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs } from '../components/ui';
 import { draftToBody, GuestFields, guestToDraft, type GuestDraft } from '../components/GuestFields';
+import { DocumentsPanel } from '../components/Documents';
 
 export default function GuestDetailPage() {
   const { id } = useParams();
   const nav = useNavigate();
   const qc = useQueryClient();
   const { can } = useSession();
-  const [tab, setTab] = useState<'card' | 'stays' | 'folios'>('card');
+  const [tab, setTab] = useState<'card' | 'stays' | 'folios' | 'docs'>('card');
   const [draft, setDraft] = useState<GuestDraft | null>(null);
   const [black, setBlack] = useState(false);
   const p = useQuery({ queryKey: ['guest', id], queryFn: () => get<GuestProfile>(`/api/v1/guests/${id}`) });
@@ -42,8 +43,9 @@ export default function GuestDetailPage() {
         {can('guest.blacklist') && <button className="btn" onClick={() => setBlack(true)}>{g.isBlacklisted ? <ShieldCheck /> : <Ban />} {g.isBlacklisted ? 'Kara listeden çıkar' : 'Kara listeye al'}</button>}
         {can('guest.edit') && tab === 'card' && <button className="btn primary" disabled={save.busy} onClick={() => void save.run()}><Save /> Kaydet</button>}
       </>} />
-      <Tabs value={tab} onChange={setTab} items={[{ key: 'card', label: 'Misafir kartı' }, { key: 'stays', label: 'Konaklamalar', count: p.data!.stays.length }, { key: 'folios', label: 'Folyolar', count: p.data!.folios.length }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ key: 'card', label: 'Misafir kartı' }, { key: 'stays', label: 'Konaklamalar', count: p.data!.stays.length }, { key: 'folios', label: 'Folyolar', count: p.data!.folios.length }, ...(can('guest.identity.view') ? [{ key: 'docs' as const, label: 'Kimlik ve belgeler' }] : [])]} />
       <div className="card"><div className="card-body">
+        {tab === 'docs' && <DocumentsPanel entityType="guest" entityId={g.id} canEdit={can('guest.edit')} />}
         {tab === 'card' && <><GuestFields value={draft} onChange={setDraft} /><ErrorBox error={save.error} /></>}
         {tab === 'stays' && (p.data!.stays.length === 0 ? <Empty title="Konaklama kaydı yok" /> : (
           <table className="dt"><thead><tr><th>Rez. No</th><th>Giriş</th><th>Çıkış</th><th>Oda</th><th style={{ textAlign: 'right' }}>Gecelik</th><th>Durum</th></tr></thead>

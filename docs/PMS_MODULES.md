@@ -37,12 +37,19 @@ Temiz / kirli / temizleniyor / kontrol edildi, rahatsız etmeyin, kat notu, topl
 
 Doluluk/ADR/RevPAR, geliş, çıkış, konaklayanlar, misafir listesi, no-show ve iptaller, oda durumu, kat hizmetleri, kasa, gelir/masraf dökümü, tahsilat detayı, açık folyolar, şirket ve acente carisi, üretim, misafir geçmişi, uyruk, gece denetimi geçmişi, denetim kayıtları, veri aktarım raporu. Ekranda görüntüleme, yazdırma, Excel (XLSX) ve CSV.
 
+## Grup rezervasyonları
+
+**Rezervasyon → Grup Rezervasyonları**: grup kartı (ad, şirket/acente, tarih, opsiyon, not) ve gruba toplu oda ekleme (oda tipi başına adet, 1–200). Ekleme ya tamamen yapılır ya hiç yapılmaz; müsaitlik yetmezse hiçbir rezervasyon oluşmaz. Fazla satış yalnız `reservation.overbook` yetkisiyle ve açık onayla yapılır. Grup içindeki rezervasyonlar normal rezervasyon gibi check-in/check-out edilir.
+
+## Belgeler (kimlik ve sözleşme)
+
+Misafir kartında **Kimlik ve belgeler**, rezervasyonda **Belgeler** sekmesi: kimlik kartı, pasaport, sözleşme veya fatura için PDF/JPG/PNG yüklenir. Dosya türü içerikten doğrulanır, belgeler yalnız sunucuda saklanır (internete gönderilmez), her görüntüleme ve silme denetim kaydına yazılır. Sekme `guest.identity.view` yetkisi ister.
+
 ## Bu sürümde bulunmayanlar
 
 - Kanal yöneticisi / online satış kanalları
 - E-fatura / e-arşiv entegrasyonu (fatura no elle kaydedilir)
 - Kapı kilidi, santral, POS entegrasyonları
-- Grup rezervasyonu ekranı (veri modeli hazır, arayüzü yok)
 - Linux için kurulum paketi
 
 Bu entegrasyonlar arayüzde çalışıyormuş gibi gösterilmez; **Yönetim → Entegrasyonlar** ekranında "Bu sürümde bulunmuyor" olarak listelenir.

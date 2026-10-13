@@ -10,6 +10,7 @@ import { Kv, PageHead, useAction } from '../components/common';
 import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs, useConfirm, useToast } from '../components/ui';
 import { CancelModal, CheckInModal, CheckOutModal, ExtendModal, MoveModal } from '../components/ReservationActions';
 import { FolioPanel } from '../components/FolioPanel';
+import { DocumentsPanel } from '../components/Documents';
 import { ReservationEditModal } from './ReservationForm';
 import { KbsPromptModal } from '../components/KbsForm';
 
@@ -22,7 +23,7 @@ export default function ReservationDetailPage() {
   const confirm = useConfirm();
   const qc = useQueryClient();
   const { can, property } = useSession();
-  const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'history'>('folio');
+  const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'history' | 'docs'>('folio');
   const [dlg, setDlg] = useState<Dlg>(null);
   const [sp, setSp] = useSearchParams();
   const res = useQuery({ queryKey: ['reservation', id], queryFn: () => get<Reservation>(`/api/v1/reservations/${id}`) });
@@ -89,7 +90,7 @@ export default function ReservationDetailPage() {
         </div></div>
       </div>
 
-      <Tabs value={tab} onChange={setTab} items={[{ key: 'folio', label: 'Folyo' }, { key: 'guests', label: 'Ek misafirler' }, { key: 'rates', label: 'Gecelik fiyatlar' }, { key: 'history', label: 'İşlem geçmişi' }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ key: 'folio', label: 'Folyo' }, { key: 'guests', label: 'Ek misafirler' }, { key: 'rates', label: 'Gecelik fiyatlar' }, { key: 'history', label: 'İşlem geçmişi' }, { key: 'docs', label: 'Belgeler' }]} />
       <div className="card"><div className="card-body">
         {tab === 'folio' && (can('folio.view') ? <FolioPanel reservation={r} /> : <Empty title="Folyo görüntüleme yetkiniz yok" />)}
         {tab === 'guests' && (
@@ -111,6 +112,7 @@ export default function ReservationDetailPage() {
             )}
           </div>
         )}
+        {tab === 'docs' && <DocumentsPanel entityType="reservation" entityId={r.id} canEdit={can('reservation.edit')} />}
         {tab === 'rates' && (rates.isLoading ? <Spinner /> : (
           <table className="dt"><thead><tr><th>Gece</th><th style={{ textAlign: 'right' }}>Fiyat</th></tr></thead>
             <tbody>{rates.data?.map(x => <tr key={x.date}><td>{fmtDate(x.date)}</td><td className="num">{fmtMoney(x.rate, r.currency)}</td></tr>)}</tbody></table>

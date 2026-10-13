@@ -40,7 +40,9 @@ public sealed record SaveReservationRequest(
     string? SpecialRequests,
     decimal DepositRequired,
     DateOnly? OptionUntil,
-    int? Version);
+    int? Version,
+    // Müsaitlik yoksa overbooking ancak açıkça istenirse ve kullanıcının reservation.overbook yetkisi varsa yapılır.
+    bool AllowOverbook = false);
 
 public sealed record CancelRequest(string Reason, int Version);
 public sealed record VersionRequest(int Version);

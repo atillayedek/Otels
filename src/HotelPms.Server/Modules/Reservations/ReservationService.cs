@@ -110,13 +110,15 @@ public static class ReservationService
         """;
 
     /// <summary>Oda tipi envanterini kilitler ve her gece için müsaitlik olduğunu doğrular (son oda yarışında tek kazanan).</summary>
-    static async Task EnsureAvailabilityAsync(Tx tx, Guid roomTypeId, DateOnly arrival, DateOnly departure, Guid? exclude)
+    /// <param name="allowOverbook">Yeni/değişen rezervasyonda kullanıcı aşımı açıkça onayladıysa true. Diğer işlemler (erken giriş, oda değişikliği,
+    /// uzatma) zaten odası belli konaklamalar üzerinde yapıldığından yetkiye göre karar verilir.</param>
+    static async Task EnsureAvailabilityAsync(Tx tx, Guid roomTypeId, DateOnly arrival, DateOnly departure, Guid? exclude, bool allowOverbook = true)
     {
         await tx.LockAsync("inventory", roomTypeId);
         var days = await AvailabilityAsync(tx, arrival, departure, roomTypeId, exclude);
         var full = days.Where(d => d.Total - d.Blocked - d.Sold <= 0).Select(d => d.Date).ToList();
         if (full.Count == 0) return;
-        if (tx.User.Has("reservation.overbook")) return;
+        if (allowOverbook && tx.User.Has("reservation.overbook")) return;
         throw PmsException.Conflict($"Seçilen oda tipinde müsaitlik yok: {string.Join(", ", full.Take(5).Select(d => d.ToString("dd.MM.yyyy")))}{(full.Count > 5 ? " ..." : "")}",
             "no_availability");
     }
@@ -154,7 +156,7 @@ public static class ReservationService
         var guestId = req.GuestId ?? (req.NewGuest is { } ng ? await GuestEndpoints.CreateGuestAsync(tx, ng) : throw PmsException.Validation("Misafir seçilmelidir."));
         await EnsureGuestAllowedAsync(tx, guestId);
         await EnsureCapacityAsync(tx, req.RoomTypeId, req.Adults, req.Children);
-        await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, null);
+        await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, null, req.AllowOverbook);
         if (req.RoomId is { } roomId) await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, null, false);
 
         var (nights, nightly) = await ResolveRatesAsync(tx, req);
@@ -207,7 +209,7 @@ public static class ReservationService
         await EnsureCapacityAsync(tx, req.RoomTypeId, req.Adults, req.Children);
 
         var datesChanged = req.Arrival != r.Arrival || req.Departure != r.Departure || req.RoomTypeId != r.RoomTypeId;
-        if (datesChanged) await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, id);
+        if (datesChanged) await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, id, req.AllowOverbook);
         if (req.RoomId is { } roomId && (datesChanged || roomId != r.RoomId))
         {
             if (roomId != r.RoomId) tx.Ctx.Require("room.change");
@@ -244,7 +246,12 @@ public static class ReservationService
         });
         if (req.GuestId is { } ng && ng != r.GuestId)
         {
-            await tx.ExecAsync("UPDATE pms.reservation_guests SET is_primary = false WHERE reservation_id = @id", new { id });
+            // Girişten önce ana misafir değişirse eski kişi konaklamadan çıkarılır (ör. grup oda listesi gerçek isimlerle doldurulurken);
+            // konaklama sürerken değişirse eski kişi ek misafir olarak kalır (KBS kaydı vardır).
+            if (inHouse)
+                await tx.ExecAsync("UPDATE pms.reservation_guests SET is_primary = false WHERE reservation_id = @id", new { id });
+            else
+                await tx.ExecAsync("DELETE FROM pms.reservation_guests WHERE reservation_id = @id AND guest_id = @old", new { id, old = r.GuestId });
             await tx.ExecAsync("""
                 INSERT INTO pms.reservation_guests (reservation_id, guest_id, is_primary) VALUES (@id, @ng, true)
                 ON CONFLICT (reservation_id, guest_id) DO UPDATE SET is_primary = true

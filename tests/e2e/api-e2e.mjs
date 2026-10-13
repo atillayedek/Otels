@@ -385,6 +385,50 @@ try {
     await api('POST', '/api/v1/imports/file', undefined, { form, expect: 422 });
   });
 
+  await step('Grup rezervasyonu: toplu oda, tamamı-ya-da-hiçbiri, oda listesi misafir değişimi', async () => {
+    const grp = (await api('POST', '/api/v1/groups', { name: 'E2E Grubu', contactName: 'Sorumlu' }, { key: randomUUID() })).id;
+    const a = addDays(state.bd, 30), d = addDays(state.bd, 32);
+    // Yalnız 2 STD oda var: 3 oda istenirse hiçbiri oluşturulmaz.
+    await api('POST', `/api/v1/groups/${grp}/rooms`, { guestId: state.guest, roomTypeId: state.std, count: 3, arrival: a, departure: d, adults: 1, children: 0, status: 'tentative', depositRequired: '0' }, { key: randomUUID(), expect: 409 });
+    let list = await api('GET', `/api/v1/reservations?groupId=${grp}&view=all`);
+    assert.equal(list.total, 0, 'başarısız toplu eklemede oda oluşmamalı');
+    const r = await api('POST', `/api/v1/groups/${grp}/rooms`, { guestId: state.guest, roomTypeId: state.std, count: 2, arrival: a, departure: d, adults: 1, children: 0, status: 'confirmed', depositRequired: '0' }, { key: randomUUID() });
+    assert.equal(r.ids.length, 2);
+    list = await api('GET', `/api/v1/reservations?groupId=${grp}&view=all`);
+    assert.equal(list.total, 2);
+    const groups = await api('GET', '/api/v1/groups');
+    assert.equal(groups.find(x => x.id === grp).rooms, 2);
+    // Oda listesi: ilk odanın misafiri gerçek kişiyle değişir, sorumlu kişi odadan çıkar.
+    const other = (await api('POST', '/api/v1/guests', { firstName: 'Oda', lastName: 'Listesi', nationality: 'DE', identityType: 'passport', identityNumber: 'C01X00T47', isVip: false, kvkkConsent: true, marketingConsent: false })).id;
+    const res = await api('GET', `/api/v1/reservations/${r.ids[0]}`);
+    await api('PUT', `/api/v1/reservations/${res.id}`, { guestId: other, newGuest: null, companyId: null, agencyId: null, groupId: grp, roomTypeId: res.roomTypeId, roomId: null, arrival: res.arrival, departure: res.departure, adults: 1, children: 0, ratePlanId: null, nightlyRate: null, mealPlan: res.mealPlan, status: 'confirmed', source: res.source, market: null, segment: null, eta: null, etd: null, notes: res.notes, specialRequests: null, depositRequired: '0', optionUntil: null, version: res.version }, { key: randomUUID() });
+    const sharers = await api('GET', `/api/v1/reservations/${res.id}/guests`);
+    assert.deepEqual(sharers.map(s => s.id), [other]);
+    // Overbooking yalnız açık onayla: yönetici bile onaysız aşım yapamaz.
+    const ob = { guestId: state.guest, roomTypeId: state.std, arrival: a, departure: d, adults: 1, children: 0, status: 'confirmed', depositRequired: '0' };
+    await api('POST', '/api/v1/reservations', ob, { key: randomUUID(), expect: 409 });
+    const over = (await api('POST', '/api/v1/reservations', { ...ob, allowOverbook: true }, { key: randomUUID() })).id;
+    r.ids.push(over);
+    for (const id of r.ids) { const x = await api('GET', `/api/v1/reservations/${id}`); await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test temizliği', version: x.version }, { key: randomUUID() }); }
+  });
+
+  await step('Belgeler: PNG yükleme, listeleme, indirme; sahte uzantı reddedilir', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const form = new FormData();
+    form.append('entityType', 'guest'); form.append('entityId', state.guest); form.append('category', 'identity');
+    form.append('file', new Blob([png], { type: 'image/png' }), 'kimlik.png');
+    await api('POST', '/api/v1/documents', undefined, { form });
+    const docs = await api('GET', `/api/v1/documents?entityType=guest&entityId=${state.guest}`);
+    assert.equal(docs.length, 1); assert.equal(docs[0].mimeType, 'image/png');
+    const c = await api('GET', `/api/v1/documents/${docs[0].id}/content`, undefined, { raw: true });
+    assert.equal(c.status, 200);
+    assert.equal(Buffer.from(await c.arrayBuffer()).length, png.length);
+    const bad = new FormData();
+    bad.append('entityType', 'guest'); bad.append('entityId', state.guest);
+    bad.append('file', new Blob([Buffer.from('bu bir resim değil')], { type: 'image/png' }), 'sahte.png');
+    await api('POST', '/api/v1/documents', undefined, { form: bad, expect: 422 });
+  });
+
   await step('Rol yetkileri: resepsiyon ve kat görevlisi günlük işlerini yapabilir, yetkisiz işler reddedilir', async () => {
     const adminToken = token;
     const rooms = await api('GET', '/api/v1/rooms');

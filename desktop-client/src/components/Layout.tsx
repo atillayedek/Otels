@@ -16,6 +16,7 @@ export const NAV: NavGroup[] = [
     label: 'Rezervasyon', icon: <CalendarRange size={17} />, items: [
       { to: '/reservations/new', label: 'Yeni Rezervasyon', perm: 'reservation.create' },
       { to: '/reservations?view=all', label: 'Rezervasyon Listesi', perm: 'reservation.view' },
+      { to: '/groups', label: 'Grup Rezervasyonları', perm: 'reservation.view' },
       { to: '/availability', label: 'Fiyat ve Doluluk', perm: 'reservation.view' },
       { to: '/companies', label: 'Şirketler', perm: 'reservation.view' },
       { to: '/agencies', label: 'Acenteler', perm: 'reservation.view' },

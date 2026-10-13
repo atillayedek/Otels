@@ -13,7 +13,7 @@ node_modules/
 
 # Tauri / Rust
 desktop-client/src-tauri/target/
-desktop-client/src-tauri/gen/
+desktop-client/src-tauri/gen/schemas/
 
 # Installer bağımlılıkları (fetch betiğiyle indirilir, repoya konmaz)
 installer/vendor/

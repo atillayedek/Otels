@@ -10,7 +10,7 @@ public static class ReservationEndpoints
     {
         var g = app.MapGroup("/api/v1/reservations").WithTags("Reservations");
 
-        g.MapGet("/", async (Db db, string? q, string? status, DateOnly? from, DateOnly? to, string? view, int page = 1, int pageSize = 50) =>
+        g.MapGet("/", async (Db db, string? q, string? status, DateOnly? from, DateOnly? to, string? view, Guid? groupId, int page = 1, int pageSize = 50) =>
         {
             var p = new PageRequest(page, pageSize);
             var term = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
@@ -20,6 +20,7 @@ public static class ReservationEndpoints
                 WHERE (@term::text IS NULL OR r.reservation_number ILIKE @term || '%' OR (g.first_name || ' ' || g.last_name) ILIKE '%' || @term || '%'
                        OR rm.number = @term OR c.name ILIKE '%' || @term || '%' OR a.name ILIKE '%' || @term || '%')
                   AND (@status::text IS NULL OR r.status = @status)
+                  AND (@groupId::uuid IS NULL OR r.group_id = @groupId)
                   AND (@from::date IS NULL OR r.departure > @from)
                   AND (@to::date IS NULL OR r.arrival <= @to)
                   AND (@view::text IS NULL OR @view = 'all'
@@ -31,7 +32,7 @@ public static class ReservationEndpoints
                 FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id JOIN pms.room_types t ON t.id = r.room_type_id
                 LEFT JOIN pms.rooms rm ON rm.id = r.room_id LEFT JOIN pms.companies c ON c.id = r.company_id LEFT JOIN pms.agencies a ON a.id = r.agency_id
                 """;
-            var prm = new { term, status, from, to, view, bd, p.Limit, p.Offset };
+            var prm = new { term, status, from, to, view, groupId, bd, p.Limit, p.Offset };
             var total = await db.ScalarAsync<long>("SELECT count(*) " + from_ + "\n" + where, prm);
             var items = await db.QueryAsync<ReservationListItem>($"""
                 SELECT r.id, r.reservation_number, r.status, g.first_name || ' ' || g.last_name AS guest_name, g.is_vip AS guest_is_vip,

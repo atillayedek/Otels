@@ -55,6 +55,8 @@ Source: "{#Stage}\server\*"; DestDir: "{app}\server"; Components: server; Flags:
 Source: "{#Stage}\pgsql\*"; DestDir: "{app}\server\pgsql"; Components: server; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#Stage}\manager\*"; DestDir: "{app}\manager"; Components: manager; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#Stage}\client\PMS-Client-Setup.exe"; DestDir: "{app}\client-setup"; Components: client; Flags: ignoreversion
+; Telefon uygulaması (kat hizmetleri): sunucu kurulumunda dağıtım için kopyalanır.
+Source: "{#Stage}\client\TSDMR-Otel-PMS-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\PMS Server Manager"; Filename: "{app}\manager\PMS-Server-Manager.exe"; Components: manager
