@@ -15,7 +15,7 @@ public sealed class AuthMiddleware(RequestDelegate next)
     public const string HostnameHeader = "X-PMS-Hostname";
     public const string ClientVersionHeader = "X-PMS-Client-Version";
 
-    public async Task InvokeAsync(HttpContext http, RequestContext ctx, SessionService sessions, HealthState health)
+    public async Task InvokeAsync(HttpContext http, RequestContext ctx, SessionService sessions, HealthState health, LicenseService license)
     {
         var path = http.Request.Path;
         if (!path.StartsWithSegments("/api"))
@@ -65,6 +65,7 @@ public sealed class AuthMiddleware(RequestDelegate next)
             if (!user.Has(p.Code)) throw PmsException.Forbidden();
         foreach (var p in endpoint?.Metadata.GetOrderedMetadata<AnyPermissionAttribute>() ?? [])
             if (!p.Codes.Any(user.Has)) throw PmsException.Forbidden();
+        if (isWrite) await license.EnsureWriteAllowedAsync(path, method, http.RequestAborted);
 
         await next(http);
     }

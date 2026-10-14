@@ -92,6 +92,7 @@ try
     s.AddSingleton<HealthState>();
     s.AddSingleton<RealtimeHub>();
     s.AddSingleton<SessionService>();
+    s.AddSingleton<LicenseService>();
     s.AddSingleton<IntegrationRegistry>();
     s.AddSingleton<BackupService>();
     s.AddSingleton<MigrationRunnerFactory>();
@@ -156,6 +157,7 @@ try
 
     app.MapOpenApi("/api/openapi/{documentName}.json").AllowAnonymousPms();
     SystemEndpoints.Map(app);
+    LicenseService.Map(app);
     SetupEndpoints.Map(app);
     AuthEndpoints.Map(app);
     UserEndpoints.Map(app);
@@ -163,6 +165,7 @@ try
     RoomEndpoints.Map(app);
     HousekeepingEndpoints.Map(app);
     GuestEndpoints.Map(app);
+    PrivacyEndpoints.Map(app);
     AccountEndpoints.Map(app);
     ReservationEndpoints.Map(app);
     GroupEndpoints.Map(app);

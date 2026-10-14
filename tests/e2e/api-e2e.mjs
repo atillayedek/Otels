@@ -3,7 +3,7 @@
 // Kullanım: node tests/e2e/api-e2e.mjs <baseUrl> <setupCodeFile> <caCertFile>
 // Üretim/otel veritabanına karşı ÇALIŞTIRMAYIN: test kayıtları oluşturur.
 import { readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createSign, randomUUID } from 'node:crypto';
 import net from 'node:net';
 import assert from 'node:assert/strict';
 
@@ -824,6 +824,74 @@ try {
     assert.equal(info.supportEmail, 'iletisim@tsdmrdigitalstudio.com.tr');
     const integ = await api('GET', '/api/v1/integrations');
     assert.ok(integ.every(i => i.category === 'kbs'), 'bağlantısı olmayan entegrasyon listelenmez');
+  });
+
+  await step('KVKK: kişisel veri dökümü, anonimleştirme (geri alınamaz), aktif konaklamada red, saklama süresi imhası', async () => {
+    const k = () => ({ key: randomUUID() });
+    const g = await api('POST', '/api/v1/guests', { firstName: 'Silme', lastName: 'Talebi', phone: '05321112233', email: 'silme@ornek.com.tr', identityType: 'tckn',
+      identityNumber: tckn(424242), nationality: 'TR', isVip: false, kvkkConsent: true, marketingConsent: true }, k());
+    const x = await api('GET', `/api/v1/guests/${g.id}/privacy/export`, undefined, { raw: true });
+    assert.equal(x.status, 200); assert.match(x.headers.get('content-type'), /spreadsheetml/); await x.arrayBuffer();
+    await api('POST', `/api/v1/guests/${g.id}/anonymize`, { reason: 'İlgili kişinin 14.10.2026 tarihli silme talebi' });
+    const a = (await api('GET', `/api/v1/guests/${g.id}`)).guest;
+    assert.equal(a.firstName, 'Anonim'); assert.ok(a.lastName.startsWith('Misafir '));
+    assert.ok(!a.identityNumber && !a.phone && !a.email && a.anonymizedAt && !a.kvkkConsent && !a.marketingConsent, 'kişisel alanlar silindi');
+    await api('POST', `/api/v1/guests/${g.id}/anonymize`, { reason: 'tekrar' }, { expect: 422 });
+    await api('PUT', `/api/v1/guests/${g.id}`, { firstName: 'Geri', lastName: 'Getir', isVip: false, kvkkConsent: false, marketingConsent: false, version: a.version }, { expect: 422 });
+    // Aktif konaklaması olan misafir anonimleştirilemez
+    const inhouse = await api('GET', `/api/v1/reservations/${state.eurRes}`);
+    assert.equal(inhouse.status, 'checked_in');
+    const r = await api('POST', `/api/v1/guests/${inhouse.guestId}/anonymize`, { reason: 'deneme' }, { expect: 422 });
+    assert.match(r.message, /aktif rezervasyonu/);
+    // Saklama süresi: belirlenmemişken imha önerilmez; belirlenince yalnız süresi dolanlar
+    let p = await api('GET', '/api/v1/privacy/retention');
+    assert.equal(p.years, 0); assert.equal(p.count, 0);
+    await api('POST', '/api/v1/privacy/retention/purge', { reason: 'periyodik imha' }, { expect: 422 });
+    await api('PUT', '/api/v1/property/settings/kvkk.retention_years', 51, { expect: 422 });
+    await api('PUT', '/api/v1/property/settings/kvkk.retention_years', 50);
+    p = await api('GET', '/api/v1/privacy/retention');
+    assert.equal(p.years, 50); assert.equal(p.count, 0);
+    assert.equal((await api('POST', '/api/v1/privacy/retention/purge', { reason: 'periyodik imha' })).anonymized, 0);
+    const notice = (await api('GET', '/api/v1/property/settings')).find(s => s.key === 'kvkk.notice_text');
+    assert.match(notice.value, /AYDINLATMA METNİ/);
+  });
+
+  await step('Lisans: deneme süresi, imza doğrulama, vergi no bağlama, modül ve oda sınırı', async () => {
+    const pem = readFileSync(new URL('./fixtures/license-test-key.pem', import.meta.url), 'utf8');
+    const b64u = b => Buffer.from(b).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const sign = payload => {
+      const body = Buffer.from(JSON.stringify({ id: 'L-TEST', customer: 'E2E Turizm A.Ş.', hotel: 'E2E Otel', taxNumber: null, maxRooms: 100,
+        modules: ['restaurant', 'stock', 'accounting'], issuedAt: '2026-10-14', expiresAt: null, supportUntil: '2027-10-14', version: 1, ...payload }));
+      const sig = createSign('SHA256').update(body).sign({ key: pem, dsaEncoding: 'ieee-p1363' });
+      return `TSDMR-LISANS-1.${b64u(body)}.${b64u(sig)}`;
+    };
+    let s = await api('GET', '/api/v1/license');
+    assert.equal(s.state, 'trial'); assert.equal(s.restricted, false); assert.ok(s.daysLeft >= 29 && s.daysLeft <= 30, 'deneme 30 gün');
+    await api('POST', '/api/v1/license', { content: 'rastgele metin' }, { expect: 422 });
+    const good = sign({});
+    await api('POST', '/api/v1/license', { content: good.slice(0, -4) + 'AAAA' }, { expect: 422 });                 // imza bozuk
+    const tampered = good.replace(/^TSDMR-LISANS-1\.[^.]+/, 'TSDMR-LISANS-1.' + b64u(JSON.stringify({ id: 'L-TEST', customer: 'X', hotel: 'X', maxRooms: 9999, modules: [], issuedAt: '2026-10-14' })));
+    await api('POST', '/api/v1/license', { content: tampered }, { expect: 422 });                                        // içerik değiştirilmiş
+    const prop = await api('GET', '/api/v1/property');
+    const otherVkn = prop.taxNumber === '1111111111' ? '2222222222' : '1111111111';
+    const e = await api('POST', '/api/v1/license', { content: sign({ taxNumber: otherVkn }) }, { expect: 422 });
+    assert.match(e.message, /vergi numaralı/);
+    // Yalnız restoran modüllü lisans: stok yazma işlemleri reddedilir, menüden gizlenecek modül bilgisi döner
+    await api('POST', '/api/v1/license', { content: sign({ modules: ['restaurant'] }) });
+    s = await api('GET', '/api/v1/license');
+    assert.equal(s.state, 'licensed'); assert.deepEqual(s.modules, ['restaurant']);
+    const w = await api('POST', '/api/v1/stock/warehouses', { code: 'LIS', name: 'Lisans deposu', isActive: true }, { expect: 403 });
+    assert.equal(w.code, 'license_module');
+    // Oda sınırı: aktif oda sayısına eşit lisansla yeni oda eklenemez
+    await api('POST', '/api/v1/license', { content: sign({ maxRooms: s.activeRooms }) });
+    const types = await api('GET', '/api/v1/room-types');
+    const room = await api('POST', '/api/v1/rooms', { roomTypeId: types[0].id, number: '999', floor: '9', sortOrder: 999, isActive: true }, { expect: 403 });
+    assert.equal(room.code, 'license_rooms');
+    // Tam lisans
+    await api('POST', '/api/v1/license', { content: sign({ id: 'L-TEST-FULL' }) });
+    s = await api('GET', '/api/v1/license');
+    assert.equal(s.licenseId, 'L-TEST-FULL'); assert.equal(s.restricted, false);
+    await api('POST', '/api/v1/stock/warehouses', { code: 'LIS', name: 'Lisans deposu', isActive: true });
   });
 
   await step('Tüm raporlar ekranda, Excel ve CSV olarak hatasız üretilir; zorunlu alan boşsa anlaşılır uyarı', async () => {

@@ -7,7 +7,7 @@ public sealed record GuestDto(Guid Id, string FirstName, string LastName, string
     string? FatherName, string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry,
     DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId, string? CompanyName,
     string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool IsBlacklisted, string? BlacklistReason, bool KvkkConsent,
-    DateTime? KvkkConsentAt, bool MarketingConsent, DateTime CreatedAt, string? MigrationSource, int Version)
+    DateTime? KvkkConsentAt, bool MarketingConsent, DateTime CreatedAt, string? MigrationSource, int Version, DateTime? AnonymizedAt = null)
 {
     public GuestDto Masked() => this with { IdentityNumber = Validate.Mask(IdentityNumber) };
 }
@@ -35,7 +35,7 @@ public static class GuestEndpoints
         SELECT g.id, g.first_name, g.last_name, g.gender, g.birth_date, g.birth_place, g.father_name, g.mother_name, g.nationality::text AS nationality,
                g.identity_type, g.identity_number, g.identity_country::text AS identity_country, g.identity_expiry, g.phone, g.email, g.address, g.city,
                g.country::text AS country, g.tax_office, g.tax_number, g.company_id, c.name AS company_name, g.notes, g.preferences, g.is_vip, g.vip_level, g.is_blacklisted,
-               g.blacklist_reason, g.kvkk_consent, g.kvkk_consent_at, g.marketing_consent, g.created_at, g.migration_source, g.version
+               g.blacklist_reason, g.kvkk_consent, g.kvkk_consent_at, g.marketing_consent, g.created_at, g.migration_source, g.version, g.anonymized_at
         FROM pms.guests g LEFT JOIN pms.companies c ON c.id = g.company_id
         """;
 
@@ -103,6 +103,7 @@ public static class GuestEndpoints
         g.MapPut("/{id:guid}", (Guid id, SaveGuestRequest req, CommandRunner cmd, RequestContext ctx) => cmd.RunAsync("guest.update", new { id, req }, async tx =>
         {
             var before = await tx.OneOrNullAsync<GuestDto>(GuestSelect + " WHERE g.id = @id", new { id }) ?? throw PmsException.NotFound("Misafir");
+            if (before.AnonymizedAt is not null) throw PmsException.Validation("Anonimleştirilmiş misafir kaydı düzenlenemez. Misafir yeniden gelirse yeni kayıt açın.");
             var p = Params(req);
             // Kimlik görme yetkisi olmayan kullanıcı maskeli değeri geri gönderirse gerçek değer korunur.
             if (!ctx.RequireUser().Has("guest.identity.view") && p.IdentityNumber is { } idn && idn.Contains('*'))

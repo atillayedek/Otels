@@ -49,6 +49,8 @@ $env:HOTELPMS_PG_BIN = $PgBin
 & $server provision --start-postgres --db-port 54339 --https-port 18443 --http-port 18080 | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'Provision başarısız' }
 
+# Yalnız test (Debug) derlemesi: e2e testlerin kendi anahtarıyla imzaladığı lisanslar kabul edilir. Satış derlemesi bu değişkeni okumaz.
+$env:PMS_TEST_LICENSE_PUBKEY = (Get-Content (Join-Path $repo 'tests/e2e/fixtures/license-test-key.pub') -Raw).Trim()
 $p = Start-Process -FilePath $server -RedirectStandardOutput (Join-Path $Root 'server.out') -RedirectStandardError (Join-Path $Root 'server.err') -PassThru -WindowStyle Hidden
 $p.Id | Out-File $pidFile
 for ($i = 0; $i -lt 60; $i++) {

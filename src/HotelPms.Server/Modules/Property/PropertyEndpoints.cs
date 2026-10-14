@@ -32,8 +32,39 @@ public static class PropertyEndpoints
         ["guest.require_identity_on_checkin"] = true,
         ["print.default_printers"] = new Dictionary<string, string>(),
         ["markets"] = Array.Empty<string>(),
+        // KVKK: misafir kayıtları için saklama süresi (yıl). 0: süre belirlenmemiş, imha önerisi kapalı.
+        ["kvkk.retention_years"] = 0,
+        // Resepsiyonda imzalatılan aydınlatma metni ve açık rıza metni. {UNVAN} {OTEL} {ADRES} {TELEFON} {EPOSTA} otel bilgileriyle doldurulur.
+        ["kvkk.notice_text"] = KvkkNoticeDefault,
+        ["kvkk.consent_text"] = KvkkConsentDefault,
         ["segments"] = Array.Empty<string>(),
     };
+
+    const string KvkkNoticeDefault = """
+KİŞİSEL VERİLERİN İŞLENMESİNE İLİŞKİN AYDINLATMA METNİ
+
+Veri sorumlusu: {UNVAN} ({OTEL}), {ADRES}. İletişim: {TELEFON} {EPOSTA}
+
+6698 sayılı Kişisel Verilerin Korunması Kanunu (KVKK) uyarınca, konaklamanız sırasında kişisel verileriniz aşağıda açıklanan kapsamda işlenmektedir.
+
+1. İşlenen kişisel veriler: kimlik (ad, soyad, T.C. kimlik / pasaport numarası, doğum tarihi ve yeri, anne-baba adı, uyruk), iletişim (telefon, e-posta, adres), konaklama (giriş-çıkış tarihleri, oda, kişi sayısı, talepler), finans (folyo, ödeme ve fatura bilgileri) ve işlem güvenliği kayıtları.
+
+2. İşleme amaçları: konaklama sözleşmesinin kurulması ve ifası, rezervasyon ve giriş-çıkış işlemleri, 1774 sayılı Kimlik Bildirme Kanunu kapsamındaki kimlik bildirimi, vergi mevzuatı kapsamında fatura ve muhasebe kayıtları, tesis güvenliği ile talep ve şikâyetlerin yönetimi.
+
+3. Hukuki sebepler: KVKK m.5/2 (a) kanunlarda açıkça öngörülmesi, (c) sözleşmenin kurulması veya ifası, (ç) veri sorumlusunun hukuki yükümlülüğünü yerine getirmesi ve (f) meşru menfaat. Ticari elektronik ileti gönderimi yalnızca açık rızanıza dayanır.
+
+4. Aktarım: kişisel verileriniz, kanuni yükümlülükler kapsamında yetkili kamu kurum ve kuruluşlarına (kolluk birimleri, vergi idaresi) ve konaklama hizmetinin ifası için gerekli olduğu ölçüde iş ortaklarına aktarılabilir. Verileriniz otelin kendi sunucusunda saklanır.
+
+5. Toplama yöntemi: rezervasyon kanalları, resepsiyonda sözlü, yazılı veya kimlik belgesinden elektronik olarak.
+
+6. Haklarınız (KVKK m.11): kişisel verilerinizin işlenip işlenmediğini öğrenme, bilgi talep etme, amacını öğrenme, aktarıldığı üçüncü kişileri bilme, eksik veya yanlış işlenmişse düzeltilmesini, KVKK m.7 çerçevesinde silinmesini veya yok edilmesini isteme, bu işlemlerin aktarılan üçüncü kişilere bildirilmesini isteme, otomatik sistemlerle analiz sonucu aleyhinize bir sonuca itiraz etme ve kanuna aykırı işleme nedeniyle zararın giderilmesini talep etme.
+
+Başvurularınızı yukarıdaki iletişim bilgileri üzerinden yazılı olarak iletebilirsiniz; başvurular en geç otuz gün içinde sonuçlandırılır.
+""";
+
+    const string KvkkConsentDefault = """
+Ticari elektronik ileti izni: Otelin kampanya, tanıtım ve özel teklif bildirimlerini e-posta, SMS veya telefonla almayı kabul ediyorum.
+""";
 
     public const string PropertySelect = """
         SELECT id, name, legal_name, tax_office, tax_number, address, city, country::text AS country, phone, email, time_zone,
@@ -116,6 +147,13 @@ public static class PropertyEndpoints
             case "finance.tcmb_rate_type":
                 if (!Folios.ExchangeRateEndpoints.TcmbRateTypes.ContainsKey(value.GetString() ?? ""))
                     throw PmsException.Validation("Geçersiz TCMB kur türü.");
+                break;
+            case "kvkk.retention_years":
+                var years = value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var y) ? y : -1;
+                if (years is < 0 or > 50) throw PmsException.Validation("Saklama süresi 0 ile 50 yıl arasında tam sayı olmalıdır (0: belirlenmemiş).");
+                break;
+            case "kvkk.notice_text" or "kvkk.consent_text":
+                if ((value.GetString() ?? "").Length > 20000) throw PmsException.Validation("Metin en fazla 20.000 karakter olabilir.");
                 break;
             case "tax.accommodation_rate":
                 var rate = value.ValueKind == JsonValueKind.Number ? value.GetDecimal() : -1;

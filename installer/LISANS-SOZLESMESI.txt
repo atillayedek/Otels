@@ -1,0 +1,41 @@
+﻿TSDMR OTEL PMS
+SON KULLANICI LİSANS SÖZLEŞMESİ
+
+Bu sözleşme, TSDMR Digital Studio ("Lisans Veren") ile TSDMR Otel PMS yazılımını kuran veya kullanan işletme ("Lisans Alan") arasındadır. Yazılımı kurarak veya kullanarak bu sözleşmenin tamamını kabul etmiş olursunuz. Kabul etmiyorsanız kurulumu iptal edin.
+
+1. TANIMLAR
+"Yazılım": TSDMR Otel PMS sunucu hizmeti, PMS Client masaüstü uygulaması, Sunucu Yöneticisi, Android uygulamaları (TSDMR Otel PMS ve TSDMR Restoran), veritabanı yapısı, belgeler ve güncellemeleri.
+"Lisans Belgesi": Lisans Veren tarafından Lisans Alan adına üretilen, elektronik olarak imzalı lisans dosyası (.lisans).
+"Tesis": Lisans Belgesinde adı ve vergi numarası yazan konaklama işletmesi.
+
+2. LİSANSIN KAPSAMI
+2.1. Lisans Veren, Lisans Alan'a Yazılımı yalnız Lisans Belgesinde belirtilen Tesiste, belirtilen oda sayısı ve modüllerle, kendi iç işleri için kullanma hakkını; devredilemez, alt lisans verilemez ve münhasır olmayan şekilde tanır.
+2.2. Yazılımın mülkiyeti ve tüm fikri ve sınai hakları Lisans Verene aittir. Bu sözleşme Yazılımın satışı değil, kullanım hakkı verilmesidir.
+2.3. Lisans Belgesi yüklenmeden Yazılım kurulumdan itibaren 30 gün deneme amacıyla kullanılabilir. Deneme süresi veya lisans süresi sona erdiğinde kayıtlara erişim, çıkış, tahsilat, gece denetimi, raporlar ve yedekleme çalışmaya devam eder; yeni rezervasyon, giriş ve adisyon işlemleri lisans yüklenene kadar yapılamaz.
+2.4. Tesis içinde Yazılımın yüklü olduğu istemci (bilgisayar, tablet, telefon) sayısı Lisans Belgesinde aksi yazmadıkça sınırlı değildir.
+
+3. YASAKLAR
+Lisans Alan; Yazılımı veya Lisans Belgesini kopyalayıp başka bir işletmede kullanamaz, kiralayamaz, satamaz, ödünç veremez; Yazılımı tersine mühendislik, kaynak koda dönüştürme veya lisans denetimini aşmaya yönelik değişikliğe tabi tutamaz (kanunun açıkça izin verdiği haller saklıdır); Yazılımdaki telif ve marka bildirimlerini kaldıramaz.
+
+4. VERİLER VE KİŞİSEL VERİLER
+4.1. Yazılım, Tesisin kendi sunucusunda çalışır; Tesis verileri (misafir, rezervasyon, folyo, muhasebe ve diğer kayıtlar) Lisans Verene veya bir bulut hizmetine gönderilmez. Bu verilerin sahibi ve 6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında veri sorumlusu Lisans Alan'dır.
+4.2. Lisans Veren, yalnız Lisans Alan'ın talebiyle ve onun gözetiminde verilen uzaktan destek sırasında verilere erişebilir; bu erişim ayrı bir gizlilik taahhüdüne tabidir ve destek süresiyle sınırlıdır.
+4.3. Verilerin düzenli yedeklenmesi, yedeklerin güvenli ve tesis dışında saklanması, sunucu bilgisayarın fiziksel ve ağ güvenliği, kullanıcı hesaplarının ve parolaların yönetimi Lisans Alan'ın sorumluluğundadır. Yazılım bu amaçlarla otomatik yedekleme ve yetkilendirme araçları sunar.
+
+5. YASAL YÜKÜMLÜLÜKLER
+Kimlik bildirimi (KBS), elektronik fatura/arşiv, vergi ve muhasebe kayıtları gibi yasal yükümlülüklerin yerine getirilmesi Lisans Alan'ın sorumluluğundadır. Yazılım bu işlemlere yardımcı kayıt ve belgeler üretir; resmi kurumlarla doğrudan bağlantılar yalnız ilgili kurumun izni ve Lisans Alan'ın sağladığı erişim bilgileriyle kurulabilir. Muhasebe kayıtları mali müşavir kontrolüne tabidir.
+
+6. GÜNCELLEMELER VE DESTEK
+Lisans Belgesinde yazılı destek bitiş tarihine kadar Lisans Alan, yayımlanan güncellemeleri kurma ve e-posta ile destek alma hakkına sahiptir. Destek süresi sonrasında Yazılım çalışmaya devam eder; güncelleme ve destek ayrıca ücretlendirilebilir. Destek iletişim adresi: iletisim@tsdmrdigitalstudio.com.tr
+
+7. GARANTİ VE SORUMLULUK
+7.1. Lisans Veren, Yazılımın belgelerinde açıklanan işlevleri esaslı olarak yerine getireceğini taahhüt eder; bildirilen hataları makul sürede gidermeye çalışır.
+7.2. Yazılım; donanım arızası, elektrik kesintisi, virüs, yetkisiz erişim, hatalı kullanım, yedek alınmaması veya üçüncü kişi yazılımlarından kaynaklanan veri kaybı ve zararlardan sorumlu tutulamaz. Kanunen sınırlandırılamayan haller (kast ve ağır kusur) saklı kalmak kaydıyla Lisans Verenin toplam sorumluluğu, Lisans Alan'ın son on iki ayda bu Yazılım için ödediği lisans bedeliyle sınırlıdır. Dolaylı zararlar, kâr kaybı ve itibar kaybından sorumluluk kabul edilmez.
+
+8. SÜRE VE FESİH
+Lisans, Lisans Belgesinde yazan süre boyunca (süresiz ise süresiz olarak) geçerlidir. Lisans Alan'ın bu sözleşmeyi esaslı şekilde ihlal etmesi halinde Lisans Veren yazılı bildirimle lisansı feshedebilir. Fesih halinde Lisans Alan, kendi verilerini Yazılımın dışa aktarma ve yedekleme araçlarıyla almaya devam edebilir.
+
+9. UYGULANACAK HUKUK
+Bu sözleşmeye Türkiye Cumhuriyeti hukuku uygulanır. Taraflar arasında ayrıca imzalanmış bir satış/hizmet sözleşmesi varsa, çelişen hükümlerde o sözleşme önceliklidir. Uyuşmazlıklarda Lisans Verenin yerleşim yerindeki mahkemeler ve icra daireleri yetkilidir; tüketici sıfatına sahip alıcılar için kanuni yetki kuralları saklıdır.
+
+TSDMR Digital Studio · iletisim@tsdmrdigitalstudio.com.tr

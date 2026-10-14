@@ -24,6 +24,7 @@ DisableProgramGroupPage=yes
 OutputDir=..\build\installer
 OutputBaseFilename=HotelPMS-Setup-{#AppVersion}
 SetupIconFile=..\src\HotelPms.Manager\app.ico
+LicenseFile=LISANS-SOZLESMESI.txt
 UninstallDisplayIcon={app}\manager\PMS-Server-Manager.exe
 Compression=lzma2/max
 SolidCompression=yes
@@ -59,6 +60,7 @@ Source: "{#Stage}\client\PMS-Client-Setup.exe"; DestDir: "{app}\client-setup"; C
 Source: "{#Stage}\client\TSDMR-Otel-PMS-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
 ; Garson tableti/telefonu için restoran adisyon uygulaması.
 Source: "{#Stage}\client\TSDMR-Restoran-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
+Source: "LISANS-SOZLESMESI.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\PMS Server Manager"; Filename: "{app}\manager\PMS-Server-Manager.exe"; Components: manager

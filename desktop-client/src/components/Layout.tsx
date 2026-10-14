@@ -1,18 +1,17 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
+import { moduleAllowed, useLicense } from '../lib/queries';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BarChart3, BedDouble, Brush, Building2, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, LayoutGrid, LogOut,
-  Moon, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, Users, Wrench, AlarmClock, Wallet, UserPlus,
-  Utensils, Package, Calculator, LifeBuoy,
+  AlarmClock, BarChart3, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
 } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
 import { SupportModal } from './Support';
 
 interface NavItem { to: string; label: string; perm?: string | string[] }
-interface NavGroup { label: string; icon: ReactNode; items: NavItem[] }
+interface NavGroup { label: string; icon: ReactNode; module?: string; items: NavItem[] }
 
 export const NAV: NavGroup[] = [
   { label: 'Gösterge Paneli', icon: <Gauge size={17} />, items: [{ to: '/', label: 'Genel Durum', perm: 'dashboard.view' }] },
@@ -63,19 +62,19 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
-    label: 'Restoran / Bar', icon: <Utensils size={17} />, items: [
+    label: 'Restoran / Bar', icon: <Utensils size={17} />, module: 'restaurant', items: [
       { to: '/pos', label: 'Satış Ekranı (Adisyon)', perm: 'pos.view' },
       { to: '/settings/pos', label: 'Menü ve Satış Noktaları', perm: 'pos.manage' },
     ],
   },
   {
-    label: 'Stok ve Satın Alma', icon: <Package size={17} />, items: [
+    label: 'Stok ve Satın Alma', icon: <Package size={17} />, module: 'stock', items: [
       { to: '/stock', label: 'Stok', perm: 'stock.view' },
       { to: '/purchase-orders', label: 'Satın Alma Siparişleri', perm: 'purchase.manage' },
     ],
   },
   {
-    label: 'Muhasebe', icon: <Calculator size={17} />, items: [
+    label: 'Muhasebe', icon: <Calculator size={17} />, module: 'accounting', items: [
       { to: '/accounting', label: 'Fişler ve Hesap Planı', perm: 'accounting.view' },
       { to: '/reports/trial_balance', label: 'Mizan', perm: 'accounting.view' },
       { to: '/reports/account_statement', label: 'Hesap Ekstresi', perm: 'accounting.view' },
@@ -92,6 +91,8 @@ export const NAV: NavGroup[] = [
       { to: '/settings/backup', label: 'Yedekleme', perm: 'backup.manage' },
       { to: '/settings/import', label: 'Veri Aktarım Merkezi', perm: 'migration.manage' },
       { to: '/settings/printers', label: 'Yazıcılar', perm: 'printer.manage' },
+      { to: '/settings/privacy', label: 'KVKK ve Kişisel Veriler', perm: 'settings.manage' },
+      { to: '/settings/license', label: 'Lisans', perm: 'license.manage' },
       { to: '/settings/audit', label: 'Denetim Kayıtları', perm: 'audit.view' },
       { to: '/settings/connection', label: 'Sunucu Bağlantısı' },
     ],
@@ -111,7 +112,7 @@ export function firstAllowedRoute(can: (p: string) => boolean): string | null {
 interface QuickCounts { arrivalsExpected: number; arrivalsCheckedIn: number; departuresExpected: number; departuresCheckedOut: number; vacantDirty: number; pendingWakeups: number; kbsPending: number }
 
 /** Üst menü: her modülün kendi rengi var; bekleyen iş sayıları rozet olarak görünür. */
-const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[]; tone: string; badge?: (c: QuickCounts) => number }[] = [
+const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[]; tone: string; badge?: (c: QuickCounts) => number; module?: string }[] = [
   { to: '/', label: 'Durum', icon: <Gauge />, perm: 'dashboard.view', tone: '#4f46e5' },
   { to: '/rack', label: 'Rack', icon: <LayoutGrid />, perm: 'reservation.view', tone: '#2563eb' },
   { to: '/blokaj', label: 'Blokaj', icon: <CalendarRange />, perm: 'reservation.view', tone: '#0284c7' },
@@ -122,7 +123,7 @@ const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string
   { to: '/reservations?view=departures', label: 'Çıkışlar', icon: <PlaneTakeoff />, perm: 'reservation.view', tone: '#ea580c', badge: c => c.departuresExpected - c.departuresCheckedOut },
   { to: '/reservations?view=inhouse', label: 'Konaklayan', icon: <BedDouble />, perm: 'reservation.view', tone: '#9333ea' },
   { to: '/cashier', label: 'Ön Kasa', icon: <CreditCard />, perm: 'cashier.manage', tone: '#059669' },
-  { to: '/pos', label: 'Adisyon', icon: <Utensils />, perm: 'pos.view', tone: '#d97706' },
+  { to: '/pos', label: 'Adisyon', icon: <Utensils />, perm: 'pos.view', tone: '#d97706', module: 'restaurant' },
   { to: '/housekeeping', label: 'Kat Hiz.', icon: <Brush />, perm: 'housekeeping.view', tone: '#0891b2', badge: c => c.vacantDirty },
   { to: '/wakeups', label: 'Uyandırma', icon: <AlarmClock />, perm: 'reservation.view', tone: '#e11d48', badge: c => c.pendingWakeups },
   { to: '/night-audit', label: 'Gün Sonu', icon: <Moon />, perm: 'night_audit.execute', tone: '#334155' },
@@ -142,13 +143,15 @@ export function Layout({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   const here = loc.pathname + loc.search;
   // Sayaçlar genel durum özetinden gelir; gerçek zamanlı değişikliklerde ('dashboard' anahtarı) kendiliğinden yenilenir.
+  const license = useLicense();
   const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => get<QuickCounts>('/api/v1/dashboard'), enabled: can('dashboard.view'), refetchInterval: 60_000 });
 
   const groups = useMemo(() => {
     const needle = q.trim().toLocaleLowerCase('tr-TR');
-    return NAV.map(g => ({ ...g, items: g.items.filter(i => can(i.perm) && (!needle || i.label.toLocaleLowerCase('tr-TR').includes(needle))) }))
+    return NAV.filter(g => moduleAllowed(license.data, g.module))
+      .map(g => ({ ...g, items: g.items.filter(i => can(i.perm) && (!needle || i.label.toLocaleLowerCase('tr-TR').includes(needle))) }))
       .filter(g => g.items.length > 0);
-  }, [q, canOne]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, canOne, license.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
@@ -184,7 +187,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <header className="topbar">
         <div className="quick">
-          {QUICK.filter(i => can(i.perm)).map(i => {
+          {QUICK.filter(i => can(i.perm) && moduleAllowed(license.data, i.module)).map(i => {
             const n = i.badge && counts.data ? Math.max(0, i.badge(counts.data)) : 0;
             const active = here === i.to || (i.to !== '/' && loc.pathname === i.to.split('?')[0] && !i.to.includes('?'));
             return (
@@ -206,6 +209,12 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <main className="main">
         {!connected && <div className="banner danger"><span className="dot off" />Sunucu bağlantısı kesildi. Otomatik olarak yeniden bağlanılıyor… Bağlantı kurulana kadar yapılan işlemler kaydedilmez.</div>}
+        {license.data?.restricted && <div className="banner danger"><KeyRound size={15} /><span>{license.data.message}</span>
+          {can('license.manage') && <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => nav('/settings/license')}>Lisans yükle</button>}</div>}
+        {license.data?.state === 'trial' && (license.data.daysLeft ?? 99) <= 14 && <div className="banner info"><KeyRound size={15} /><span>{license.data.message}</span>
+          {can('license.manage') && <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => nav('/settings/license')}>Lisans yükle</button>}</div>}
+        {license.data?.state === 'licensed' && license.data.daysLeft !== undefined && license.data.daysLeft !== null && license.data.daysLeft <= 30 &&
+          <div className="banner warning"><KeyRound size={15} /><span>Lisans süresi {license.data.daysLeft} gün sonra doluyor. Yenileme için destek ekibine yazın.</span></div>}
         {!dbAvailable && <div className="banner warning">Veritabanı bağlantısı geçici olarak kullanılamıyor. Yeni işlem kabul edilmiyor.</div>}
         {children}
       </main>

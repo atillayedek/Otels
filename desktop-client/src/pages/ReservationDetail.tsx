@@ -14,6 +14,7 @@ import { FolioPanel } from '../components/FolioPanel';
 import { DocumentsPanel } from '../components/Documents';
 import { ReservationEditModal } from './ReservationForm';
 import { KbsPromptModal } from '../components/KbsForm';
+import { KvkkPrintButton } from '../components/KvkkForm';
 
 type Dlg = 'edit' | 'checkin' | 'checkout' | 'move' | 'cancel' | 'extend' | 'sharer' | 'wakeup' | null;
 
@@ -54,6 +55,7 @@ export default function ReservationDetailPage() {
         {r.guestIsBlacklisted && <Badge color="red">Kara listede</Badge>}
       </>} actions={<>
         <button className="btn ghost" onClick={() => nav(-1)}><ArrowLeft /> Geri</button>
+        {(pre || r.status === 'checked_in') && <KvkkPrintButton reservationId={r.id} primary={{ name: r.guestName, room: r.roomNumber, reservationNumber: r.reservationNumber, arrival: r.arrival, departure: r.departure }} />}
         {pre && can('reservation.edit') && <button className="btn" onClick={() => setDlg('edit')}><Pencil /> Düzenle</button>}
         {r.status === 'checked_in' && can('reservation.edit') && <button className="btn" onClick={() => setDlg('edit')}><Pencil /> Düzenle</button>}
         {pre && can('checkin.execute') && r.arrival <= bd && <button className="btn primary" onClick={() => setDlg('checkin')}><LogIn /> Giriş yap</button>}

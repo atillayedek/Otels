@@ -55,6 +55,8 @@ const SetBackup = lazy(() => import('./pages/settings/Backup'));
 const SetPrinters = lazy(() => import('./pages/settings/Printers'));
 const SetImport = lazy(() => import('./pages/settings/Import'));
 const SetAudit = lazy(() => import('./pages/settings/Audit'));
+const SetPrivacy = lazy(() => import('./pages/settings/Privacy'));
+const SetLicense = lazy(() => import('./pages/settings/License'));
 
 type Stage = 'loading' | 'no-server' | 'unreachable' | 'setup' | 'ready';
 
@@ -162,6 +164,8 @@ export function App() {
           <Route path="/settings/printers" element={<SetPrinters />} />
           <Route path="/settings/import" element={<SetImport />} />
           <Route path="/settings/audit" element={<SetAudit />} />
+          <Route path="/settings/privacy" element={<SetPrivacy />} />
+          <Route path="/settings/license" element={<SetLicense />} />
           <Route path="/settings/connection" element={<ConnectionSettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

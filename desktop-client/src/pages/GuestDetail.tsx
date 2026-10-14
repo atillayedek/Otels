@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ban, Crown, Save, ShieldCheck } from 'lucide-react';
-import { api, get } from '../lib/api';
+import { save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { ArrowLeft, Ban, Crown, Eraser, FileDown, Save, ShieldCheck } from 'lucide-react';
+import { api, download, get } from '../lib/api';
 import type { GuestProfile } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
-import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs } from '../components/ui';
+import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs, useToast } from '../components/ui';
 import { draftToBody, GuestFields, guestToDraft, type GuestDraft } from '../components/GuestFields';
 import { DocumentsPanel } from '../components/Documents';
 
@@ -19,6 +20,8 @@ export default function GuestDetailPage() {
   const [tab, setTab] = useState<'card' | 'stays' | 'folios' | 'docs'>('card');
   const [draft, setDraft] = useState<GuestDraft | null>(null);
   const [black, setBlack] = useState(false);
+  const [anon, setAnon] = useState(false);
+  const toast = useToast();
   const p = useQuery({ queryKey: ['guest', id], queryFn: () => get<GuestProfile>(`/api/v1/guests/${id}`) });
   useEffect(() => { if (p.data) setDraft(guestToDraft(p.data.guest)); }, [p.data]);
 
@@ -31,17 +34,26 @@ export default function GuestDetailPage() {
   if (p.isLoading || !draft) return <div className="page"><Spinner /></div>;
   if (p.error) return <div className="page"><ErrorBox error={p.error} /></div>;
   const g = p.data!.guest;
+  const anonymized = !!g.anonymizedAt;
+  const exportData = async () => {
+    const path = await saveDialog({ defaultPath: `kisisel-veri-${g.lastName}-${g.firstName}.xlsx`, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
+    if (!path) return;
+    try { await download(`/api/v1/guests/${g.id}/privacy/export`, path); toast.ok('Kişisel veri dökümü kaydedildi.', path); } catch (e) { toast.error(e); }
+  };
 
   return (
     <div className="page">
       <PageHead title={<>{g.isVip && <Crown size={18} color="var(--warning)" />} {g.firstName} {g.lastName}</>} sub={<>
         {g.isBlacklisted && <Badge color="red">Kara listede: {g.blacklistReason}</Badge>}
         {g.migrationSource && <Badge color="gray">Aktarım: {g.migrationSource}</Badge>}
+        {anonymized && <Badge color="gray">KVKK: {fmtDateTime(g.anonymizedAt!)} tarihinde anonimleştirildi</Badge>}
         <span>Kayıt {fmtDateTime(g.createdAt)} · Toplam gelir {fmtMoney(p.data!.totalRevenue)}</span>
       </>} actions={<>
         <button className="btn ghost" onClick={() => nav(-1)}><ArrowLeft /> Geri</button>
-        {can('guest.blacklist') && <button className="btn" onClick={() => setBlack(true)}>{g.isBlacklisted ? <ShieldCheck /> : <Ban />} {g.isBlacklisted ? 'Kara listeden çıkar' : 'Kara listeye al'}</button>}
-        {can('guest.edit') && tab === 'card' && <button className="btn primary" disabled={save.busy} onClick={() => void save.run()}><Save /> Kaydet</button>}
+        {can('guest.privacy') && !anonymized && <button className="btn" onClick={() => void exportData()} title="İlgili kişi başvurusu için tüm kişisel verilerin Excel dökümü"><FileDown /> Kişisel veri dökümü</button>}
+        {can('guest.privacy') && !anonymized && <button className="btn danger" onClick={() => setAnon(true)} title="KVKK silme talebi: kimlik ve iletişim bilgilerini kalıcı olarak sil"><Eraser /> Anonimleştir</button>}
+        {can('guest.blacklist') && !anonymized && <button className="btn" onClick={() => setBlack(true)}>{g.isBlacklisted ? <ShieldCheck /> : <Ban />} {g.isBlacklisted ? 'Kara listeden çıkar' : 'Kara listeye al'}</button>}
+        {can('guest.edit') && tab === 'card' && !anonymized && <button className="btn primary" disabled={save.busy} onClick={() => void save.run()}><Save /> Kaydet</button>}
       </>} />
       <Tabs value={tab} onChange={setTab} items={[{ key: 'card', label: 'Misafir kartı' }, { key: 'stays', label: 'Konaklamalar', count: p.data!.stays.length }, { key: 'folios', label: 'Folyolar', count: p.data!.folios.length }, ...(can('guest.identity.view') ? [{ key: 'docs' as const, label: 'Kimlik ve belgeler' }] : [])]} />
       <div className="card"><div className="card-body">
@@ -60,8 +72,32 @@ export default function GuestDetailPage() {
             <tbody>{p.data!.folios.map(f => <tr key={f.id}><td className="mono">{f.folioNumber}</td><td>{f.status === 'open' ? 'Açık' : 'Kapalı'}</td><td className="num">{fmtMoney(f.totalCharges)}</td><td className="num">{fmtMoney(f.totalPayments)}</td><td className="num">{fmtMoney(f.balance)}</td></tr>)}</tbody></table>
         ))}
       </div></div>
+      {anon && <AnonymizeModal id={g.id} name={`${g.firstName} ${g.lastName}`} onClose={() => setAnon(false)} />}
       {black && <BlacklistModal id={g.id} current={g.isBlacklisted} version={g.version} onClose={() => setBlack(false)} />}
     </div>
+  );
+}
+
+function AnonymizeModal({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const act = useAction(async () => {
+    await api('POST', `/api/v1/guests/${id}/anonymize`, { reason });
+    await qc.invalidateQueries({ queryKey: ['guest'] });
+    await qc.invalidateQueries({ queryKey: ['guests'] });
+  }, { success: 'Misafir anonimleştirildi.' });
+  return (
+    <Modal title="Misafiri anonimleştir" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Vazgeç</button>
+      <button className="btn danger" disabled={!reason.trim() || act.busy} onClick={async () => { if (await act.run() !== undefined) onClose(); }}><Eraser /> Kalıcı olarak anonimleştir</button>
+    </>}>
+      <div className="stack">
+        <div className="warn-box">{name} için ad, kimlik, doğum, iletişim, adres ve vergi bilgileri kalıcı olarak silinecek; kimlik belgesi dosyaları imha edilecek.
+          Konaklama ve folyo kayıtları yasal saklama için kalır ancak bu kişiyle ilişkilendirilemez. Bu işlem geri alınamaz.</div>
+        <Field label="Gerekçe (ör. ilgili kişinin silme talebi, başvuru tarihi)" required><textarea className="input" rows={2} value={reason} onChange={e => setReason(e.target.value)} autoFocus /></Field>
+        <ErrorBox error={act.error} />
+      </div>
+    </Modal>
   );
 }
 

@@ -1,3 +1,4 @@
+using HotelPms.Server.Modules.Platform;
 using HotelPms.Server.Auth;
 using HotelPms.Server.Infrastructure;
 using HotelPms.Server.Modules.Property;
@@ -69,9 +70,10 @@ public static class RoomEndpoints
 
         var rooms = app.MapGroup("/api/v1/rooms").WithTags("Rooms");
         rooms.MapGet("/", (Db db) => db.QueryAsync<RoomDto>(RoomSelect + " ORDER BY r.sort_order, r.number"));
-        rooms.MapPost("/", (SaveRoomRequest req, CommandRunner cmd) => cmd.RunAsync("room.create", req, async tx =>
+        rooms.MapPost("/", (SaveRoomRequest req, CommandRunner cmd, LicenseService license) => cmd.RunAsync("room.create", req, async tx =>
         {
             var p = RoomParams(req);
+            if (req.IsActive) await license.EnsureRoomCapacityAsync(tx);
             var id = await tx.ScalarAsync<Guid>("""
                 INSERT INTO pms.rooms (room_type_id, number, floor, description, features, sort_order, is_active)
                 VALUES (@roomTypeId, @number, @floor, @description, @features, @sortOrder, @isActive) RETURNING id

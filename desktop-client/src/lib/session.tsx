@@ -33,6 +33,7 @@ const TOPIC_KEYS: Record<string, string[]> = {
   rates: ['ratePlans', 'ratePrices'],
   kbs: ['kbs', 'dashboard'],
   wakeups: ['wakeups', 'dashboard'],
+  license: ['license'],
   documents: ['documents'],
   imports: ['imports', 'import'],
 };

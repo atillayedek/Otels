@@ -11,6 +11,10 @@ export interface Property {
   timeZone: string; currency: string; businessDate: DateStr; checkInTime: string; checkOutTime: string; version: number;
 }
 export interface Setting { key: string; value: unknown }
+export interface LicenseStatus {
+  state: 'trial' | 'trial_expired' | 'licensed' | 'expired' | 'invalid'; message: string; restricted: boolean; licenseId?: string; customer?: string; hotel?: string;
+  taxNumber?: string; maxRooms?: number; modules: string[]; expiresAt?: DateStr; supportUntil?: DateStr; trialEndsAt?: DateStr; daysLeft?: number; activeRooms: number;
+}
 
 export interface RoomType { id: string; code: string; name: string; description?: string; maxAdults: number; maxChildren: number; defaultRate: Money; sortOrder: number; isActive: boolean; roomCount: number; version: number }
 export interface Room { id: string; roomTypeId: string; roomTypeCode: string; number: string; floor?: string; description?: string; features?: string; hkStatus: string; isDnd: boolean; hkNote?: string; sortOrder: number; isActive: boolean; version: number }
@@ -26,7 +30,7 @@ export interface Guest {
   id: string; firstName: string; lastName: string; gender?: string; birthDate?: DateStr; birthPlace?: string; fatherName?: string; motherName?: string; nationality?: string;
   identityType?: string; identityNumber?: string; identityCountry?: string; identityExpiry?: DateStr; phone?: string; email?: string; address?: string; city?: string; country?: string;
   taxOffice?: string; taxNumber?: string; companyId?: string; companyName?: string; notes?: string; preferences?: string; isVip: boolean; vipLevel?: string; isBlacklisted: boolean;
-  blacklistReason?: string; kvkkConsent: boolean; kvkkConsentAt?: string; marketingConsent: boolean; createdAt: string; migrationSource?: string; version: number;
+  blacklistReason?: string; kvkkConsent: boolean; kvkkConsentAt?: string; marketingConsent: boolean; createdAt: string; migrationSource?: string; version: number; anonymizedAt?: string;
 }
 export interface GuestStay { id: string; reservationNumber: string; status: string; arrival: DateStr; departure: DateStr; roomNumber?: string; roomTypeCode: string; nightlyRate: Money; currency: string }
 export interface GuestFolio { id: string; folioNumber: string; status: string; balance: Money; totalCharges: Money; totalPayments: Money }

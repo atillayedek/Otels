@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- TSDMR Lisans Üretici: yalnız satıcının (TSDMR Digital Studio) bilgisayarında çalışır; otellere dağıtılmaz. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>TSDMR-Lisans-Uretici</AssemblyName>
+    <RootNamespace>HotelPms.LicenseTool</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Product>TSDMR Lisans Üretici</Product>
+    <Company>TSDMR Digital Studio</Company>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HotelPms.Shared\HotelPms.Shared.csproj" />
+  </ItemGroup>
+
+</Project>
