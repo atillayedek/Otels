@@ -32,3 +32,6 @@ setup-token.txt
 pgdata/
 *.log
 *.tsbuildinfo
+
+# Gradle/Kotlin geçici oturum dosyaları
+.kotlin/
