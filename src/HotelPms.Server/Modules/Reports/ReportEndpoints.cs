@@ -30,7 +30,7 @@ public sealed class ReportDefinition
 public sealed record DashboardDto(DateOnly BusinessDate, string HotelName, string Currency, int RoomsTotal, int Occupied, int VacantClean, int VacantDirty,
     int OutOfOrder, int ArrivalsExpected, int ArrivalsCheckedIn, int DeparturesExpected, int DeparturesCheckedOut, int GuestsInHouse,
     decimal OccupancyPct, decimal RoomRevenueToday, decimal OtherRevenueToday, decimal PaymentsToday, decimal OpenBalance, int OpenTickets,
-    int OpenHkTasks, int KbsPending, int PendingWakeups, DateOnly? LastNightAudit, IReadOnlyList<ForecastDay> Forecast);
+    int OpenHkTasks, int KbsPending, int PendingWakeups, DateOnly? LastNightAudit, IReadOnlyList<ForecastDay> Forecast, int OpenTraces = 0);
 public sealed record ForecastDay(DateOnly Date, int Sold, int Available, decimal OccupancyPct);
 
 public sealed record AuditLogDto(long Id, DateTime At, string? Username, string? Hostname, string? Ip, string Action, string? EntityType, string? EntityId,
@@ -800,7 +800,8 @@ public static class ReportEndpoints
                    (SELECT count(*)::int FROM pms.hk_tasks WHERE status IN ('open','in_progress')) AS open_hk_tasks,
                    (SELECT count(*)::int FROM pms.identity_reports WHERE status IN ('needs_data','blocked_configuration','rejected','outcome_unknown','manual_action_required','retry_scheduled')) AS kbs_pending,
                    (SELECT count(*)::int FROM pms.wakeup_calls WHERE status = 'pending') AS pending_wakeups,
-                   (SELECT max(business_date) FROM pms.night_audits) AS last_night_audit
+                   (SELECT max(business_date) FROM pms.night_audits) AS last_night_audit,
+                   (SELECT count(*)::int FROM pms.traces WHERE status = 'open' AND due_date <= @bd) AS open_traces
             """, new { bd });
         var forecast = await tx.ListAsync<ForecastDay>("""
             WITH days AS (SELECT d::date AS d FROM generate_series(@bd::date, @bd::date + 6, interval '1 day') d)
@@ -815,10 +816,10 @@ public static class ReportEndpoints
         return new DashboardDto(bd, p.Name, p.Currency, d.RoomsTotal, d.Occupied, d.VacantClean, d.VacantDirty, d.OutOfOrder, d.ArrivalsExpected,
             d.ArrivalsCheckedIn, d.DeparturesExpected, d.DeparturesCheckedOut, d.GuestsInHouse,
             sellable <= 0 ? 0 : decimal.Round(d.Occupied * 100m / sellable, 1), d.RoomRevenueToday, d.OtherRevenueToday, d.PaymentsToday, d.OpenBalance,
-            d.OpenTickets, d.OpenHkTasks, d.KbsPending, d.PendingWakeups, d.LastNightAudit, forecast);
+            d.OpenTickets, d.OpenHkTasks, d.KbsPending, d.PendingWakeups, d.LastNightAudit, forecast, d.OpenTraces);
     }
 
     sealed record DashRow(int RoomsTotal, int Occupied, int VacantClean, int VacantDirty, int OutOfOrder, int ArrivalsExpected, int ArrivalsCheckedIn,
         int DeparturesExpected, int DeparturesCheckedOut, int GuestsInHouse, decimal RoomRevenueToday, decimal OtherRevenueToday, decimal PaymentsToday,
-        decimal OpenBalance, int OpenTickets, int OpenHkTasks, int KbsPending, int PendingWakeups, DateOnly? LastNightAudit);
+        decimal OpenBalance, int OpenTickets, int OpenHkTasks, int KbsPending, int PendingWakeups, DateOnly? LastNightAudit, int OpenTraces);
 }

@@ -34,6 +34,8 @@ const TOPIC_KEYS: Record<string, string[]> = {
   kbs: ['kbs', 'dashboard'],
   wakeups: ['wakeups', 'dashboard'],
   license: ['license'],
+  traces: ['traces', 'dashboard'],
+  lost_items: ['lostItems'],
   documents: ['documents'],
   imports: ['imports', 'import'],
 };

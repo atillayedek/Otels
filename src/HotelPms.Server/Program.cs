@@ -169,6 +169,8 @@ try
     AccountEndpoints.Map(app);
     ReservationEndpoints.Map(app);
     GroupEndpoints.Map(app);
+    TraceEndpoints.Map(app);
+    LostFoundEndpoints.Map(app);
     AllotmentEndpoints.Map(app);
     FolioEndpoints.Map(app);
     ExchangeRateEndpoints.Map(app);

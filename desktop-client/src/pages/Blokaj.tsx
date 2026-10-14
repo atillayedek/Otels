@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, ClipboardList, Crown, FileText, LogIn, Unlink } from 'lucide-react';
-import { api, get, qs } from '../lib/api';
+import { api, get, newKey, qs } from '../lib/api';
 import type { AvailabilityDay, Rack, RackBar, Reservation } from '../lib/types';
 import { addDays, BLOCK_LABEL, fmtDate, fmtDay, nightsBetween, STATUS_LABEL } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -68,7 +68,7 @@ export default function BlokajPage() {
       const res = await load(bar.reservationId);
       if (res.status === 'checked_in') { setMove({ res, roomId }); return; }
       if (res.status !== 'tentative' && res.status !== 'confirmed') { toast.error('Bu rezervasyonun odası değiştirilemez.'); return; }
-      await api('POST', `/api/v1/reservations/${res.id}/assign-room`, { roomId, version: res.version });
+      await api('POST', `/api/v1/reservations/${res.id}/assign-room`, { roomId, version: res.version }, { key: newKey() });
       toast.ok(`${res.reservationNumber} odaya atandı.`);
       await qc.invalidateQueries({ queryKey: ['rack'] });
     } catch (e) { toast.error(e); }
@@ -77,7 +77,7 @@ export default function BlokajPage() {
   const unassign = async (bar: RackBar) => {
     try {
       const res = await load(bar.reservationId);
-      await api('POST', `/api/v1/reservations/${res.id}/assign-room`, { roomId: null, version: res.version });
+      await api('POST', `/api/v1/reservations/${res.id}/assign-room`, { roomId: null, version: res.version }, { key: newKey() });
       toast.ok('Oda ataması kaldırıldı.');
     } catch (e) { toast.error(e); }
   };

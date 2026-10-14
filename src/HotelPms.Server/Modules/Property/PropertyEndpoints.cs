@@ -37,6 +37,8 @@ public static class PropertyEndpoints
         // Resepsiyonda imzalatılan aydınlatma metni ve açık rıza metni. {UNVAN} {OTEL} {ADRES} {TELEFON} {EPOSTA} otel bilgileriyle doldurulur.
         ["kvkk.notice_text"] = KvkkNoticeDefault,
         ["kvkk.consent_text"] = KvkkConsentDefault,
+        // Rezervasyon onay belgesinin altında yazan otel notu (iptal/değişiklik koşulları, ödeme bilgisi vb.).
+        ["frontoffice.confirmation_note"] = "Rezervasyonunuzda değişiklik veya iptal için lütfen otelimizle iletişime geçiniz. Erken giriş ve geç çıkış müsaitliğe bağlıdır.",
         ["segments"] = Array.Empty<string>(),
     };
 
@@ -152,7 +154,7 @@ Ticari elektronik ileti izni: Otelin kampanya, tanıtım ve özel teklif bildiri
                 var years = value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var y) ? y : -1;
                 if (years is < 0 or > 50) throw PmsException.Validation("Saklama süresi 0 ile 50 yıl arasında tam sayı olmalıdır (0: belirlenmemiş).");
                 break;
-            case "kvkk.notice_text" or "kvkk.consent_text":
+            case "kvkk.notice_text" or "kvkk.consent_text" or "frontoffice.confirmation_note":
                 if ((value.GetString() ?? "").Length > 20000) throw PmsException.Validation("Metin en fazla 20.000 karakter olabilir.");
                 break;
             case "tax.accommodation_rate":

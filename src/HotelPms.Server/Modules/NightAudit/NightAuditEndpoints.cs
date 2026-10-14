@@ -213,6 +213,13 @@ public static class NightAuditEndpoints
         foreach (var c in openChecks)
             warnings.Add(new("open_pos_check", "warning", $"Açık adisyon #{c.No} ({c.Outlet}{(c.Table is null ? "" : " · masa " + c.Table)})", null, c.No.ToString()));
 
+        var traces = await tx.ListAsync<(Guid Id, string No, string Message)>("""
+            SELECT r.id, r.reservation_number, t.message FROM pms.traces t JOIN pms.reservations r ON r.id = t.reservation_id
+            WHERE t.status = 'open' AND t.due_date <= @bd ORDER BY t.due_date, r.reservation_number LIMIT 50
+            """, new { bd });
+        foreach (var t in traces)
+            warnings.Add(new("open_trace", "warning", $"Tamamlanmamış hatırlatma: {t.No} · {t.Message}", t.Id, t.No));
+
         var unbalanced = await tx.ListAsync<(string No, decimal Balance)>("""
             SELECT f.folio_number, sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id
             JOIN pms.reservations r ON r.id = f.reservation_id WHERE r.status IN ('checked_out','cancelled','no_show')

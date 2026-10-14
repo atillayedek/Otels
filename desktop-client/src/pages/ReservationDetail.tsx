@@ -15,6 +15,8 @@ import { DocumentsPanel } from '../components/Documents';
 import { ReservationEditModal } from './ReservationForm';
 import { KbsPromptModal } from '../components/KbsForm';
 import { KvkkPrintButton } from '../components/KvkkForm';
+import { ConfirmationButton } from '../components/ReservationConfirmation';
+import { ReservationTraces } from '../components/Traces';
 
 type Dlg = 'edit' | 'checkin' | 'checkout' | 'move' | 'cancel' | 'extend' | 'sharer' | 'wakeup' | null;
 
@@ -25,7 +27,7 @@ export default function ReservationDetailPage() {
   const confirm = useConfirm();
   const qc = useQueryClient();
   const { can, property } = useSession();
-  const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'history' | 'docs'>('folio');
+  const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'traces' | 'history' | 'docs'>('folio');
   const [dlg, setDlg] = useState<Dlg>(null);
   const [sp, setSp] = useSearchParams();
   const res = useQuery({ queryKey: ['reservation', id], queryFn: () => get<Reservation>(`/api/v1/reservations/${id}`) });
@@ -55,6 +57,7 @@ export default function ReservationDetailPage() {
         {r.guestIsBlacklisted && <Badge color="red">Kara listede</Badge>}
       </>} actions={<>
         <button className="btn ghost" onClick={() => nav(-1)}><ArrowLeft /> Geri</button>
+        {(pre || r.status === 'checked_in') && <ConfirmationButton r={r} />}
         {(pre || r.status === 'checked_in') && <KvkkPrintButton reservationId={r.id} primary={{ name: r.guestName, room: r.roomNumber, reservationNumber: r.reservationNumber, arrival: r.arrival, departure: r.departure }} />}
         {pre && can('reservation.edit') && <button className="btn" onClick={() => setDlg('edit')}><Pencil /> Düzenle</button>}
         {r.status === 'checked_in' && can('reservation.edit') && <button className="btn" onClick={() => setDlg('edit')}><Pencil /> Düzenle</button>}
@@ -94,7 +97,7 @@ export default function ReservationDetailPage() {
         </div></div>
       </div>
 
-      <Tabs value={tab} onChange={setTab} items={[{ key: 'folio', label: 'Folyo' }, { key: 'guests', label: 'Ek misafirler' }, { key: 'rates', label: 'Gecelik fiyatlar' }, { key: 'history', label: 'İşlem geçmişi' }, { key: 'docs', label: 'Belgeler' }]} />
+      <Tabs value={tab} onChange={setTab} items={[{ key: 'folio', label: 'Folyo' }, { key: 'guests', label: 'Ek misafirler' }, { key: 'rates', label: 'Gecelik fiyatlar' }, ...(can('trace.manage') ? [{ key: 'traces' as const, label: 'Hatırlatmalar' }] : []), { key: 'history', label: 'İşlem geçmişi' }, { key: 'docs', label: 'Belgeler' }]} />
       <div className="card"><div className="card-body">
         {tab === 'folio' && (can('folio.view') ? <FolioPanel reservation={r} /> : <Empty title="Folyo görüntüleme yetkiniz yok" />)}
         {tab === 'guests' && (
@@ -116,6 +119,7 @@ export default function ReservationDetailPage() {
             )}
           </div>
         )}
+        {tab === 'traces' && <ReservationTraces reservationId={r.id} arrival={r.arrival} departure={r.departure} open={pre || r.status === 'checked_in'} />}
         {tab === 'docs' && <DocumentsPanel entityType="reservation" entityId={r.id} canEdit={can('reservation.edit')} />}
         {tab === 'rates' && (rates.isLoading ? <Spinner /> : (
           <table className="dt"><thead><tr><th>Gece</th><th style={{ textAlign: 'right' }}>Fiyat</th></tr></thead>

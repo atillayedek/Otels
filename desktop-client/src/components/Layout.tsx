@@ -36,6 +36,7 @@ export const NAV: NavGroup[] = [
       { to: '/reservations?view=inhouse', label: 'Konaklayanlar', perm: 'reservation.view' },
       { to: '/walk-in', label: 'Walk-in', perm: ['checkin.execute', 'reservation.create'] },
       { to: '/wakeups', label: 'Uyandırmalar', perm: 'reservation.view' },
+      { to: '/traces', label: 'Misafir Hatırlatmaları', perm: 'trace.manage' },
       { to: '/kbs', label: 'Kimlik Bildirimi (KBS)', perm: 'kbs.manage' },
     ],
   },
@@ -53,6 +54,7 @@ export const NAV: NavGroup[] = [
     label: 'Kat Hizmetleri', icon: <Brush size={17} />, items: [
       { to: '/housekeeping', label: 'Oda Durumları', perm: 'housekeeping.view' },
       { to: '/housekeeping/tasks', label: 'Görevler', perm: 'housekeeping.view' },
+      { to: '/lost-found', label: 'Kayıp Eşya', perm: 'lost_found.manage' },
     ],
   },
   {

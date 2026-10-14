@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eraser, Printer, RotateCcw, Save, ShieldCheck } from 'lucide-react';
@@ -14,21 +14,22 @@ interface RetentionPreview { years: number; cutoff: string; count: number; sampl
 
 /** KVKK ayarları: aydınlatma ve açık rıza metni, saklama süresi ve süresi dolan misafir kayıtlarının imhası (anonimleştirme). */
 export default function PrivacySettingsPage() {
+  const settings = useQuery({ queryKey: ['settings', 'all'], queryFn: () => get<Setting[]>('/api/v1/property/settings') });
+  if (settings.isLoading) return <div className="page"><Spinner /></div>;
+  if (settings.error) return <div className="page"><ErrorBox error={settings.error} /></div>;
+  // Form, ayarlar yüklendikten sonra kurulur; böylece metin kutuları her zaman kayıtlı değerle açılır.
+  return <PrivacyForm settings={settings.data!} />;
+}
+
+function PrivacyForm({ settings }: { settings: Setting[] }) {
   const qc = useQueryClient();
   const { can, property } = useSession();
-  const settings = useQuery({ queryKey: ['settings', 'all'], queryFn: () => get<Setting[]>('/api/v1/property/settings') });
-  const value = (k: string) => settings.data?.find(s => s.key === k)?.value;
-  const [notice, setNotice] = useState('');
-  const [consent, setConsent] = useState('');
-  const [years, setYears] = useState('0');
+  const value = (k: string) => settings.find(s => s.key === k)?.value;
+  const [notice, setNotice] = useState(() => String(value('kvkk.notice_text') ?? ''));
+  const [consent, setConsent] = useState(() => String(value('kvkk.consent_text') ?? ''));
+  const [years, setYears] = useState(() => String(value('kvkk.retention_years') ?? 0));
   const [printing, setPrinting] = useState(false);
   const [purge, setPurge] = useState(false);
-  useEffect(() => {
-    if (!settings.data) return;
-    setNotice(String(value('kvkk.notice_text') ?? ''));
-    setConsent(String(value('kvkk.consent_text') ?? ''));
-    setYears(String(value('kvkk.retention_years') ?? 0));
-  }, [settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const preview = useQuery({ queryKey: ['privacy', 'retention'], queryFn: () => get<RetentionPreview>('/api/v1/privacy/retention'), enabled: can('guest.privacy') });
 
   const saveTexts = useAction(async () => {
@@ -43,7 +44,6 @@ export default function PrivacySettingsPage() {
     await qc.invalidateQueries({ queryKey: ['privacy'] });
   }, { success: 'Saklama süresi kaydedildi.' });
 
-  if (settings.isLoading) return <div className="page"><Spinner /></div>;
   const p = preview.data;
   return (
     <div className="page">

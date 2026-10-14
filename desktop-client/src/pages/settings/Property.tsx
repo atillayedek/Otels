@@ -18,6 +18,27 @@ const TOGGLES: [string, string, string][] = [
   ['night_audit.cancel_expired_options', 'Gece denetiminde opsiyon süresi dolan rezervasyonları varsayılan olarak iptal et', 'Kapalıyken yalnız uyarı gösterilir.'],
 ];
 
+function ConfirmationNoteCard({ initial, loaded }: { initial: string; loaded: boolean }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState<string | null>(null);
+  const value = text ?? initial;
+  const save = useAction(async () => {
+    await api('PUT', '/api/v1/property/settings/frontoffice.confirmation_note', value);
+    await qc.invalidateQueries({ queryKey: ['settings'] });
+  }, { success: 'Onay belgesi notu kaydedildi.' });
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card-head"><h3>Rezervasyon onay belgesi notu</h3></div>
+      <div className="card-body stack">
+        <div className="muted" style={{ fontSize: 12 }}>Rezervasyon ekranındaki "Onay belgesi" çıktısının altında yazar: iptal ve değişiklik koşulları, ön ödeme ve banka bilgisi gibi.</div>
+        <textarea className="input" rows={4} value={value} disabled={!loaded} onChange={e => setText(e.target.value)} />
+        <ErrorBox error={save.error} />
+        <div className="row"><span className="spacer" /><button className="btn" disabled={save.busy || !loaded} onClick={() => void save.run()}><Save /> Notu kaydet</button></div>
+      </div>
+    </div>
+  );
+}
+
 export default function PropertySettingsPage() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -59,6 +80,7 @@ export default function PropertySettingsPage() {
         <Field label="Çıkış saati"><input type="time" className="input" value={f.checkOutTime.slice(0, 5)} onChange={set('checkOutTime')} /></Field>
       </div></div>
       <ErrorBox error={save.error} />
+      <ConfirmationNoteCard initial={String(settings.data?.find(s => s.key === 'frontoffice.confirmation_note')?.value ?? '')} loaded={!!settings.data} />
       <div className="card"><div className="card-head"><h3>İşleyiş kuralları</h3></div><div className="card-body">
         <ul className="list-plain">
           {TOGGLES.map(([k, label, hint]) => (

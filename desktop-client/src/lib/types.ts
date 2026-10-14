@@ -98,7 +98,7 @@ export interface Dashboard {
   businessDate: DateStr; hotelName: string; currency: string; roomsTotal: number; occupied: number; vacantClean: number; vacantDirty: number; outOfOrder: number;
   arrivalsExpected: number; arrivalsCheckedIn: number; departuresExpected: number; departuresCheckedOut: number; guestsInHouse: number; occupancyPct: Money;
   roomRevenueToday: Money; otherRevenueToday: Money; paymentsToday: Money; openBalance: Money; openTickets: number; openHkTasks: number; kbsPending: number;
-  pendingWakeups: number; lastNightAudit?: DateStr; forecast: { date: DateStr; sold: number; available: number; occupancyPct: Money }[];
+  pendingWakeups: number; openTraces?: number; lastNightAudit?: DateStr; forecast: { date: DateStr; sold: number; available: number; occupancyPct: Money }[];
 }
 export interface ReportColumn { key: string; header: string; type: string }
 export interface ReportParam { key: string; label: string; type: string; required: boolean }

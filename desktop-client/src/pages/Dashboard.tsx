@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { AlarmClock, BedDouble, Brush, IdCard, Moon, Percent, PlaneLanding, PlaneTakeoff, Sparkles, Users, Wrench } from 'lucide-react';
+import { AlarmClock, BedDouble, Brush, IdCard, ListTodo, Moon, Percent, PlaneLanding, PlaneTakeoff, Sparkles, Users, Wrench } from 'lucide-react';
 import { get } from '../lib/api';
 import type { Dashboard } from '../lib/types';
 import { fmtDate, fmtDay, fmtMoney, fmtPct } from '../lib/format';
@@ -71,6 +71,7 @@ export default function DashboardPage() {
               <Todo icon={<Wrench size={15} />} label="Açık arıza kaydı" n={d.openTickets} onClick={() => nav('/maintenance')} />
               <Todo icon={<IdCard size={15} />} label="Bekleyen kimlik bildirimi" n={d.kbsPending} onClick={() => nav('/kbs')} />
               <Todo icon={<AlarmClock size={15} />} label="Bekleyen uyandırma" n={d.pendingWakeups} onClick={() => nav('/wakeups')} />
+              <Todo icon={<ListTodo size={15} />} label="Açık misafir hatırlatması" n={d.openTraces ?? 0} onClick={() => nav('/traces')} />
             </ul>
           </div>
         </div>

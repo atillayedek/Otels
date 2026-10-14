@@ -57,6 +57,8 @@ const SetImport = lazy(() => import('./pages/settings/Import'));
 const SetAudit = lazy(() => import('./pages/settings/Audit'));
 const SetPrivacy = lazy(() => import('./pages/settings/Privacy'));
 const SetLicense = lazy(() => import('./pages/settings/License'));
+const LostFoundPage = lazy(() => import('./pages/LostFound'));
+const TracesPage = lazy(() => import('./pages/Traces'));
 
 type Stage = 'loading' | 'no-server' | 'unreachable' | 'setup' | 'ready';
 
@@ -166,6 +168,8 @@ export function App() {
           <Route path="/settings/audit" element={<SetAudit />} />
           <Route path="/settings/privacy" element={<SetPrivacy />} />
           <Route path="/settings/license" element={<SetLicense />} />
+          <Route path="/lost-found" element={<LostFoundPage />} />
+          <Route path="/traces" element={<TracesPage />} />
           <Route path="/settings/connection" element={<ConnectionSettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

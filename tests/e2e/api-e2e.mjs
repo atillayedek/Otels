@@ -856,6 +856,49 @@ try {
     assert.match(notice.value, /AYDINLATMA METNİ/);
   });
 
+  await step('Kayıp eşya: kayıt, düzenleme, teslim (teslim alan zorunlu), imha; kapanan kayıt değişmez', async () => {
+    const k = () => ({ key: randomUUID() });
+    const rooms = await api('GET', '/api/v1/rooms');
+    let it = await api('POST', '/api/v1/lost-items', { location: 'Oda ' + rooms[0].number, roomId: rooms[0].id, category: 'electronics', description: 'Siyah şarj aleti', storage: 'Kat ofisi', foundBy: 'Kat görevlisi' }, k());
+    assert.equal(it.status, 'stored'); assert.ok(it.itemNo > 0);
+    await api('POST', '/api/v1/lost-items', { location: ' ', category: 'other', description: 'x' }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/lost-items', { location: 'Lobi', category: 'bilinmeyen', description: 'x' }, { ...k(), expect: 422 });
+    it = await api('PUT', `/api/v1/lost-items/${it.id}`, { location: it.location, roomId: it.roomId, category: 'electronics', description: 'Siyah USB-C şarj aleti', storage: 'Resepsiyon kasası', version: it.version });
+    await api('POST', `/api/v1/lost-items/${it.id}/close`, { action: 'returned', returnedTo: '', version: it.version }, { ...k(), expect: 422 });
+    it = await api('POST', `/api/v1/lost-items/${it.id}/close`, { action: 'returned', returnedTo: 'Ayşe Yılmaz, kimlik ile', version: it.version }, k());
+    assert.equal(it.status, 'returned');
+    await api('PUT', `/api/v1/lost-items/${it.id}`, { location: 'x', category: 'other', description: 'x', version: it.version }, { expect: 422 });
+    const d = await api('POST', '/api/v1/lost-items', { location: 'Restoran', category: 'clothing', description: 'Mavi şal' }, k());
+    await api('POST', `/api/v1/lost-items/${d.id}/close`, { action: 'disposed', version: d.version }, { ...k(), expect: 422 });
+    assert.equal((await api('POST', `/api/v1/lost-items/${d.id}/close`, { action: 'disposed', note: 'Saklama süresi doldu, bağışlandı (tutanak 3)', version: d.version }, k())).status, 'disposed');
+    const stored = await api('GET', '/api/v1/lost-items?status=stored');
+    assert.ok(!stored.some(x => x.id === it.id || x.id === d.id));
+    assert.equal((await api('GET', '/api/v1/lost-items?q=şarj')).length, 1);
+  });
+
+  await step('Misafir hatırlatmaları: ekleme, tarih sınırları, günlük liste, gösterge sayacı, tamamlama ve iptal', async () => {
+    const k = () => ({ key: randomUUID() });
+    const r = await api('GET', `/api/v1/reservations/${state.eurRes}`);
+    await api('POST', `/api/v1/reservations/${r.id}/traces`, { department: 'restaurant', message: 'Doğum günü pastası 20:00', dueDate: addDays(state.bd, -1) }, { ...k(), expect: 422 });
+    await api('POST', `/api/v1/reservations/${r.id}/traces`, { department: 'restaurant', message: 'x', dueDate: addDays(r.departure, 1) }, { ...k(), expect: 422 });
+    await api('POST', `/api/v1/reservations/${r.id}/traces`, { department: 'havuz', message: 'x', dueDate: state.bd }, { ...k(), expect: 422 });
+    const t1 = await api('POST', `/api/v1/reservations/${r.id}/traces`, { department: 'restaurant', message: 'Doğum günü pastası 20:00', dueDate: state.bd }, k());
+    const t2 = await api('POST', `/api/v1/reservations/${r.id}/traces`, { department: 'front_office', message: 'Havalimanı transferi 07:00', dueDate: state.bd }, k());
+    const todays = await api('GET', '/api/v1/traces?department=restaurant');
+    assert.ok(todays.some(x => x.id === t1.id) && !todays.some(x => x.id === t2.id), 'bölüme göre süzme');
+    assert.ok((await api('GET', '/api/v1/dashboard')).openTraces >= 2);
+    const pv = await api('GET', '/api/v1/night-audit/preview?autoNoShow=true');
+    assert.ok(pv.warnings.some(w => w.code === 'open_trace'), 'gece denetiminde açık hatırlatma uyarısı');
+    assert.equal((await api('POST', `/api/v1/traces/${t1.id}/complete`, { status: 'done' }, k())).status, 'done');
+    await api('POST', `/api/v1/traces/${t2.id}/complete`, { status: 'cancelled' }, { ...k(), expect: 422 });
+    await api('POST', `/api/v1/traces/${t2.id}/complete`, { status: 'cancelled', note: 'Misafir kendi gidecek' }, k());
+    await api('POST', `/api/v1/traces/${t2.id}/complete`, { status: 'done' }, { ...k(), expect: 422 });
+    const all = await api('GET', `/api/v1/traces?reservationId=${r.id}`);
+    assert.equal(all.length, 2); assert.ok(all.every(x => x.status !== 'open'));
+    const note = (await api('GET', '/api/v1/property/settings')).find(s => s.key === 'frontoffice.confirmation_note');
+    assert.ok(note.value.length > 10, 'onay belgesi notu varsayılanı');
+  });
+
   await step('Lisans: deneme süresi, imza doğrulama, vergi no bağlama, modül ve oda sınırı', async () => {
     const pem = readFileSync(new URL('./fixtures/license-test-key.pem', import.meta.url), 'utf8');
     const b64u = b => Buffer.from(b).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
