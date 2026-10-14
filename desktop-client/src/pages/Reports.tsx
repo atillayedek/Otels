@@ -6,6 +6,8 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { FileSpreadsheet, FileText, Play, Printer } from 'lucide-react';
 import { download, get, qs } from '../lib/api';
 import type { ReportInfo, ReportResult } from '../lib/types';
+
+interface GlAccount { code: string; name: string; isActive: boolean }
 import { addDays, fmtDate, fmtDateTime, fmtMoney } from '../lib/format';
 import { useSession } from '../lib/session';
 import { PageHead } from '../components/common';
@@ -40,7 +42,11 @@ export default function ReportsPage() {
     setRunKey(1);
   }, [def, bd]);
   const query = qs(params);
-  const result = useQuery({ queryKey: ['report', name, query, runKey], queryFn: () => get<ReportResult>(`/api/v1/reports/${name}${query}`), enabled: !!def && runKey > 0 });
+  // Zorunlu (tarih dışı) alan boşken rapor çalıştırılmaz; kullanıcıya ne seçmesi gerektiği gösterilir.
+  const missing = def?.params.filter(p => p.required && p.type !== 'date' && !params[p.key]?.trim()) ?? [];
+  const result = useQuery({ queryKey: ['report', name, query, runKey], queryFn: () => get<ReportResult>(`/api/v1/reports/${name}${query}`), enabled: !!def && runKey > 0 && missing.length === 0 });
+  const needsAccounts = def?.params.some(p => p.type === 'account') ?? false;
+  const accounts = useQuery({ queryKey: ['accounting', 'accounts'], queryFn: () => get<GlAccount[]>('/api/v1/accounting/accounts'), enabled: needsAccounts });
 
   const grouped = useMemo(() => {
     const m = new Map<string, ReportInfo[]>();
@@ -72,16 +78,22 @@ export default function ReportsPage() {
               <div className="card"><div className="card-body row wrap" style={{ alignItems: 'flex-end' }}>
                 {def.params.map(p => (
                   <Field key={p.key} label={p.label} required={p.required}>
-                    <input type={p.type === 'date' ? 'date' : 'text'} className="input" style={{ width: 160 }} value={params[p.key] ?? ''} onChange={e => setParams(s => ({ ...s, [p.key]: e.target.value }))} />
+                    {p.type === 'account'
+                      ? <select className="input" style={{ width: 280 }} value={params[p.key] ?? ''} onChange={e => { const v = e.target.value; setParams(s => ({ ...s, [p.key]: v })); setRunKey(k => k + 1); }}>
+                          <option value="">Hesap seçin</option>
+                          {accounts.data?.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
+                        </select>
+                      : <input type={p.type === 'date' ? 'date' : 'text'} className="input" style={{ width: 160 }} value={params[p.key] ?? ''} onChange={e => setParams(s => ({ ...s, [p.key]: e.target.value }))} />}
                   </Field>
                 ))}
-                <button className="btn primary" onClick={() => setRunKey(k => k + 1)}><Play /> Çalıştır</button>
+                <button className="btn primary" disabled={missing.length > 0} onClick={() => setRunKey(k => k + 1)}><Play /> Çalıştır</button>
                 <span className="spacer" />
                 <button className="btn" disabled={!result.data} onClick={() => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 50); }}><Printer /> Yazdır</button>
                 <button className="btn" onClick={() => void exportAs('xlsx')}><FileSpreadsheet /> Excel</button>
                 <button className="btn" onClick={() => void exportAs('csv')}>CSV</button>
               </div></div>
-              {result.isFetching ? <Spinner label="Rapor hazırlanıyor…" /> : result.error ? <ErrorBox error={result.error} /> : result.data && (
+              {missing.length > 0 ? <div className="card"><Empty icon={<FileText />} title={`${missing.map(m => m.label).join(', ')} seçin`} text="Rapor, seçiminizden sonra hazırlanır." /></div>
+                : result.isFetching ? <Spinner label="Rapor hazırlanıyor…" /> : result.error ? <ErrorBox error={result.error} /> : result.data && (
                 <ReportTable r={result.data} />
               )}
             </>
@@ -90,7 +102,7 @@ export default function ReportsPage() {
       </div>
       {printing && result.data && createPortal(
         <div className="doc">
-          <div className="doc-head"><div><h1>{result.data.title}</h1><div>{property?.name}</div></div><div style={{ textAlign: 'right' }}>{Object.entries(params).filter(([, v]) => v).map(([k, v]) => <div key={k}>{def?.params.find(p => p.key === k)?.label}: {def?.params.find(p => p.key === k)?.type === 'date' ? fmtDate(v) : v}</div>)}<div>Oluşturma: {fmtDateTime(result.data.generatedAt)}</div></div></div>
+          <div className="doc-head"><div><h1>{result.data.title}</h1><div>{property?.name}</div></div><div style={{ textAlign: 'right' }}>{Object.entries(params).filter(([, v]) => v).map(([k, v]) => <div key={k}>{def?.params.find(p => p.key === k)?.label}: {def?.params.find(p => p.key === k)?.type === 'date' ? fmtDate(v) : def?.params.find(p => p.key === k)?.type === 'account' ? `${v} ${accounts.data?.find(a => a.code === v)?.name ?? ''}` : v}</div>)}<div>Oluşturma: {fmtDateTime(result.data.generatedAt)}</div></div></div>
           <ReportTable r={result.data} print />
         </div>, document.getElementById('print-root')!)}
     </div>

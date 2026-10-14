@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { newKey } from '../lib/api';
 import { useToast } from './ui';
 
@@ -53,10 +53,11 @@ export function Kv({ items }: { items: [ReactNode, ReactNode][] }) {
   );
 }
 
-export function Stat({ label, value, foot, accent, onClick }: { label: string; value: ReactNode; foot?: ReactNode; accent?: string; onClick?: () => void }) {
+export function Stat({ label, value, foot, accent, icon, onClick }: { label: string; value: ReactNode; foot?: ReactNode; accent?: string; icon?: ReactNode; onClick?: () => void }) {
   return (
-    <div className={`kpi ${onClick ? 'clickable' : ''}`} onClick={onClick}>
+    <div className={`kpi ${onClick ? 'clickable' : ''} ${icon ? 'has-icon' : ''}`} onClick={onClick} style={accent ? ({ '--accent': accent } as CSSProperties) : undefined}>
       {accent && <span className="accent" style={{ background: accent }} />}
+      {icon && <span className="kpi-icon">{icon}</span>}
       <div className="label">{label}</div>
       <div className="value">{value}</div>
       {foot && <div className="foot">{foot}</div>}

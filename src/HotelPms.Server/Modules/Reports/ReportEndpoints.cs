@@ -545,7 +545,7 @@ public static class ReportEndpoints
         new()
         {
             Name = "account_statement", Title = "Hesap Ekstresi (Muavin)", Category = "Muhasebe", Permission = "accounting.view",
-            Params = [From, To, new("account", "Hesap kodu", "text", true)],
+            Params = [From, To, new("account", "Hesap", "account", true)],
             Columns = [new("date", "Tarih", "date"), new("entryNo", "Fiş", "int"), new("code", "Hesap", "text"), new("description", "Açıklama", "text"),
                 new("debit", "Borç", "money"), new("credit", "Alacak", "money"), new("balance", "Bakiye (B−A)", "money")],
             SumColumns = ["debit", "credit"],
@@ -651,10 +651,17 @@ public static class ReportEndpoints
             var raw = query[p.Key].ToString();
             if (string.IsNullOrWhiteSpace(raw))
             {
-                if (p.Required && p.Type == "date") prm.Add(p.Key, p.Key == "from" ? bd.AddDays(-30) : bd);
-                else prm.Add(p.Key, null, global::System.Data.DbType.Date);
+                if (p.Type == "date")
+                {
+                    if (p.Required) prm.Add(p.Key, p.Key == "from" ? bd.AddDays(-30) : bd);
+                    else prm.Add(p.Key, null, global::System.Data.DbType.Date);
+                }
+                else if (p.Required) throw PmsException.Validation($"{p.Label} girilmelidir.");
+                else prm.Add(p.Key, null, global::System.Data.DbType.String);
                 continue;
             }
+            raw = raw.Trim();
+            if (raw.Length > 100) throw PmsException.Validation($"{p.Label} en fazla 100 karakter olabilir.");
             if (p.Type == "date")
             {
                 if (!DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
@@ -719,7 +726,9 @@ public static class ReportEndpoints
     static byte[] ToXlsx(ReportResult r)
     {
         using var wb = new XLWorkbook();
-        var ws = wb.Worksheets.Add(r.Title.Length > 31 ? r.Title[..31] : r.Title);
+        // Excel sayfa adı en fazla 31 karakter olabilir ve : \ / ? * [ ] içeremez.
+        var sheet = global::System.Text.RegularExpressions.Regex.Replace(r.Title, @"[:\\/?*\[\]]", "-").Trim('\'', ' ');
+        var ws = wb.Worksheets.Add(sheet.Length > 31 ? sheet[..31].TrimEnd() : sheet);
         for (var i = 0; i < r.Columns.Count; i++)
         {
             ws.Cell(1, i + 1).Value = r.Columns[i].Header;

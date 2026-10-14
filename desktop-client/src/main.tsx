@@ -7,6 +7,11 @@ import { ConfirmProvider, ToastProvider } from './components/ui';
 import { App } from './App';
 import './styles/app.css';
 
+// Geliştirmede Tauri kabuğu yoksa (tarayıcı) API köprüsü yüklenir; üretim derlemesine girmez.
+if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window && (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke)) {
+  await import('./lib/devBrowserBridge');
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

@@ -1,4 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { get } from '../lib/api';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3, BedDouble, Brush, Building2, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, LayoutGrid, LogOut,
@@ -105,23 +107,29 @@ export function firstAllowedRoute(can: (p: string) => boolean): string | null {
   return null;
 }
 
-const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[] }[] = [
-  { to: '/', label: 'Durum', icon: <Gauge />, perm: 'dashboard.view' },
-  { to: '/rack', label: 'Rack', icon: <LayoutGrid />, perm: 'reservation.view' },
-  { to: '/blokaj', label: 'Blokaj', icon: <CalendarRange />, perm: 'reservation.view' },
-  { to: '/availability', label: 'Fiyat/Doluluk', icon: <Tags />, perm: 'reservation.view' },
-  { to: '/reservations/new', label: 'Rezervasyon', icon: <ClipboardList />, perm: 'reservation.create' },
-  { to: '/walk-in', label: 'Walk-in', icon: <UserPlus />, perm: ['checkin.execute', 'reservation.create'] },
-  { to: '/reservations?view=arrivals', label: 'Gelişler', icon: <PlaneLanding />, perm: 'reservation.view' },
-  { to: '/reservations?view=departures', label: 'Çıkışlar', icon: <PlaneTakeoff />, perm: 'reservation.view' },
-  { to: '/reservations?view=inhouse', label: 'Konaklayan', icon: <BedDouble />, perm: 'reservation.view' },
-  { to: '/cashier', label: 'Ön Kasa', icon: <CreditCard />, perm: 'cashier.manage' },
-  { to: '/pos', label: 'Adisyon', icon: <Utensils />, perm: 'pos.view' },
-  { to: '/housekeeping', label: 'Kat Hiz.', icon: <Brush />, perm: 'housekeeping.view' },
-  { to: '/wakeups', label: 'Uyandırma', icon: <AlarmClock />, perm: 'reservation.view' },
-  { to: '/night-audit', label: 'Gün Sonu', icon: <Moon />, perm: 'night_audit.execute' },
-  { to: '/reports', label: 'Raporlar', icon: <FileSpreadsheet />, perm: 'report.view' },
+/** Üst menü sayaçları için genel durum özetinin kullanılan alanları. */
+interface QuickCounts { arrivalsExpected: number; arrivalsCheckedIn: number; departuresExpected: number; departuresCheckedOut: number; vacantDirty: number; pendingWakeups: number; kbsPending: number }
+
+/** Üst menü: her modülün kendi rengi var; bekleyen iş sayıları rozet olarak görünür. */
+const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[]; tone: string; badge?: (c: QuickCounts) => number }[] = [
+  { to: '/', label: 'Durum', icon: <Gauge />, perm: 'dashboard.view', tone: '#4f46e5' },
+  { to: '/rack', label: 'Rack', icon: <LayoutGrid />, perm: 'reservation.view', tone: '#2563eb' },
+  { to: '/blokaj', label: 'Blokaj', icon: <CalendarRange />, perm: 'reservation.view', tone: '#0284c7' },
+  { to: '/availability', label: 'Fiyat/Doluluk', icon: <Tags />, perm: 'reservation.view', tone: '#0d9488' },
+  { to: '/reservations/new', label: 'Rezervasyon', icon: <ClipboardList />, perm: 'reservation.create', tone: '#7c3aed' },
+  { to: '/walk-in', label: 'Walk-in', icon: <UserPlus />, perm: ['checkin.execute', 'reservation.create'], tone: '#c026d3' },
+  { to: '/reservations?view=arrivals', label: 'Gelişler', icon: <PlaneLanding />, perm: 'reservation.view', tone: '#16a34a', badge: c => c.arrivalsExpected - c.arrivalsCheckedIn },
+  { to: '/reservations?view=departures', label: 'Çıkışlar', icon: <PlaneTakeoff />, perm: 'reservation.view', tone: '#ea580c', badge: c => c.departuresExpected - c.departuresCheckedOut },
+  { to: '/reservations?view=inhouse', label: 'Konaklayan', icon: <BedDouble />, perm: 'reservation.view', tone: '#9333ea' },
+  { to: '/cashier', label: 'Ön Kasa', icon: <CreditCard />, perm: 'cashier.manage', tone: '#059669' },
+  { to: '/pos', label: 'Adisyon', icon: <Utensils />, perm: 'pos.view', tone: '#d97706' },
+  { to: '/housekeeping', label: 'Kat Hiz.', icon: <Brush />, perm: 'housekeeping.view', tone: '#0891b2', badge: c => c.vacantDirty },
+  { to: '/wakeups', label: 'Uyandırma', icon: <AlarmClock />, perm: 'reservation.view', tone: '#e11d48', badge: c => c.pendingWakeups },
+  { to: '/night-audit', label: 'Gün Sonu', icon: <Moon />, perm: 'night_audit.execute', tone: '#334155' },
+  { to: '/reports', label: 'Raporlar', icon: <FileSpreadsheet />, perm: 'report.view', tone: '#475569' },
 ];
+
+const initials = (name?: string) => (name ?? '').trim().split(/\s+/).slice(0, 2).map(w => w.charAt(0).toLocaleUpperCase('tr-TR')).join('') || '?';
 
 export function Layout({ children }: { children: ReactNode }) {
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
@@ -133,6 +141,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
   const here = loc.pathname + loc.search;
+  // Sayaçlar genel durum özetinden gelir; gerçek zamanlı değişikliklerde ('dashboard' anahtarı) kendiliğinden yenilenir.
+  const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => get<QuickCounts>('/api/v1/dashboard'), enabled: can('dashboard.view'), refetchInterval: 60_000 });
 
   const groups = useMemo(() => {
     const needle = q.trim().toLocaleLowerCase('tr-TR');
@@ -174,16 +184,21 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <header className="topbar">
         <div className="quick">
-          {QUICK.filter(i => can(i.perm)).map(i => (
-            <button key={i.to} className={here === i.to || (i.to !== '/' && loc.pathname === i.to.split('?')[0] && !i.to.includes('?')) ? 'active' : ''} onClick={() => nav(i.to)} title={i.label}>
-              {i.icon}<span>{i.label}</span>
-            </button>
-          ))}
+          {QUICK.filter(i => can(i.perm)).map(i => {
+            const n = i.badge && counts.data ? Math.max(0, i.badge(counts.data)) : 0;
+            const active = here === i.to || (i.to !== '/' && loc.pathname === i.to.split('?')[0] && !i.to.includes('?'));
+            return (
+              <button key={i.to} className={active ? 'active' : ''} style={{ '--tone': i.tone } as CSSProperties} onClick={() => nav(i.to)}
+                title={n ? `${i.label}: ${n} bekleyen` : i.label}>
+                <span className="qi">{i.icon}{n > 0 && <em>{n > 99 ? '99+' : n}</em>}</span><span className="ql">{i.label}</span>
+              </button>
+            );
+          })}
         </div>
         <div className="top-right">
-          <div className="bizdate"><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></div>
+          <div className="bizdate" title="Gece denetimiyle bir sonraki güne geçer"><CalendarRange /><span><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></span></div>
           <button className="btn ghost icon" onClick={() => setSupport(true)} title="Yardım ve destek"><LifeBuoy /></button>
-          <button className="btn ghost" onClick={() => nav('/account')} title="Hesabım"><ShieldCheck /><span>{me?.fullName}</span></button>
+          <button className="user-chip" onClick={() => nav('/account')} title="Hesabım"><span className="avatar">{initials(me?.fullName)}</span><span className="who"><b>{me?.fullName}</b><small><ShieldCheck size={11} /> {me?.username}</small></span></button>
           <button className="btn ghost icon" onClick={() => void logout()} title="Oturumu kapat"><LogOut /></button>
         </div>
       </header>

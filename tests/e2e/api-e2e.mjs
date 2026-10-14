@@ -826,6 +826,22 @@ try {
     assert.ok(integ.every(i => i.category === 'kbs'), 'bağlantısı olmayan entegrasyon listelenmez');
   });
 
+  await step('Tüm raporlar ekranda, Excel ve CSV olarak hatasız üretilir; zorunlu alan boşsa anlaşılır uyarı', async () => {
+    const defs = await api('GET', '/api/v1/reports');
+    assert.ok(defs.length >= 30, 'rapor tanımları');
+    for (const d of defs) {
+      const p = new URLSearchParams();
+      for (const x of d.params) if (x.type === 'account') p.set(x.key, '100');
+      await api('GET', `/api/v1/reports/${d.name}?${p}`);
+      for (const f of ['xlsx', 'csv']) {
+        const r = await api('GET', `/api/v1/reports/${d.name}/export?format=${f}&${p}`, undefined, { raw: true });
+        assert.equal(r.status, 200, `${d.name}.${f}`); await r.arrayBuffer();
+      }
+    }
+    const e = await api('GET', '/api/v1/reports/account_statement', undefined, { expect: 422 });
+    assert.match(e.message, /Hesap girilmelidir/);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { AlarmClock, BedDouble, Brush, IdCard, Moon, PlaneLanding, PlaneTakeoff, Wrench } from 'lucide-react';
+import { AlarmClock, BedDouble, Brush, IdCard, Moon, Percent, PlaneLanding, PlaneTakeoff, Sparkles, Users, Wrench } from 'lucide-react';
 import { get } from '../lib/api';
 import type { Dashboard } from '../lib/types';
 import { fmtDate, fmtDay, fmtMoney, fmtPct } from '../lib/format';
@@ -40,12 +40,12 @@ export default function DashboardPage() {
       )}
 
       <div className="grid cols-6" style={{ marginBottom: 14 }}>
-        <div className="card"><Stat label="Doluluk" value={`%${fmtPct(d.occupancyPct)}`} foot={`${d.occupied} / ${d.roomsTotal} oda`} accent="var(--violet)" onClick={() => nav('/rack')} /></div>
-        <div className="card"><Stat label="Beklenen geliş" value={d.arrivalsExpected} foot={`${d.arrivalsCheckedIn} giriş yapıldı`} accent="var(--st-arrival)" onClick={() => nav('/reservations?view=arrivals')} /></div>
-        <div className="card"><Stat label="Beklenen çıkış" value={d.departuresExpected} foot={`${d.departuresCheckedOut} çıkış yapıldı`} accent="var(--warning)" onClick={() => nav('/reservations?view=departures')} /></div>
-        <div className="card"><Stat label="Konaklayan misafir" value={d.guestsInHouse} foot="kişi" accent="var(--success)" onClick={() => nav('/reservations?view=inhouse')} /></div>
-        <div className="card"><Stat label="Boş temiz" value={d.vacantClean} foot={`${d.vacantDirty} boş kirli`} accent="var(--st-clean)" onClick={() => nav('/housekeeping')} /></div>
-        <div className="card"><Stat label="Arızalı / bloke" value={d.outOfOrder} foot="oda" accent="var(--st-ooo)" onClick={() => nav('/maintenance/blocks')} /></div>
+        <div className="card"><Stat label="Doluluk" value={`%${fmtPct(d.occupancyPct)}`} foot={`${d.occupied} / ${d.roomsTotal} oda`} accent="var(--violet)" icon={<Percent />} onClick={() => nav('/rack')} /></div>
+        <div className="card"><Stat label="Beklenen geliş" value={d.arrivalsExpected} foot={`${d.arrivalsCheckedIn} giriş yapıldı`} accent="var(--st-arrival)" icon={<PlaneLanding />} onClick={() => nav('/reservations?view=arrivals')} /></div>
+        <div className="card"><Stat label="Beklenen çıkış" value={d.departuresExpected} foot={`${d.departuresCheckedOut} çıkış yapıldı`} accent="var(--warning)" icon={<PlaneTakeoff />} onClick={() => nav('/reservations?view=departures')} /></div>
+        <div className="card"><Stat label="Konaklayan misafir" value={d.guestsInHouse} foot="kişi" accent="var(--success)" icon={<Users />} onClick={() => nav('/reservations?view=inhouse')} /></div>
+        <div className="card"><Stat label="Boş temiz" value={d.vacantClean} foot={`${d.vacantDirty} boş kirli`} accent="var(--st-clean)" icon={<Sparkles />} onClick={() => nav('/housekeeping')} /></div>
+        <div className="card"><Stat label="Arızalı / bloke" value={d.outOfOrder} foot="oda" accent="var(--st-ooo)" icon={<Wrench />} onClick={() => nav('/maintenance/blocks')} /></div>
       </div>
 
       <div className="grid cols-3">

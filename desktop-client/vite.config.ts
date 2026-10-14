@@ -7,7 +7,8 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   define: { 'import.meta.env.VITE_APP_MODE': JSON.stringify(mode === 'restaurant' ? 'restaurant' : 'pms') },
   clearScreen: false,
-  server: { port: 5173, strictPort: true },
+  // Yalnız geliştirme: arayüzü tarayıcıda yerel test sunucusuna (scripts/test-env.ps1) bağlamak için (bkz. src/lib/devBrowserBridge.ts).
+  server: { port: 5173, strictPort: true, proxy: { '/__pms': { target: 'https://127.0.0.1:18443', secure: false, changeOrigin: true, rewrite: p => p.replace(/^\/__pms/, '') } } },
   build: { target: 'chrome110', outDir: 'dist', emptyOutDir: true, sourcemap: false, chunkSizeWarningLimit: 1500 },
   test: { environment: 'node' },
 }));
