@@ -144,20 +144,47 @@ export function ExtendModal({ reservation: r, onClose }: { reservation: Reservat
 
 export function CheckOutModal({ reservation: r, onClose }: { reservation: Reservation; onClose: () => void }) {
   const refresh = useRefresh();
-  const { property } = useSession();
-  const late = !!property && r.departure > property.businessDate;
-  const act = useAction(async (key: string) => { await post(`/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, key); await refresh(); }, { success: `${r.guestName} çıkış yaptı.` });
+  const { property, can } = useSession();
+  const bd = property?.businessDate ?? '';
+  const late = !!property && r.departure > bd;
+  // Günübirlik: bugün giriş yapan misafirin gecesi henüz yazılmadı (gece denetimi çıkmış konaklamaya ücret yazmaz).
+  const dayUse = r.arrival === bd && r.departure > bd;
+  const [dayUseState, setDayUseState] = useState<'pending' | 'charged'>('pending');
+  const [waive, setWaive] = useState(false);
+  const [waiveReason, setWaiveReason] = useState('');
+  const charge = useAction(async (key: string) => {
+    const res = await post<{ amount: string }>(`/api/v1/reservations/${r.id}/day-use-charge`, { version: r.version }, key);
+    setDayUseState('charged');
+    await refresh();
+    return res;
+  }, { success: x => `Günübirlik oda ücreti işlendi (${fmtMoney(String(x.amount), r.currency)}). Tahsilatı yapıp çıkışı tamamlayın.` });
+  const act = useAction(async (key: string) => {
+    await post(`/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false, waiveDayUse: dayUse && waive, waiveReason: waive ? waiveReason : null }, key);
+    await refresh();
+  }, { success: `${r.guestName} çıkış yaptı.` });
   const open = !/^-?0+(\.0+)?$/.test(r.balance);
+  const needsDayUse = dayUse && dayUseState === 'pending' && !(waive && waiveReason.trim());
   return (
     <Modal title={`Çıkış (check-out) · ${r.roomNumber ?? ''}`} onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Vazgeç</button>
-      <button className="btn primary" disabled={open || act.busy} onClick={async () => { if (await act.run() !== undefined) onClose(); }}>Çıkışı tamamla</button>
+      <button className="btn primary" disabled={open || needsDayUse || act.busy} onClick={async () => { if (await act.run() !== undefined) onClose(); }}>Çıkışı tamamla</button>
     </>}>
       <div className="stack">
         <div><b>{r.guestName}</b> · {fmtDate(r.arrival)} → {fmtDate(r.departure)}</div>
+        {dayUse && dayUseState === 'pending' && (
+          <div className="warn-box stack">
+            <div>Misafir bugün giriş yaptı. Bu gecenin oda ücreti ({fmtMoney(r.nightlyRate, r.currency)}) gece denetiminde yazılacaktı; çıkış yapılırsa yazılmaz.
+              Günübirlik kullanım ücretini işleyip tahsil edin.</div>
+            <div className="row"><button className="btn primary sm" disabled={charge.busy} onClick={() => void charge.run()}>Günübirlik ücret işle</button></div>
+            {can('rate.override') && <>
+              <label className="check"><input type="checkbox" checked={waive} onChange={e => setWaive(e.target.checked)} /> Ücretsiz çıkış (oda ücreti alınmayacak)</label>
+              {waive && <Field label="Gerekçe" required><input className="input" value={waiveReason} onChange={e => setWaiveReason(e.target.value)} placeholder="Ör. yanlış giriş, oda kullanılmadı" /></Field>}
+            </>}
+          </div>
+        )}
         <div className={open ? 'error-box' : 'ok-box'}>Toplam folyo bakiyesi: <b>{fmtMoney(r.balance, r.currency)}</b>{open && ' — çıkıştan önce bakiyenin kapatılması (tahsilat veya cari aktarımı) gerekir.'}</div>
-        {late && <div className="info-box">Planlanan çıkış tarihinden ({fmtDate(r.departure)}) önce çıkış yapılıyor; kalan geceler için oda ücreti işlenmez.</div>}
-        <ErrorBox error={act.error} />
+        {late && !dayUse && <div className="info-box">Planlanan çıkış tarihinden ({fmtDate(r.departure)}) önce çıkış yapılıyor; kalan geceler için oda ücreti işlenmez.</div>}
+        <ErrorBox error={charge.error ?? act.error} />
       </div>
     </Modal>
   );

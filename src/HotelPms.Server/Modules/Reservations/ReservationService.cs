@@ -496,6 +496,18 @@ public static class ReservationService
         if (r.Status != "checked_in") throw PmsException.Validation("Yalnız konaklayan misafir için check-out yapılabilir.");
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
 
+        // Günübirlik kullanım: bu iş gününde giriş yapan konaklamanın gecesi henüz yazılmadı; gece denetimi çıkmış konaklamaya ücret yazmaz.
+        string? waiveReason = null;
+        if (r.Arrival == bd && r.Departure > bd && !await tx.ScalarAsync<bool>(
+                "SELECT EXISTS (SELECT 1 FROM pms.room_charge_postings WHERE reservation_id = @id AND business_date = @bd)", new { id, bd }))
+        {
+            if (!req.WaiveDayUse)
+                throw PmsException.Conflict("Misafir bugün giriş yaptı; bu gecenin oda ücreti henüz işlenmedi. Önce \"Günübirlik ücret işle\" ile ücreti yazıp tahsil edin " +
+                    "veya ücretsiz çıkış için gerekçe girin.", "day_use_unpaid");
+            tx.Ctx.Require("rate.override");
+            waiveReason = Validate.Required(req.WaiveReason, "Ücretsiz günübirlik çıkış gerekçesi", 300);
+        }
+
         await tx.ExecAsync("SELECT 1 FROM pms.folios WHERE reservation_id = @id FOR UPDATE", new { id });
         var balances = await tx.ListAsync<(string FolioNumber, decimal Balance)>("""
             SELECT f.folio_number, COALESCE(sum(l.amount), 0) FROM pms.folios f LEFT JOIN pms.folio_lines l ON l.folio_id = f.id
@@ -524,7 +536,7 @@ public static class ReservationService
             """, new { room = r.RoomId, bd, note = $"Çıkış: {r.ReservationNumber}", uid = tx.User.Id });
         await tx.ExecAsync("UPDATE pms.wakeup_calls SET status = 'cancelled' WHERE reservation_id = @id AND status = 'pending'", new { id });
         await KbsService.CreateReportsAsync(tx, registry, id, "check_out");
-        await tx.AuditAsync("reservation.check_out", "reservation", id, new { r.Status, r.Departure }, new { departure, lateCheckOut = req.LateCheckOut });
+        await tx.AuditAsync("reservation.check_out", "reservation", id, new { r.Status, r.Departure }, new { departure, lateCheckOut = req.LateCheckOut, dayUseWaived = waiveReason is not null }, waiveReason);
         tx.Publish("reservations", id);
         tx.Publish("rooms", r.RoomId);
         tx.Publish("housekeeping");

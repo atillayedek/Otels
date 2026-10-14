@@ -91,7 +91,7 @@ export function FolioPanel({ reservation, folioId: fixedFolio }: { reservation?:
                     <td>{LINE_LABEL[l.lineType] ?? l.lineType}{l.paymentMethod ? ` · ${l.paymentMethod}` : ''}</td>
                     <td>{l.description}{l.reference && <span className="muted"> · {l.reference}</span>}{l.reason && <span className="muted"> · {l.reason}</span>}{l.isVoided && <Badge color="red">İptal edildi</Badge>}</td>
                     <td>{l.roomNumber}</td>
-                    <td className="num">{l.quantity}</td>
+                    <td className="num">{l.lineType === 'charge' ? fmtQty(l.quantity) : ''}</td>
                     <td className="num"><Money value={l.amount} colored /></td>
                     <td>{l.username}</td>
                     <td className="muted">{fmtDateTime(l.postedAt)}</td>

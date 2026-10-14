@@ -54,7 +54,8 @@ public sealed record CancelRequest(string Reason, int Version);
 public sealed record VersionRequest(int Version);
 public sealed record CheckInRequest(Guid RoomId, bool EarlyCheckIn, int Version);
 public sealed record WalkInRequest(SaveReservationRequest Reservation, Guid RoomId);
-public sealed record CheckOutRequest(int Version, bool LateCheckOut);
+/// <summary>WaiveDayUse: aynı gün giriş-çıkışta oda ücreti alınmayacaksa (ücretsiz günübirlik) gerekçeyle birlikte; rate.override yetkisi ister.</summary>
+public sealed record CheckOutRequest(int Version, bool LateCheckOut, bool WaiveDayUse = false, string? WaiveReason = null);
 public sealed record MoveRoomRequest(Guid RoomId, string Kind, bool KeepRate, decimal? NewNightlyRate, string Reason, int Version);
 public sealed record ChangeStayRequest(DateOnly Departure, int Version);
 public sealed record AssignRoomRequest(Guid? RoomId, int Version);

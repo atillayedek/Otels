@@ -75,23 +75,12 @@ public static class NightAuditEndpoints
             var roomCode = await tx.OneAsync<(Guid Id, decimal VatRate)>("SELECT id, vat_rate FROM pms.transaction_codes WHERE code = 'ROOM'");
             var kv = await AccommodationTaxAsync(tx);
             var currency = await PropertyEndpoints.CurrencyAsync(tx);
-            var toPost = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd });
+            var toPost = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd, rid = (Guid?)null });
             decimal total = 0, posted = 0;
             foreach (var c in toPost.Where(c => c.Rate > 0 || c.FxAmount > 0))
             {
-                // Dövizli fiyatlı gece, bugünün kuruyla tesis para birimine çevrilerek yazılır.
-                var amount = c.Rate;
-                FolioService.Tender? fx = null;
-                if (c.RateCurrency is { } cur && c.FxAmount is { } fxAmount)
-                {
-                    var fxRate = await ExchangeRateEndpoints.RateAsync(tx, cur, bd);
-                    amount = decimal.Round(fxAmount * fxRate, 2, MidpointRounding.AwayFromZero);
-                    fx = new FolioService.Tender(cur, fxAmount, fxRate);
-                }
-                if (amount <= 0) continue;
-                posted += await FolioService.PostRoomChargeAsync(tx, c.ReservationId, c.Window, currency, bd, amount, c.RoomNumber, c.ReservationNumber,
-                    roomCode.Id, roomCode.VatRate, kv, fx);
-                total += amount;
+                var (amount, p) = await PostCandidateAsync(tx, c, bd, currency, roomCode, kv);
+                total += amount; posted += p;
             }
             var taxTotal = kv is null ? 0 : await tx.ScalarAsync<decimal>(
                 "SELECT COALESCE(sum(amount), 0) FROM pms.folio_lines WHERE business_date = @bd AND transaction_code_id = @code AND line_type = 'charge'",
@@ -160,8 +149,41 @@ public static class NightAuditEndpoints
         LEFT JOIN pms.reservation_rates rr ON rr.reservation_id = r.id AND rr.stay_date = @bd
         WHERE r.status = 'checked_in' AND r.arrival <= @bd AND r.departure > @bd
           AND NOT EXISTS (SELECT 1 FROM pms.room_charge_postings p WHERE p.reservation_id = r.id AND p.business_date = @bd)
+          AND (@rid::uuid IS NULL OR r.id = @rid)
         ORDER BY rm.number
         """;
+
+    /// <summary>Bir konaklamanın bu gecesinin oda ücretini (ve varsa konaklama vergisini) yazar; dövizli fiyat günün kuruyla çevrilir.</summary>
+    static async Task<(decimal Amount, decimal Posted)> PostCandidateAsync(Tx tx, ChargeCandidate c, DateOnly bd, string currency, (Guid Id, decimal VatRate) roomCode,
+        FolioService.AccommodationTax? kv)
+    {
+        var amount = c.Rate;
+        FolioService.Tender? fx = null;
+        if (c.RateCurrency is { } cur && c.FxAmount is { } fxAmount)
+        {
+            var fxRate = await ExchangeRateEndpoints.RateAsync(tx, cur, bd);
+            amount = decimal.Round(fxAmount * fxRate, 2, MidpointRounding.AwayFromZero);
+            fx = new FolioService.Tender(cur, fxAmount, fxRate);
+        }
+        if (amount <= 0) return (0, 0);
+        var posted = await FolioService.PostRoomChargeAsync(tx, c.ReservationId, c.Window, currency, bd, amount, c.RoomNumber, c.ReservationNumber,
+            roomCode.Id, roomCode.VatRate, kv, fx);
+        return (amount, posted);
+    }
+
+    /// <summary>
+    /// Günübirlik kullanım: aynı iş gününde giriş yapıp gece denetiminden önce çıkan konaklamanın bu gecesi gece denetiminde yazılmayacağı için
+    /// oda ücreti çıkıştan önce yazılır. Ücret zaten yazılmışsa 0 döner.
+    /// </summary>
+    public static async Task<decimal> PostDayUseChargeAsync(Tx tx, Guid reservationId)
+    {
+        var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        var c = await tx.OneOrNullAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd, rid = (Guid?)reservationId });
+        if (c is null) return 0;
+        var roomCode = await tx.OneAsync<(Guid Id, decimal VatRate)>("SELECT id, vat_rate FROM pms.transaction_codes WHERE code = 'ROOM'");
+        var (amount, _) = await PostCandidateAsync(tx, c, bd, await PropertyEndpoints.CurrencyAsync(tx), roomCode, await AccommodationTaxAsync(tx));
+        return amount;
+    }
 
     public static async Task<NightAuditPreview> PreviewAsync(Tx tx, bool autoNoShow, bool cancelExpiredOptions = false)
     {
@@ -238,7 +260,7 @@ public static class NightAuditEndpoints
                 ? $"{o.No} {o.Guest}: opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}), iptal edilecek"
                 : $"{o.No} {o.Guest}: opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}). Onaylayın, süreyi uzatın veya iptal edin.", o.Id, o.No));
 
-        var candidates = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd });
+        var candidates = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd, rid = (Guid?)null });
         // Dövizli fiyatlı konaklamalar için güncel kur olmadan oda ücreti yazılamaz.
         foreach (var cur in candidates.Where(c => c.RateCurrency is not null).Select(c => c.RateCurrency!).Distinct())
         {

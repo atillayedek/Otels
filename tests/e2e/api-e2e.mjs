@@ -856,6 +856,45 @@ try {
     assert.match(notice.value, /AYDINLATMA METNİ/);
   });
 
+  await step('Günübirlik: aynı gün giriş-çıkışta oda ücreti işlenmeden çıkış yapılamaz; ücret işlenir veya gerekçeyle ücretsiz çıkış', async () => {
+    const k = () => ({ key: randomUUID() });
+    await api('PUT', '/api/v1/property/settings/frontoffice.allow_checkin_dirty_room', true);
+    const rooms = (await api('GET', '/api/v1/rooms')).filter(x => x.roomTypeId === state.std);
+    const mkStay = async n => {
+      const g = await api('POST', '/api/v1/guests', { firstName: 'Günübirlik', lastName: 'Misafir' + n, identityType: 'tckn', identityNumber: tckn(515150 + n), nationality: 'TR',
+        isVip: false, kvkkConsent: true, marketingConsent: false }, k());
+      const id = (await api('POST', '/api/v1/reservations', { guestId: g.id, roomTypeId: state.std, arrival: state.bd, departure: addDays(state.bd, 1), adults: 1, children: 0,
+        status: 'confirmed', depositRequired: '0' }, k())).id;
+      let r = await api('GET', `/api/v1/reservations/${id}`);
+      for (const room of rooms) {
+        const res = await api('POST', `/api/v1/reservations/${id}/check-in`, { roomId: room.id, earlyCheckIn: false, version: r.version }, { ...k(), raw: true });
+        if (res.ok) break;
+        await res.text();
+      }
+      r = await api('GET', `/api/v1/reservations/${id}`);
+      assert.equal(r.status, 'checked_in', 'günübirlik konaklama giriş yaptı');
+      return r;
+    };
+    // 1) Ücret işlenmeden çıkış reddedilir; ücret işlenir, tahsil edilir, çıkış yapılır
+    let r = await mkStay(1);
+    const e = await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, { ...k(), expect: 409 });
+    assert.equal(e.code, 'day_use_unpaid');
+    const c = await api('POST', `/api/v1/reservations/${r.id}/day-use-charge`, { version: r.version }, k());
+    assert.equal(Number(c.amount), 1500);
+    r = await api('GET', `/api/v1/reservations/${r.id}`);
+    await api('POST', `/api/v1/reservations/${r.id}/day-use-charge`, { version: r.version }, { ...k(), expect: 422 });   // ikinci kez işlenmez
+    const folio = (await api('GET', `/api/v1/folios?reservationId=${r.id}`))[0];
+    await api('POST', `/api/v1/folios/${folio.id}/payments`, { paymentMethodId: state.cash, amount: (await api('GET', `/api/v1/folios/${folio.id}`)).folio.balance, isDeposit: false }, k());
+    r = await api('GET', `/api/v1/reservations/${r.id}`);
+    await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, k());
+    // 2) Ücretsiz günübirlik çıkış gerekçe ister
+    r = await mkStay(2);
+    await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false, waiveDayUse: true }, { ...k(), expect: 422 });
+    await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false, waiveDayUse: true, waiveReason: 'Yanlış odaya giriş yapıldı' }, k());
+    assert.equal((await api('GET', `/api/v1/reservations/${r.id}`)).status, 'checked_out');
+    await api('PUT', '/api/v1/property/settings/frontoffice.allow_checkin_dirty_room', false);
+  });
+
   await step('Kayıp eşya: kayıt, düzenleme, teslim (teslim alan zorunlu), imha; kapanan kayıt değişmez', async () => {
     const k = () => ({ key: randomUUID() });
     const rooms = await api('GET', '/api/v1/rooms');

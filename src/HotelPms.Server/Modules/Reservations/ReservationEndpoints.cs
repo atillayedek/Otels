@@ -123,6 +123,20 @@ public static class ReservationEndpoints
         g.MapPost("/walk-in", (WalkInRequest req, CommandRunner cmd, IntegrationRegistry reg) => cmd.RunAsync("reservation.walk_in", req, async tx =>
             new { id = await ReservationService.WalkInAsync(tx, reg, req) })).RequirePermission("checkin.execute", "reservation.create");
 
+        g.MapPost("/{id:guid}/day-use-charge", (Guid id, Folios.FolioEndpoints.VersionBody req, CommandRunner cmd) => cmd.RunAsync("reservation.day_use_charge", new { id, req }, async tx =>
+        {
+            var r = await tx.OneOrNullAsync<(string Status, DateOnly Arrival, int Version)>("SELECT status, arrival, version FROM pms.reservations WHERE id = @id FOR UPDATE", new { id });
+            if (r == default) throw PmsException.NotFound("Rezervasyon");
+            if (r.Version != req.Version) throw PmsException.Concurrency();
+            if (r.Status != "checked_in" || r.Arrival != await Property.PropertyEndpoints.BusinessDateAsync(tx))
+                throw PmsException.Validation("Günübirlik ücret yalnız bugün giriş yapmış konaklayan misafir için işlenir.");
+            var amount = await NightAudit.NightAuditEndpoints.PostDayUseChargeAsync(tx, id);
+            if (amount <= 0) throw PmsException.Validation("Bu gecenin oda ücreti zaten işlenmiş veya gecelik fiyat 0.");
+            await tx.AuditAsync("reservation.day_use_charge", "reservation", id, null, new { amount });
+            tx.Publish("folios"); tx.Publish("reservations", id);
+            return new { id, amount };
+        })).RequirePermission("folio.post");
+
         g.MapPost("/{id:guid}/check-out", (Guid id, CheckOutRequest req, CommandRunner cmd, IntegrationRegistry reg) => cmd.RunAsync("reservation.check_out", new { id, req }, async tx =>
         {
             await ReservationService.CheckOutAsync(tx, reg, id, req);
