@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Moon, XCircle } from 'lucide-react';
 import { get, post } from '../lib/api';
 import type { NightAuditPreview, NightAuditResult, Setting } from '../lib/types';
-import { fmtDate, fmtDateTime, fmtMoney } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtMoney, fmtQty } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
 import { Empty, ErrorBox, Spinner, useConfirm } from '../components/ui';
@@ -19,7 +19,7 @@ const SUMMARY_LABELS: [string, string, boolean][] = [
 
 function summaryText(s: Record<string, unknown>) {
   return SUMMARY_LABELS.filter(([k]) => s?.[k] !== undefined && s[k] !== null && !(Number(s[k]) === 0 && k !== 'roomChargesPosted'))
-    .map(([k, label, money]) => `${label}: ${money ? fmtMoney(String(s[k])) : String(s[k])}`).join(' · ');
+    .map(([k, label, money]) => `${label}: ${money ? fmtMoney(String(s[k])) : fmtQty(String(s[k]))}`).join(' · ');
 }
 
 export default function NightAuditPage() {

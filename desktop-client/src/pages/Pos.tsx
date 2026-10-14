@@ -114,7 +114,7 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
   const send = useAction(async (key: string) => {
     const r = await post<PosSendResult>(`/api/v1/pos/checks/${id}/send`, {}, key);
     setDetail(r.detail);
-    if (r.failed.length) toast.error(new Error(r.failed.map(f => `${f.printer}: ${f.error}`).join(' · ')));
+    if (r.failed.length) toast.error(`Fiş basılamadı — ${r.failed.map(f => `${f.printer}: ${f.error}`).join(' · ')}. Ürünler "gönderilmedi" olarak bekliyor; yazıcıyı kontrol edip tekrar gönderin.`);
     else if (r.lines) toast.ok(`Sipariş gönderildi: ${r.sent.join(', ')}`);
     return r;
   });

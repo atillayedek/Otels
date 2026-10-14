@@ -99,7 +99,7 @@ function MobileCheck({ id, outletId, onBack }: { id: string; outletId: string; o
   const send = () => call(async () => {
     const r = await post<PosSendResult>(`/api/v1/pos/checks/${id}/send`, {}, crypto.randomUUID());
     apply(r.detail);
-    if (r.failed.length) toast.error(new Error(r.failed.map(f => `${f.printer}: ${f.error}`).join(' · ')));
+    if (r.failed.length) toast.error(`Fiş basılamadı — ${r.failed.map(f => `${f.printer}: ${f.error}`).join(' · ')}. Ürünler "gönderilmedi" olarak bekliyor; yazıcıyı kontrol edip tekrar gönderin.`);
     else toast.ok(r.lines ? `Gönderildi: ${r.sent.join(', ')}` : 'Gönderilecek yeni ürün yok.');
   });
 
