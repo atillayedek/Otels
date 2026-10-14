@@ -2,7 +2,7 @@
   "name": "tsdmr-restaurant",
   "private": true,
   "version": "1.0.0",
-  "description": "TSDMR Restoran (garson uygulaması) Android paketi; arayüz desktop-client'tan restoran modunda derlenir.",
+  "description": "Ferrolit Restoran (garson uygulaması) Android paketi; arayüz desktop-client'tan restoran modunda derlenir.",
   "scripts": {
     "tauri": "tauri",
     "build:ui": "npm --prefix ../desktop-client run build:restaurant",

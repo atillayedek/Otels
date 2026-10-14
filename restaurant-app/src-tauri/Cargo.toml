@@ -1,7 +1,7 @@
 [package]
 name = "tsdmr-restaurant"
 version = "1.0.0"
-description = "TSDMR Restoran: garson tableti ve telefonu için adisyon uygulaması"
+description = "Ferrolit Restoran: garson tableti ve telefonu için adisyon uygulaması"
 authors = ["TSDMR Digital Studio"]
 edition = "2021"
 rust-version = "1.80"

@@ -1,4 +1,4 @@
-; TSDMR Otel PMS kurulum dosyası (Inno Setup 6)
+; Ferrolit PMS kurulum dosyası (Inno Setup 6)
 ; Derleme: installer\build.ps1 (yayın klasörlerini hazırlar, sonra ISCC çalıştırır).
 ; Sunucu kurulumu: PMS sunucu hizmeti + yerel PostgreSQL (yalnız 127.0.0.1) + PMS Server Manager (+ isteğe bağlı PMS Client)
 ; İstemci kurulumu: yalnız PMS Client
@@ -13,13 +13,13 @@
 
 [Setup]
 AppId={{6C1B7F3E-3B7A-4D4C-9E1E-1C0F5A9B2D11}
-AppName=TSDMR Otel PMS
+AppName=Ferrolit PMS
 AppVersion={#AppVersion}
-AppVerName=TSDMR Otel PMS {#AppVersion}
+AppVerName=Ferrolit PMS {#AppVersion}
 AppPublisher=TSDMR Digital Studio
 DefaultDirName=C:\HotelPMS
 DisableDirPage=no
-DefaultGroupName=TSDMR Otel PMS
+DefaultGroupName=Ferrolit PMS
 DisableProgramGroupPage=yes
 OutputDir=..\build\installer
 OutputBaseFilename=HotelPMS-Setup-{#AppVersion}
@@ -57,9 +57,9 @@ Source: "{#Stage}\pgsql\*"; DestDir: "{app}\server\pgsql"; Components: server; F
 Source: "{#Stage}\manager\*"; DestDir: "{app}\manager"; Components: manager; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#Stage}\client\PMS-Client-Setup.exe"; DestDir: "{app}\client-setup"; Components: client; Flags: ignoreversion
 ; Telefon uygulaması (kat hizmetleri): sunucu kurulumunda dağıtım için kopyalanır.
-Source: "{#Stage}\client\TSDMR-Otel-PMS-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Stage}\client\Ferrolit-PMS-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
 ; Garson tableti/telefonu için restoran adisyon uygulaması.
-Source: "{#Stage}\client\TSDMR-Restoran-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#Stage}\client\Ferrolit-Restoran-Android.apk"; DestDir: "{app}\client-setup"; Components: server; Flags: ignoreversion skipifsourcedoesntexist
 Source: "LISANS-SOZLESMESI.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -193,7 +193,7 @@ end;
 
 function InitializeUninstall: Boolean;
 begin
-  Result := MsgBox('TSDMR Otel PMS kaldırılacak.' + #13#10 + #13#10 +
+  Result := MsgBox('Ferrolit PMS kaldırılacak.' + #13#10 + #13#10 +
     'Veritabanı, yedekler ve belgeler SİLİNMEZ; ' + ExpandConstant('{commonappdata}') + '\HotelPMS klasöründe korunur.' + #13#10 +
     'Bu verileri kalıcı olarak silmek isterseniz, önce yedeğini aldığınızdan emin olarak klasörü elle silebilirsiniz.' + #13#10 + #13#10 +
     'Devam edilsin mi?', mbConfirmation, MB_YESNO) = IDYES;

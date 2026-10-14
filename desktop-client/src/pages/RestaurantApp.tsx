@@ -5,7 +5,7 @@ import { useSession } from '../lib/session';
 import { Empty } from '../components/ui';
 import { MobilePos } from '../components/MobilePos';
 
-/** TSDMR Restoran (garson tableti / telefonu): yalnız adisyon ekranı. Otelin PMS sunucusuna bağlanır, aynı yetkileri kullanır. */
+/** Ferrolit Restoran (garson tableti / telefonu): yalnız adisyon ekranı. Otelin PMS sunucusuna bağlanır, aynı yetkileri kullanır. */
 export function RestaurantApp() {
   const { me, property, connected, can, logout } = useSession();
   const qc = useQueryClient();
@@ -19,7 +19,7 @@ export function RestaurantApp() {
       </header>
       {!connected && <div className="banner danger">Sunucu bağlantısı yok; yeniden bağlanılıyor…</div>}
       <main className="m-main">
-        {can('pos.view') ? <MobilePos /> : <Empty title="Bu uygulama için yetkiniz yok" text="TSDMR Restoran, restoran/bar yetkisi olan kullanıcılar içindir." />}
+        {can('pos.view') ? <MobilePos /> : <Empty title="Bu uygulama için yetkiniz yok" text="Ferrolit Restoran, restoran/bar yetkisi olan kullanıcılar içindir." />}
       </main>
     </div>
   );

@@ -83,7 +83,7 @@ public static class ImportEndpoints
             help.Columns().AdjustToContents();
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
-            return Results.File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"TSDMR-aktarim-sablonu-{entity}.xlsx");
+            return Results.File(ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Ferrolit-aktarim-sablonu-{entity}.xlsx");
         });
 
         g.MapGet("/{id:guid}", async (Guid id, Db db) =>

@@ -1,4 +1,4 @@
-//! TSDMR Restoran: garson tableti/telefonu için adisyon uygulaması.
+//! Ferrolit Restoran: garson tableti/telefonu için adisyon uygulaması.
 //! Bağlantı, sertifika sabitleme ve API katmanı PMS istemcisiyle aynıdır (modüller desktop-client'tan derlenir).
 //!
 //! Güvenlik modeli:
@@ -53,5 +53,5 @@ pub fn run() {
             realtime::realtime_stop,
         ])
         .run(tauri::generate_context!())
-        .expect("TSDMR Restoran başlatılamadı");
+        .expect("Ferrolit Restoran başlatılamadı");
 }

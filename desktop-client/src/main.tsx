@@ -5,6 +5,8 @@ import { HashRouter } from 'react-router-dom';
 import { queryClient, SessionProvider } from './lib/session';
 import { ConfirmProvider, ToastProvider } from './components/ui';
 import { App } from './App';
+import '@fontsource/sora/600.css';
+import '@fontsource/sora/700.css';
 import './styles/app.css';
 
 // Geliştirmede Tauri kabuğu yoksa (tarayıcı) API köprüsü yüklenir; üretim derlemesine girmez.

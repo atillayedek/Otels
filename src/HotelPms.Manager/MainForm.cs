@@ -35,7 +35,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "PMS Server Manager · TSDMR Otel PMS";
+        Text = "PMS Server Manager · Ferrolit PMS";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         MinimumSize = new Size(980, 680);
         Size = new Size(1120, 760);
@@ -44,7 +44,7 @@ public sealed class MainForm : Form
         BackColor = Surface;
 
         var header = new Panel { Dock = DockStyle.Top, Height = 74, BackColor = Color.White, Padding = new Padding(18, 12, 18, 10) };
-        var title = new Label { Text = "TSDMR Otel PMS · Sunucu", AutoSize = true, Font = new Font("Segoe UI Semibold", 11f), Location = new Point(18, 10) };
+        var title = new Label { Text = "Ferrolit PMS · Sunucu", AutoSize = true, Font = new Font("Segoe UI Semibold", 11f), Location = new Point(18, 10) };
         _status.Location = new Point(18, 34);
         _serviceInfo.Location = new Point(300, 40);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false, Padding = new Padding(0, 14, 0, 0) };
@@ -216,7 +216,7 @@ public sealed class MainForm : Form
         var make = Btn("Destek paketi oluştur", primary: true);
         make.Click += async (_, _) =>
         {
-            using var dlg = new SaveFileDialog { Filter = "ZIP dosyası|*.zip", FileName = $"TSDMR-destek-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}.zip",
+            using var dlg = new SaveFileDialog { Filter = "ZIP dosyası|*.zip", FileName = $"Ferrolit-destek-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}.zip",
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
             try

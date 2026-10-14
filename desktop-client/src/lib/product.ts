@@ -1,6 +1,6 @@
 /** Ürün ve destek bilgileri (tüm ekranlar ve uygulamalar bu sabitleri kullanır). */
 export const IS_RESTAURANT_APP = import.meta.env.VITE_APP_MODE === 'restaurant';
-export const PRODUCT_NAME = IS_RESTAURANT_APP ? 'TSDMR Restoran' : 'TSDMR Otel PMS';
+export const PRODUCT_NAME = IS_RESTAURANT_APP ? 'Ferrolit Restoran' : 'Ferrolit PMS';
 export const VENDOR = 'TSDMR Digital Studio';
 export const SUPPORT_EMAIL = 'iletisim@tsdmrdigitalstudio.com.tr';
 

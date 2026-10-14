@@ -114,7 +114,7 @@ export default function BlokajPage() {
                 {occ.map(o => (
                   <div key={o.d} title={`${fmtDate(o.d)}: ${o.sold}/${o.total} oda (%${o.pct})`} style={{ height: 62, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
                     <span style={{ fontSize: 10, color: 'var(--muted)' }}>%{o.pct}</span>
-                    <div style={{ width: DAY_W - 14, height: `${Math.max(2, o.pct * 0.42)}px`, background: o.d === bd ? 'var(--primary)' : o.pct >= 90 ? 'var(--danger)' : '#93c5fd', borderRadius: '3px 3px 0 0' }} />
+                    <div style={{ width: DAY_W - 14, height: `${Math.max(2, o.pct * 0.42)}px`, background: o.d === bd ? 'var(--primary)' : o.pct >= 90 ? 'var(--danger)' : 'var(--crystal)', borderRadius: '3px 3px 0 0' }} />
                   </div>
                 ))}
               </div>

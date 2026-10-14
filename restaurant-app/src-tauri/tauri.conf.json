@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TSDMR Restoran",
+  "productName": "Ferrolit Restoran",
   "version": "1.0.0",
   "identifier": "com.tsdmr.restaurant",
   "build": {
@@ -9,7 +9,7 @@
   "app": {
     "windows": [
       {
-        "title": "TSDMR Restoran",
+        "title": "Ferrolit Restoran",
         "width": 420,
         "height": 860,
         "resizable": true

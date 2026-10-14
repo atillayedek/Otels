@@ -41,7 +41,7 @@ export default function ImportCenterPage() {
   const jobs = useQuery({ queryKey: ['imports', 'list'], queryFn: () => get<ImportJob[]>('/api/v1/imports') });
   const done = (entity: string) => (jobs.data ?? []).filter(j => j.entity === entity && (j.status === 'completed' || j.status === 'completed_with_errors'));
   const template = async (entity: string) => {
-    const path = await save({ defaultPath: `TSDMR-aktarim-sablonu-${entity}.xlsx`, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
+    const path = await save({ defaultPath: `Ferrolit-aktarim-sablonu-${entity}.xlsx`, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
     if (!path) return;
     try { await download(`/api/v1/imports/template/${entity}`, path); toast.ok('Şablon kaydedildi.', path); } catch (e) { toast.error(e); }
   };

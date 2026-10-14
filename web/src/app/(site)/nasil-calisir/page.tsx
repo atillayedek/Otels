@@ -5,7 +5,7 @@ import { ArchitectureDiagram } from '@/components/ArchitectureDiagram';
 
 export const metadata: Metadata = {
   title: 'Nasıl çalışır',
-  description: 'TSDMR Otel PMS kurulumu: sunucu bilgisayar, otel içi ağ, PMS Client bağlantısı, eski programdan veri aktarımı ve yedekleme.',
+  description: 'Ferrolit PMS kurulumu: sunucu bilgisayar, otel içi ağ, PMS Client bağlantısı, eski programdan veri aktarımı ve yedekleme.',
 };
 
 const STEPS = [

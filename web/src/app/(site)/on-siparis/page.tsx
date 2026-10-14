@@ -4,7 +4,7 @@ import { PreOrderForm } from './PreOrderForm';
 
 export const metadata: Metadata = {
   title: 'Ön sipariş',
-  description: 'TSDMR Otel PMS için ön sipariş talebi oluşturun. Ödeme alınmaz; sizinle iletişime geçilir.',
+  description: 'Ferrolit PMS için ön sipariş talebi oluşturun. Ödeme alınmaz; sizinle iletişime geçilir.',
 };
 
 export default function PreOrderPage() {

@@ -1,6 +1,6 @@
 # KİŞİSEL VERİ SAKLAMA VE İMHA POLİTİKASI
 
-> Otel (veri sorumlusu) için şablon. Köşeli parantezli alanları doldurun ve hukukçunuzla gözden geçirin. TSDMR Otel PMS'teki saklama süresi ayarını bu politikadaki misafir kayıtları süresine göre girin.
+> Otel (veri sorumlusu) için şablon. Köşeli parantezli alanları doldurun ve hukukçunuzla gözden geçirin. Ferrolit PMS'teki saklama süresi ayarını bu politikadaki misafir kayıtları süresine göre girin.
 
 **Veri sorumlusu:** [unvan], [adres], [iletişim]
 **Yürürlük tarihi:** [ ]  **Gözden geçirme sıklığı:** [yılda bir]  **Sorumlu birim / kişi:** [ ]
@@ -13,7 +13,7 @@ Bu politika, [otel adı] tarafından işlenen kişisel verilerin saklama sürele
 
 | Ortam | Örnek |
 |---|---|
-| Otel yönetim yazılımı (TSDMR Otel PMS) | Misafir kartı, rezervasyon, folyo, kimlik belgesi taramaları, denetim kayıtları |
+| Otel yönetim yazılımı (Ferrolit PMS) | Misafir kartı, rezervasyon, folyo, kimlik belgesi taramaları, denetim kayıtları |
 | Yazılım yedekleri | Otomatik ve elle alınan şifreli yedek dosyaları, harici disk kopyaları |
 | Fiziksel arşiv | İmzalı KVKK formları, kimlik fotokopileri, faturalar |
 | Diğer | E-posta kutuları, muhasebe programı, kamera kayıtları |
@@ -34,7 +34,7 @@ Bu politika, [otel adı] tarafından işlenen kişisel verilerin saklama sürele
 
 ## 4. İmha yöntemleri
 
-- **Anonimleştirme:** TSDMR Otel PMS → Yönetim → KVKK ve Kişisel Veriler → İmha. Süresi dolan misafirlerin ad, kimlik, doğum, iletişim, adres ve vergi bilgileri silinir; kimlik belgesi dosyaları diskten silinir. İşlem gerekçesiyle denetim kaydına yazılır.
+- **Anonimleştirme:** Ferrolit PMS → Yönetim → KVKK ve Kişisel Veriler → İmha. Süresi dolan misafirlerin ad, kimlik, doğum, iletişim, adres ve vergi bilgileri silinir; kimlik belgesi dosyaları diskten silinir. İşlem gerekçesiyle denetim kaydına yazılır.
 - **Tekil talepler:** İlgili kişinin silme talebinde misafir kartından "Anonimleştir" kullanılır; başvuru ve yanıt tarihleri kayda geçirilir.
 - **Yedekler:** Süresi dolan yedek dosyaları güvenli silme yöntemiyle silinir; harici diskler kullanım dışı kalınca fiziksel olarak imha edilir.
 - **Kâğıt belgeler:** Kâğıt imha makinesiyle veya lisanslı imha firmasıyla imha edilir; tutanak tutulur.

@@ -205,10 +205,10 @@ export function FirstConnectPage({ onConnected }: { onConnected: () => void }) {
       <div className="auth-side">
         <div><img src="/logo.svg" width={48} alt="" /></div>
         <div>
-          <h1>TSDMR Otel PMS</h1>
+          <h1>Ferrolit PMS</h1>
           <p>Bu bilgisayarı otelinizin PMS sunucusuna bağlayın. Sunucu aynı yerel ağdaysa otomatik bulunur; bulunamazsa sunucu adını veya IP adresini girin. İnternet bağlantısı gerekmez.</p>
         </div>
-        <small style={{ color: '#bfdbfe' }}>TSDMR Digital Studio</small>
+        <small style={{ color: '#aab1bd' }}>TSDMR Digital Studio</small>
       </div>
       <div className="auth-panel" style={{ alignItems: 'flex-start', overflow: 'auto' }}>
         <div style={{ width: '100%', maxWidth: 640 }}>

@@ -158,7 +158,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
       <aside className="sidebar">
-        <div className="brand"><img src="/logo.svg" alt="" /><span>TSDMR Otel PMS<small>{property?.name}</small></span></div>
+        <div className="brand"><img src="/logo.svg" alt="" /><span>Ferrolit PMS<small>{property?.name}</small></span></div>
         <div className="menu-search"><Search size={14} /><input placeholder="Menüde ara" value={q} onChange={e => setQ(e.target.value)} /></div>
         <nav className="nav">
           {groups.map(g => {

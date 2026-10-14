@@ -1,4 +1,4 @@
-# TSDMR Otel PMS — tanıtım sitesi
+# Ferrolit PMS — tanıtım sitesi
 
 Landing, ürün bilgisi, nasıl çalışır, ön sipariş formu ve ön sipariş yönetim paneli.
 Next.js 16 (App Router) + Supabase. **Ödeme alınmaz**; form yalnız talep kaydı oluşturur.

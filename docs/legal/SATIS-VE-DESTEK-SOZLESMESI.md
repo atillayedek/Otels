@@ -10,7 +10,7 @@
 
 ## 2. Konu
 
-Bu sözleşmenin konusu; TSDMR Otel PMS yazılımının Alıcıya ait [otel adı] tesisinde kullanılmak üzere lisanslanması, kurulumu, eğitimi ve destek hizmetlerinin verilmesidir. Yazılımın kullanım koşulları, kurulumda kabul edilen ve bu sözleşmenin eki sayılan **Son Kullanıcı Lisans Sözleşmesi**'nde düzenlenmiştir.
+Bu sözleşmenin konusu; Ferrolit PMS yazılımının Alıcıya ait [otel adı] tesisinde kullanılmak üzere lisanslanması, kurulumu, eğitimi ve destek hizmetlerinin verilmesidir. Yazılımın kullanım koşulları, kurulumda kabul edilen ve bu sözleşmenin eki sayılan **Son Kullanıcı Lisans Sözleşmesi**'nde düzenlenmiştir.
 
 ## 3. Lisans kapsamı
 

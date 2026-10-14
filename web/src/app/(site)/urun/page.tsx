@@ -6,7 +6,7 @@ import {
 
 export const metadata: Metadata = {
   title: 'Ürün',
-  description: 'TSDMR Otel PMS modülleri: rezervasyon, ön büro, folyo ve kasa, gece denetimi, kat hizmetleri, raporlar, yedekleme ve veri aktarımı.',
+  description: 'Ferrolit PMS modülleri: rezervasyon, ön büro, folyo ve kasa, gece denetimi, kat hizmetleri, raporlar, yedekleme ve veri aktarımı.',
 };
 
 const GROUPS: { title: string; lead: string; modules: { icon: React.ReactNode; title: string; items: string[] }[] }[] = [

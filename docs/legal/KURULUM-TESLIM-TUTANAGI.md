@@ -9,8 +9,8 @@
 | 1 | Sunucu hizmeti + veritabanı (PostgreSQL) | [bilgisayar adı / IP] | ☐ Çalışıyor |
 | 2 | Sunucu Yöneticisi | [ ] | ☐ |
 | 3 | PMS Client | [resepsiyon 1, resepsiyon 2, …] | ☐ |
-| 4 | TSDMR Otel PMS (Android) | [cihazlar] | ☐ |
-| 5 | TSDMR Restoran (Android) | [garson cihazları] | ☐ |
+| 4 | Ferrolit PMS (Android) | [cihazlar] | ☐ |
+| 5 | Ferrolit Restoran (Android) | [garson cihazları] | ☐ |
 | 6 | Mutfak/bar fiş yazıcısı | [IP] | ☐ Deneme fişi basıldı |
 
 ## Ayarlar ve kontroller

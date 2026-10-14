@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="#22262E"/>
+  <!-- Ferrolit: taş/demir kristali (ferrum + lithos) -->
+  <polygon points="512,182 797.8,347 512,512 226.2,347" fill="#2F8F6B"/>
+  <polygon points="797.8,347 797.8,677 512,842 512,512" fill="#8FA3BF"/>
+  <polygon points="226.2,347 512,512 512,842 226.2,677" fill="#F5F6F8"/>
+</svg>

@@ -1,10 +1,10 @@
-﻿TSDMR OTEL PMS
+﻿FERROLIT PMS
 SON KULLANICI LİSANS SÖZLEŞMESİ
 
-Bu sözleşme, TSDMR Digital Studio ("Lisans Veren") ile TSDMR Otel PMS yazılımını kuran veya kullanan işletme ("Lisans Alan") arasındadır. Yazılımı kurarak veya kullanarak bu sözleşmenin tamamını kabul etmiş olursunuz. Kabul etmiyorsanız kurulumu iptal edin.
+Bu sözleşme, TSDMR Digital Studio ("Lisans Veren") ile Ferrolit PMS yazılımını kuran veya kullanan işletme ("Lisans Alan") arasındadır. Yazılımı kurarak veya kullanarak bu sözleşmenin tamamını kabul etmiş olursunuz. Kabul etmiyorsanız kurulumu iptal edin.
 
 1. TANIMLAR
-"Yazılım": TSDMR Otel PMS sunucu hizmeti, PMS Client masaüstü uygulaması, Sunucu Yöneticisi, Android uygulamaları (TSDMR Otel PMS ve TSDMR Restoran), veritabanı yapısı, belgeler ve güncellemeleri.
+"Yazılım": Ferrolit PMS sunucu hizmeti, PMS Client masaüstü uygulaması, Sunucu Yöneticisi, Android uygulamaları (Ferrolit PMS ve Ferrolit Restoran), veritabanı yapısı, belgeler ve güncellemeleri.
 "Lisans Belgesi": Lisans Veren tarafından Lisans Alan adına üretilen, elektronik olarak imzalı lisans dosyası (.lisans).
 "Tesis": Lisans Belgesinde adı ve vergi numarası yazan konaklama işletmesi.
 

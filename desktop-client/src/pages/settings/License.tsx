@@ -32,7 +32,7 @@ export default function LicensePage() {
   const st = STATE[l.state] ?? { label: l.state, color: 'orange' as const };
   return (
     <div className="page" style={{ maxWidth: 1100 }}>
-      <PageHead title="Lisans" sub="TSDMR Otel PMS ürün lisansı" />
+      <PageHead title="Lisans" sub="Ferrolit PMS ürün lisansı" />
       <div className="split">
         <div className="card">
           <div className="card-head"><h3><ShieldCheck size={16} /> Lisans durumu</h3><span className="spacer" /><Badge color={st.color}>{st.label}</Badge></div>

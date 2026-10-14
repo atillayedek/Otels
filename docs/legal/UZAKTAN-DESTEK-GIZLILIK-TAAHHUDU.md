@@ -2,7 +2,7 @@
 
 > Satış ve Destek Hizmet Sözleşmesi'nin ekidir. Şablon; avukat kontrolü önerilir.
 
-TSDMR Digital Studio ("Destek Veren"), [otel işletmesinin unvanı] ("Veri Sorumlusu") için TSDMR Otel PMS yazılımına ilişkin destek hizmeti verirken aşağıdaki hususları taahhüt eder.
+TSDMR Digital Studio ("Destek Veren"), [otel işletmesinin unvanı] ("Veri Sorumlusu") için Ferrolit PMS yazılımına ilişkin destek hizmeti verirken aşağıdaki hususları taahhüt eder.
 
 1. **Amaçla sınırlılık.** Destek Veren, Veri Sorumlusunun sistemlerine yalnız Veri Sorumlusunun talebi üzerine ve yalnız bildirilen sorunu gidermek, kurulum, güncelleme veya veri aktarımı yapmak amacıyla erişir.
 2. **Bilgi ve onay.** Uzaktan erişim, Veri Sorumlusunun yetkilisinin bilgisi dahilinde ve onun başlattığı/onayladığı bir oturumla yapılır. Kalıcı ve gözetimsiz uzaktan erişim kurulmaz.

@@ -31,15 +31,15 @@ Sol menü ve üst hızlı erişim çubuğu kullanıcının yetkilerine göre gö
 
 ## Android uygulaması (kat hizmetleri)
 
-`TSDMR-Otel-PMS-Android.apk` sunucuda `C:\HotelPMS\client-setup` klasörüne kopyalanır. Telefona aktarılıp kurulur (Android ayarlarında bu kaynaktan uygulama yüklemeye izin verilmelidir). Telefon otelin Wi-Fi ağına bağlı olmalıdır; bağlantı ve sertifika doğrulaması masaüstü uygulamasıyla aynıdır.
+`Ferrolit-PMS-Android.apk` sunucuda `C:\HotelPMS\client-setup` klasörüne kopyalanır. Telefona aktarılıp kurulur (Android ayarlarında bu kaynaktan uygulama yüklemeye izin verilmelidir). Telefon otelin Wi-Fi ağına bağlı olmalıdır; bağlantı ve sertifika doğrulaması masaüstü uygulamasıyla aynıdır.
 
 Telefon arayüzü sadeleştirilmiştir: kirli odalar en üstte olmak üzere oda durumu listesi, tek dokunuşla **Temiz** / **Kontrol edildi** (yetkiye göre), kat filtresi ve arıza bildirme. Kat şefi, resepsiyon ve müdür kendi kullanıcılarıyla girer; yetkiler masaüstüyle aynıdır.
 
 İmza anahtarı `%APPDATA%\TSDMRndroid` klasöründedir ve depoya eklenmez. Güncellemelerin eski sürümün üzerine kurulabilmesi için bu klasör yedeklenmelidir; anahtar kaybolursa telefonlardaki uygulama kaldırılıp yeniden kurulmalıdır.
 
-## TSDMR Restoran (garson uygulaması)
+## Ferrolit Restoran (garson uygulaması)
 
-`TSDMR-Restoran-Android.apk` de sunucuda `C:\HotelPMS\client-setup` klasöründedir. Garson tableti veya telefonuna kurulur; aynı sunucuya ve aynı kullanıcı hesaplarıyla bağlanır. Masa adisyonu açma, ürün ekleme, kendi yanlış girdiği ürünü iptal, mutfağa gönderme; yetkisi olan kullanıcı için indirim ve hesap kapatma (ödeme veya odaya aktarma). Tüm işlemler PMS'e, kasaya, stoğa ve gün sonu muhasebe fişine anında yansır. Kaynak: `restaurant-app/` (arayüz `desktop-client` ile ortaktır).
+`Ferrolit-Restoran-Android.apk` de sunucuda `C:\HotelPMS\client-setup` klasöründedir. Garson tableti veya telefonuna kurulur; aynı sunucuya ve aynı kullanıcı hesaplarıyla bağlanır. Masa adisyonu açma, ürün ekleme, kendi yanlış girdiği ürünü iptal, mutfağa gönderme; yetkisi olan kullanıcı için indirim ve hesap kapatma (ödeme veya odaya aktarma). Tüm işlemler PMS'e, kasaya, stoğa ve gün sonu muhasebe fişine anında yansır. Kaynak: `restaurant-app/` (arayüz `desktop-client` ile ortaktır).
 
 ## Sürüm uyumu
 

@@ -1,4 +1,4 @@
-# TSDMR Restoran (Android)
+# Ferrolit Restoran (Android)
 
 Garson tableti/telefonu için adisyon uygulaması. Arayüz `desktop-client` ile aynı kaynaktan restoran modunda derlenir
 (`npm run build:restaurant` → `desktop-client/dist-restaurant`); Rust bağlantı katmanı `desktop-client/src-tauri/src` modülleridir.

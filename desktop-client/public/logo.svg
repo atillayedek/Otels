@@ -1,21 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2563eb"/>
-      <stop offset="1" stop-color="#1e3a8a"/>
-    </linearGradient>
-  </defs>
-  <rect x="48" y="48" width="928" height="928" rx="216" fill="url(#g)"/>
-  <!-- Otel binası -->
-  <path d="M312 300h400a24 24 0 0 1 24 24v412H288V324a24 24 0 0 1 24-24z" fill="#ffffff"/>
-  <g fill="#1e40af">
-    <rect x="352" y="364" width="80" height="64" rx="10"/>
-    <rect x="472" y="364" width="80" height="64" rx="10"/>
-    <rect x="592" y="364" width="80" height="64" rx="10"/>
-    <rect x="352" y="468" width="80" height="64" rx="10"/>
-    <rect x="472" y="468" width="80" height="64" rx="10"/>
-    <rect x="592" y="468" width="80" height="64" rx="10"/>
-    <rect x="460" y="592" width="104" height="144" rx="12"/>
-  </g>
-  <rect x="240" y="728" width="544" height="40" rx="20" fill="#ffffff"/>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="#22262E"/>
+  <!-- Ferrolit: taş/demir kristali (ferrum + lithos) -->
+  <polygon points="512,182 797.8,347 512,512 226.2,347" fill="#D9531E"/>
+  <polygon points="797.8,347 797.8,677 512,842 512,512" fill="#8FA3BF"/>
+  <polygon points="226.2,347 512,512 512,842 226.2,677" fill="#F5F6F8"/>
 </svg>

@@ -11,7 +11,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Product>TSDMR Otel PMS</Product>
+    <Product>Ferrolit PMS</Product>
     <Company>TSDMR Digital Studio</Company>
   </PropertyGroup>
 

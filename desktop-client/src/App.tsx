@@ -13,7 +13,7 @@ import { IS_RESTAURANT_APP } from './lib/product';
 
 /** Android/iOS: telefon arayüzü (kat hizmetleri). Masaüstü menüsü telefonda kullanılmaz. */
 const IS_MOBILE = /Android|iPhone|iPad/i.test(navigator.userAgent);
-// TSDMR Restoran uygulaması aynı arayüzün restoran modunda derlenmiş halidir (vite --mode restaurant).
+// Ferrolit Restoran uygulaması aynı arayüzün restoran modunda derlenmiş halidir (vite --mode restaurant).
 const IS_RESTAURANT = IS_RESTAURANT_APP;
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));

@@ -36,7 +36,7 @@ fn pinned_client(server: &ServerEntry, timeout: Duration) -> Result<reqwest::Cli
         .use_preconfigured_tls((*cfg).clone())
         .connect_timeout(Duration::from_secs(5))
         .timeout(timeout)
-        .user_agent(concat!("TSDMR-Otel-PMS-Client/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Ferrolit-PMS-Client/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())
 }

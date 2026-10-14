@@ -1,4 +1,4 @@
-# KVKK: Otel için yapılacaklar ve TSDMR Otel PMS'teki karşılıkları
+# KVKK: Otel için yapılacaklar ve Ferrolit PMS'teki karşılıkları
 
 Bu rehber, 6698 sayılı Kişisel Verilerin Korunması Kanunu (KVKK) kapsamında otelin (veri sorumlusu) yapması gerekenleri ve yazılımın bunlara nasıl yardımcı olduğunu özetler. Hukuki danışmanlık yerine geçmez; otelinizin politikalarını bir hukukçuyla netleştirin.
 

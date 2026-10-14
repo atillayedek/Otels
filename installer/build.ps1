@@ -52,11 +52,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "client") | Out-Null
 Copy-Item $ClientSetup (Join-Path $stage "client\PMS-Client-Setup.exe")
 
 Step "Android uygulaması alınıyor"
-$apk = Join-Path $root "build\android\TSDMR-Otel-PMS-Android.apk"
-if (Test-Path $apk) { Copy-Item $apk (Join-Path $stage "client\TSDMR-Otel-PMS-Android.apk") }
+$apk = Join-Path $root "build\android\Ferrolit-PMS-Android.apk"
+if (Test-Path $apk) { Copy-Item $apk (Join-Path $stage "client\Ferrolit-PMS-Android.apk") }
 else { Write-Host "  Android APK bulunamadı (build\android); kurulum paketine eklenmeyecek." -ForegroundColor Yellow }
-$rapk = Join-Path $root "build\android\TSDMR-Restoran-Android.apk"
-if (Test-Path $rapk) { Copy-Item $rapk (Join-Path $stage "client\TSDMR-Restoran-Android.apk") }
+$rapk = Join-Path $root "build\android\Ferrolit-Restoran-Android.apk"
+if (Test-Path $rapk) { Copy-Item $rapk (Join-Path $stage "client\Ferrolit-Restoran-Android.apk") }
 else { Write-Host "  Restoran APK bulunamadı (build\android); kurulum paketine eklenmeyecek." -ForegroundColor Yellow }
 
 Step "Inno Setup derleniyor"

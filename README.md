@@ -1,4 +1,4 @@
-# TSDMR Otel PMS
+# Ferrolit PMS
 
 Otelin kendi bilgisayarında çalışan, internet gerektirmeyen otel yönetim sistemi (PMS). TSDMR Digital Studio.
 

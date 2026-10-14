@@ -26,7 +26,7 @@ export default function HomePage() {
             <span className="eyebrow"><ServerCog size={15} /> Ön sipariş dönemi</span>
             <h1>Otelinizin kendi sunucusunda çalışan otel yönetim sistemi</h1>
             <p className="lead">
-              TSDMR Otel PMS; rezervasyon, ön büro, folyo, kasa ve gece denetimini otelinizdeki bir bilgisayarda çalıştırır.
+              Ferrolit PMS; rezervasyon, ön büro, folyo, kasa ve gece denetimini otelinizdeki bir bilgisayarda çalıştırır.
               Resepsiyon ve diğer bölümler aynı ağdan bağlanır; internet bağlantısı gerekmez.
             </p>
             <div className="actions">
@@ -47,7 +47,7 @@ export default function HomePage() {
         <div className="container">
           <div className="section-head">
             <h2>Neden yerel sunucu?</h2>
-            <p>Bulut tabanlı sistemlerde internet kesintisi resepsiyonu durdurur. TSDMR Otel PMS, otellerin alışık olduğu yerel sunucu modeliyle otelin içindeki bir bilgisayarda çalışır; bilgisayarlar birbirine yerel ağ üzerinden bağlanır.</p>
+            <p>Bulut tabanlı sistemlerde internet kesintisi resepsiyonu durdurur. Ferrolit PMS, otellerin alışık olduğu yerel sunucu modeliyle otelin içindeki bir bilgisayarda çalışır; bilgisayarlar birbirine yerel ağ üzerinden bağlanır.</p>
           </div>
           <div className="grid c4">
             {HIGHLIGHTS.map(h => (

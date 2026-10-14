@@ -1,4 +1,4 @@
-//! TSDMR Otel PMS istemcisi.
+//! Ferrolit PMS istemcisi.
 //!
 //! Güvenlik modeli:
 //! - Arayüz (WebView) ağ isteği yapmaz; tüm PMS API ve WebSocket trafiği bu Rust katmanından geçer.
@@ -54,5 +54,5 @@ pub fn run() {
             realtime::realtime_stop,
         ])
         .run(tauri::generate_context!())
-        .expect("TSDMR Otel PMS başlatılamadı");
+        .expect("Ferrolit PMS başlatılamadı");
 }
