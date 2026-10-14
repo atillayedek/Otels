@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRightLeft, Ban, CreditCard, FilePlus2, Lock, Percent, Plus, Printer, Receipt, RotateCcw, Undo2, Unlock } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
 import type { ExchangeRatesView, Folio, FolioDetail, FolioLine, Reservation } from '../lib/types';
-import { fmtDate, fmtDateTime, fmtMoney, fmtRate, isZero, LINE_LABEL, parseRate } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtMoney, fmtQty, fmtRate, isZero, LINE_LABEL, parseRate } from '../lib/format';
 import { useAgencies, useCompanies, usePaymentMethods, useTransactionCodes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useAction } from './common';
@@ -267,21 +267,81 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   );
 }
 
-function FolioPrint({ detail, reservation, hotel, legal }: { detail: FolioDetail; reservation?: Reservation; hotel: string; legal?: { legalName?: string; taxOffice?: string; taxNumber?: string; address?: string; city?: string; phone?: string } | undefined }) {
+type PrintLegal = { legalName?: string; taxOffice?: string; taxNumber?: string; address?: string; city?: string; phone?: string; email?: string };
+
+/** Misafire verilen folyo dökümü: borç ve alacak ayrı sütunlarda, bakiye belirgin. A4, kenar boşluklarını belge kendisi verir. */
+function FolioPrint({ detail, reservation, hotel, legal }: { detail: FolioDetail; reservation?: Reservation; hotel: string; legal?: PrintLegal }) {
   const f = detail.folio;
+  const lines = detail.lines.filter(l => !l.isVoided && l.lineType !== 'void');
+  const abs = (m: string) => m.replace('-', '');
+  const isDebit = (m: string) => !m.startsWith('-');
+  const qty = (l: FolioLine) => l.lineType === 'charge' && Number(l.quantity) !== 1 ? `${fmtQty(l.quantity)} × ${fmtMoney(l.unitPrice)}` : '';
+  const balance = Number(f.balance);
+  const contact = [legal?.phone && `Tel: ${legal.phone}`, legal?.email].filter(Boolean).join(' · ');
+  const info: [string, string | undefined][] = [
+    ['Misafir / Ödeyen', f.name],
+    ['Oda', reservation?.roomNumber ?? undefined],
+    ['Rezervasyon', reservation?.reservationNumber ?? f.reservationNumber],
+    ['Giriş', reservation ? fmtDate(reservation.arrival) : undefined],
+    ['Çıkış', reservation ? fmtDate(reservation.departure) : undefined],
+    ['Kişi', reservation ? `${reservation.adults} yetişkin${reservation.children ? `, ${reservation.children} çocuk` : ''}` : undefined],
+  ];
   return (
-    <div className="doc" style={{ padding: '12mm' }}>
-      <div className="doc-head">
-        <div><h1>{hotel}</h1><div>{legal?.legalName}</div><div>{legal?.address} {legal?.city}</div><div>{legal?.taxOffice && `${legal.taxOffice} V.D.`} {legal?.taxNumber}</div></div>
-        <div style={{ textAlign: 'right' }}><b>FOLYO</b><div>{f.folioNumber}</div><div>{f.name}</div>{reservation && <div>Rez. {reservation.reservationNumber} · Oda {reservation.roomNumber ?? '-'}</div>}{reservation && <div>{fmtDate(reservation.arrival)} – {fmtDate(reservation.departure)}</div>}</div>
-      </div>
-      <table>
-        <thead><tr><th>Tarih</th><th>Açıklama</th><th className="r">Miktar</th><th className="r">Tutar</th></tr></thead>
-        <tbody>{detail.lines.filter(l => !l.isVoided && l.lineType !== 'void').map(l => <tr key={l.id}><td>{fmtDate(l.businessDate)}</td><td>{l.description}</td><td className="r">{l.quantity}</td><td className="r">{fmtMoney(l.amount)}</td></tr>)}</tbody>
-        <tfoot><tr><td colSpan={3} className="r">Toplam borç</td><td className="r">{fmtMoney(f.totalCharges)}</td></tr><tr><td colSpan={3} className="r">Toplam alacak</td><td className="r">{fmtMoney(f.totalCredits)}</td></tr><tr><td colSpan={3} className="r"><b>Bakiye</b></td><td className="r"><b>{fmtMoney(f.balance, f.currency)}</b></td></tr></tfoot>
+    <div className="doc folio-doc">
+      <header className="fd-head">
+        <div>
+          <div className="fd-hotel">{hotel}</div>
+          {legal?.legalName && <div className="fd-legal">{legal.legalName}</div>}
+          <div className="fd-legal">{[legal?.address, legal?.city].filter(Boolean).join(', ')}</div>
+          {(legal?.taxOffice || legal?.taxNumber) && <div className="fd-legal">{legal?.taxOffice && `${legal.taxOffice} V.D. `}{legal?.taxNumber && `· VKN ${legal.taxNumber}`}</div>}
+          {contact && <div className="fd-legal">{contact}</div>}
+        </div>
+        <div className="fd-title">
+          <div className="fd-kind">Folyo</div>
+          <div className="fd-no">{f.folioNumber}</div>
+          <div className="fd-legal">Pencere {f.windowNo} · {f.currency}</div>
+        </div>
+      </header>
+
+      <section className="fd-info">
+        {info.filter(([, v]) => v).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
+      </section>
+
+      <table className="fd-table">
+        <colgroup><col style={{ width: '19mm' }} /><col /><col style={{ width: '28mm' }} /><col style={{ width: '26mm' }} /><col style={{ width: '26mm' }} /></colgroup>
+        <thead><tr><th>Tarih</th><th>Açıklama</th><th className="r">Miktar × Fiyat</th><th className="r">Borç</th><th className="r">Alacak</th></tr></thead>
+        <tbody>
+          {lines.map(l => (
+            <tr key={l.id}>
+              <td className="fd-date">{fmtDate(l.businessDate)}</td>
+              <td>{l.description}{l.reference && <span className="fd-ref"> · {l.reference}</span>}</td>
+              <td className="r fd-muted">{qty(l)}</td>
+              <td className="r">{isDebit(l.amount) ? fmtMoney(l.amount) : ''}</td>
+              <td className="r">{isDebit(l.amount) ? '' : fmtMoney(abs(l.amount))}</td>
+            </tr>
+          ))}
+          {lines.length === 0 && <tr><td colSpan={5} className="fd-muted" style={{ textAlign: 'center' }}>Folyoda hareket yok.</td></tr>}
+        </tbody>
       </table>
-      <div className="sign"><div>Misafir</div><div>Resepsiyon</div></div>
-      <div className="fine">Bu belge bilgi amaçlıdır, fatura yerine geçmez.{f.invoiceNumber ? ` Fatura no: ${f.invoiceNumber}` : ''} · Yazdırma: {fmtDateTime(new Date().toISOString())}</div>
+
+      <section className="fd-totals">
+        <div><span>Toplam borç</span><span>{fmtMoney(f.totalCharges)}</span></div>
+        <div><span>Toplam alacak</span><span>{fmtMoney(abs(f.totalCredits))}</span></div>
+        <div className="fd-balance">
+          <span>{balance > 0 ? 'Ödenecek bakiye' : balance < 0 ? 'Misafir alacağı' : 'Bakiye'}</span>
+          <span>{fmtMoney(abs(f.balance), f.currency)}</span>
+        </div>
+      </section>
+
+      <section className="fd-sign">
+        <div><div className="fd-line" />Misafir imzası</div>
+        <div><div className="fd-line" />Resepsiyon</div>
+      </section>
+
+      <footer className="fd-foot">
+        <div>Konaklamanız için teşekkür ederiz.</div>
+        <div>Bu belge bilgi amaçlıdır, fatura yerine geçmez.{f.invoiceNumber ? ` Fatura no: ${f.invoiceNumber}${f.invoiceDate ? ` (${fmtDate(f.invoiceDate)})` : ''}.` : ''} Yazdırma: {fmtDateTime(new Date().toISOString())}</div>
+      </footer>
     </div>
   );
 }

@@ -139,7 +139,7 @@ export function KbsFormModal({ reservationId, onClose }: { reservationId: string
         <ErrorBox error={save.error} />
       </div>
       {printing && createPortal(
-        <div className="doc" style={{ padding: '10mm' }}>
+        <div className="doc">
           <div className="doc-head"><div><h1>Kimlik Bildirim Formu</h1><div>{r.propertyName}</div><div>{r.propertyAddress} {r.propertyCity}</div></div>
             <div style={{ textAlign: 'right' }}><div>Oda {r.roomNumber ?? '—'}</div><div>{fmtDate(r.arrival)} – {fmtDate(r.departure)}</div><div>Rez. {r.reservationNumber}</div></div></div>
           <table>

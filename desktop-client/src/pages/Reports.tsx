@@ -89,7 +89,7 @@ export default function ReportsPage() {
         </div>
       </div>
       {printing && result.data && createPortal(
-        <div className="doc" style={{ padding: '10mm' }}>
+        <div className="doc">
           <div className="doc-head"><div><h1>{result.data.title}</h1><div>{property?.name}</div></div><div style={{ textAlign: 'right' }}>{Object.entries(params).filter(([, v]) => v).map(([k, v]) => <div key={k}>{def?.params.find(p => p.key === k)?.label}: {def?.params.find(p => p.key === k)?.type === 'date' ? fmtDate(v) : v}</div>)}<div>Oluşturma: {fmtDateTime(result.data.generatedAt)}</div></div></div>
           <ReportTable r={result.data} print />
         </div>, document.getElementById('print-root')!)}
