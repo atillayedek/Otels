@@ -88,11 +88,32 @@ Misafir kartında **Kimlik ve belgeler**, rezervasyonda **Belgeler** sekmesi: ki
 - Raporlar (Excel'e aktarılabilir): Mizan, Mizan (ana hesaplar), Yevmiye dökümü, Hesap ekstresi (muavin). Mali müşavirin programına aktarım için Excel çıktısı kullanılır.
 - Hesap eşlemeleri ve KDV/konaklama vergisi uygulaması otelin mali müşaviriyle kontrol edilmelidir.
 
+## Günübirlik kullanım
+
+Aynı iş gününde giriş yapıp gece denetiminden önce çıkan konaklamada o gecenin oda ücreti gece denetiminde yazılmaz. Çıkış penceresi bunu gösterir: **Günübirlik ücret işle** ile oda ücreti (ve varsa konaklama vergisi) yazılır, tahsil edilir, sonra çıkış yapılır. Ücret alınmayacaksa `rate.override` yetkili kullanıcı gerekçe yazarak ücretsiz çıkış yapar; gerekçe denetim kaydına geçer.
+
+## Misafir hatırlatmaları ve kayıp eşya
+
+- **Hatırlatmalar (trace):** rezervasyon ekranındaki Hatırlatmalar sekmesinden belirli bir gün ve bölüm için iş eklenir (ör. "doğum günü pastası 20:00"). Resepsiyon → Misafir Hatırlatmaları ekranı bugünün ve geciken işlerin bölüme göre listesidir; tamamlanmayanlar gece denetiminde uyarı olarak çıkar.
+- **Kayıp eşya defteri** (Kat Hizmetleri → Kayıp Eşya): bulunan eşya, yer/oda, muhafaza yeri; sahibine teslimde teslim alan kişi, imha/bağışta açıklama zorunludur. Kapanan kayıt değiştirilemez.
+
+## Rezervasyon onay belgesi ve KVKK formu
+
+Rezervasyon ekranında **Onay belgesi** misafire veya acenteye verilecek çıktıyı (tarihler, giriş-çıkış saatleri, oda, gecelik fiyatlar, toplam, ön ödeme) yazdırır ya da PDF olarak kaydeder; altındaki not Yönetim → Tesis Bilgileri'nden düzenlenir. **KVKK formu** her misafir için aydınlatma metni, isteğe bağlı ticari ileti onayı ve imza alanı içeren formu yazdırır.
+
+## KVKK ve kişisel veriler
+
+Yönetim → KVKK ve Kişisel Veriler: aydınlatma ve açık rıza metni, saklama süresi (yıl) ve süresi dolan misafirlerin toplu anonimleştirilmesi. Misafir kartında **Kişisel veri dökümü** (ilgili kişi başvurusu için Excel) ve **Anonimleştir** (silme talebi; aktif rezervasyon veya açık folyo varken yapılamaz). Ayrıntı: [legal/KVKK-OTEL-REHBERI.md](legal/KVKK-OTEL-REHBERI.md).
+
+## Lisans
+
+Yönetim → Lisans: lisans durumu ve `.lisans` dosyasının yüklenmesi. Lisans yüklenene kadar kurulumdan itibaren 30 gün deneme süresi işler. Süre dolduğunda veya lisans geçersizse kayıtlara erişim, çıkış, tahsilat, gece denetimi, raporlar ve yedekleme çalışmaya devam eder; yalnız yeni rezervasyon, giriş, grup ve adisyon açılamaz. Lisans otelin vergi numarasına, oda sınırına ve ek modüllere (restoran, stok, muhasebe) bağlanabilir; lisansta olmayan modüller menüde görünmez.
+
 ## Bu sürümde bulunmayanlar
 
-- Kanal yöneticisi / online satış kanalları
+- Kanal yöneticisi / online satış kanalları ile otomatik bağlantı (kanal rezervasyonları kanal adı ve numarasıyla elle girilir)
 - E-fatura / e-arşiv entegrasyonu (fatura no elle kaydedilir)
-- Kapı kilidi, santral, POS entegrasyonları
+- Kapı kilidi ve santral entegrasyonları
 - Linux için kurulum paketi
 
-Bu entegrasyonlar arayüzde çalışıyormuş gibi gösterilmez; **Yönetim → Entegrasyonlar** ekranında "Bu sürümde bulunmuyor" olarak listelenir.
+Bağlantısı olmayan entegrasyonlar arayüzde gösterilmez.
