@@ -199,12 +199,22 @@ public static class ReportEndpoints
                 new("quantity", "Miktar", "decimal"), new("amount", "Tutar", "money")],
             SumColumns = ["amount"],
             Sql = """
-                SELECT l.business_date, COALESCE(tc.code, upper(l.line_type)) AS code, COALESCE(tc.name, l.line_type) AS name, COALESCE(tc.category, '-') AS category,
-                       sum(l.quantity) AS quantity, sum(l.amount) AS amount
+                SELECT l.business_date, COALESCE(tc.code, otc.code, otc2.code, '') AS code,
+                       CASE l.line_type WHEN 'void' THEN 'İptal: ' || CASE o.line_type
+                                                WHEN 'discount' THEN 'İndirim' || COALESCE(': ' || otc2.name, '')
+                                                WHEN 'allowance' THEN 'Düzeltme' || COALESCE(': ' || otc2.name, '')
+                                                ELSE COALESCE(otc.name, 'masraf') END
+                                        WHEN 'discount' THEN 'İndirim' || COALESCE(': ' || otc.name, '')
+                                        WHEN 'allowance' THEN 'Düzeltme' || COALESCE(': ' || otc.name, '')
+                                        ELSE COALESCE(tc.name, 'Masraf') END AS name,
+                       COALESCE(tc.category, otc.category, otc2.category, '-') AS category, sum(l.quantity) AS quantity, sum(l.amount) AS amount
                 FROM pms.folio_lines l LEFT JOIN pms.transaction_codes tc ON tc.id = l.transaction_code_id
+                LEFT JOIN pms.folio_lines o ON o.id = l.related_line_id LEFT JOIN pms.transaction_codes otc ON otc.id = o.transaction_code_id
+                -- İndirim/düzeltme iptalinde adı ve kodu asıl masraftan alınır.
+                LEFT JOIN pms.folio_lines o2 ON o2.id = o.related_line_id LEFT JOIN pms.transaction_codes otc2 ON otc2.id = o2.transaction_code_id
                 WHERE l.business_date BETWEEN @from AND @to AND l.line_type IN ('charge','discount','allowance','void') AND l.payment_method_id IS NULL
-                  AND NOT EXISTS (SELECT 1 FROM pms.folio_lines o WHERE o.id = l.related_line_id AND o.line_type IN ('payment','deposit'))
-                GROUP BY l.business_date, tc.code, tc.name, tc.category, l.line_type ORDER BY l.business_date, code
+                  AND (o.id IS NULL OR o.line_type NOT IN ('payment','deposit'))
+                GROUP BY l.business_date, 2, 3, 4 ORDER BY l.business_date, code, name
                 """,
         },
         new()
@@ -639,6 +649,30 @@ public static class ReportEndpoints
         }).WithTags("Reports").RequirePermission("audit.view");
     }
 
+    static readonly Dictionary<string, Dictionary<string, string>> CodeLabels = new()
+    {
+        ["status"] = new()
+        {
+            ["tentative"] = "Opsiyon", ["confirmed"] = "Onaylı", ["checked_in"] = "Konaklıyor", ["checked_out"] = "Çıkış yaptı", ["cancelled"] = "İptal", ["no_show"] = "No-show",
+            ["open"] = "Bekliyor", ["in_progress"] = "Yapılıyor", ["done"] = "Tamamlandı",
+            ["analyzed"] = "İncelendi", ["staged"] = "Hazırlandı", ["validated"] = "Doğrulandı", ["importing"] = "Aktarılıyor", ["completed"] = "Tamamlandı",
+            ["completed_with_errors"] = "Hatalarla tamamlandı", ["failed"] = "Başarısız", ["rolled_back"] = "Geri alındı",
+        },
+        ["category"] = new()
+        {
+            ["room"] = "Konaklama", ["food_beverage"] = "Yiyecek-içecek", ["minibar"] = "Minibar", ["laundry"] = "Çamaşırhane", ["telephone"] = "Telefon",
+            ["spa"] = "Spa", ["transfer"] = "Transfer", ["misc"] = "Diğer", ["tax"] = "Vergi", ["package"] = "Paket",
+        },
+        ["source"] = new()
+        {
+            ["direct"] = "Doğrudan", ["walk_in"] = "Walk-in", ["phone"] = "Telefon", ["email"] = "E-posta", ["web"] = "Web", ["agency"] = "Acente", ["company"] = "Şirket",
+            ["ota"] = "Online kanal", ["migration"] = "Aktarım", ["other"] = "Diğer",
+        },
+        ["type"] = new() { ["payment"] = "Tahsilat", ["deposit"] = "Depozito", ["refund"] = "İade", ["void"] = "İptal", ["charge"] = "Masraf", ["discount"] = "İndirim", ["allowance"] = "Düzeltme" },
+        ["mealPlan"] = new() { ["RO"] = "Oda (RO)", ["BB"] = "Oda kahvaltı (BB)", ["HB"] = "Yarım pansiyon (HB)", ["FB"] = "Tam pansiyon (FB)", ["AI"] = "Her şey dahil (AI)", ["UAI"] = "Ultra her şey dahil" },
+        ["task"] = new() { ["departure_clean"] = "Çıkış temizliği", ["stayover_clean"] = "Konaklama temizliği", ["inspection"] = "Kontrol", ["turndown"] = "Akşam servisi", ["deep_clean"] = "Detaylı temizlik", ["other"] = "Diğer" },
+    };
+
     static ReportDefinition Find(string name, RequestContext ctx)
     {
         var def = Definitions.FirstOrDefault(d => d.Name == name) ?? throw PmsException.NotFound("Rapor");
@@ -687,6 +721,8 @@ public static class ReportEndpoints
             {
                 var snake = global::System.Text.RegularExpressions.Regex.Replace(col.Key, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant();
                 r.TryGetValue(snake, out var v);
+                // Sistem kodları (ör. "checked_in", "minibar") ekranda, yazdırmada ve dışa aktarmada Türkçe adıyla gösterilir.
+                if (v is string code && col.Type == "text" && CodeLabels.TryGetValue(col.Key, out var labels) && labels.TryGetValue(code, out var label)) v = label;
                 row[col.Key] = v switch
                 {
                     DateTime dt when col.Type == "date" => DateOnly.FromDateTime(dt),

@@ -276,6 +276,10 @@ function FolioPrint({ detail, reservation }: { detail: FolioDetail; reservation?
   const isDebit = (m: string) => !m.startsWith('-');
   const qty = (l: FolioLine) => l.lineType === 'charge' && Number(l.quantity) !== 1 ? `${fmtQty(l.quantity)} × ${fmtMoney(l.unitPrice)}` : '';
   const balance = Number(f.balance);
+  // İptal edilen satır ve iptal kaydı çıktıda gösterilmediğinden toplamlar görünen satırlardan (kuruş olarak) hesaplanır.
+  const cents = (m: string) => Math.round(Number(m) * 100);
+  const sumOf = (pick: (c: number) => boolean) => (lines.map(l => cents(l.amount)).filter(pick).reduce((a, b) => a + Math.abs(b), 0) / 100).toFixed(2);
+  const totalDebit = sumOf(c => c > 0), totalCredit = sumOf(c => c < 0);
   const info: [string, string | undefined][] = [
     ['Misafir / Ödeyen', f.name],
     ['Oda', reservation?.roomNumber ?? undefined],
@@ -310,8 +314,8 @@ function FolioPrint({ detail, reservation }: { detail: FolioDetail; reservation?
       </table>
 
       <section className="fd-totals">
-        <div><span>Toplam borç</span><span>{fmtMoney(f.totalCharges)}</span></div>
-        <div><span>Toplam alacak</span><span>{fmtMoney(abs(f.totalCredits))}</span></div>
+        <div><span>Toplam borç</span><span>{fmtMoney(totalDebit)}</span></div>
+        <div><span>Toplam alacak</span><span>{fmtMoney(totalCredit)}</span></div>
         <div className="fd-balance">
           <span>{balance > 0 ? 'Ödenecek bakiye' : balance < 0 ? 'Misafir alacağı' : 'Bakiye'}</span>
           <span>{fmtMoney(abs(f.balance), f.currency)}</span>

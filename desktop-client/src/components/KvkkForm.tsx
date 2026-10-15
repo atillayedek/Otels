@@ -13,12 +13,22 @@ export interface KvkkPerson { name: string; room?: string; reservationNumber?: s
 
 /** Aydınlatma metnindeki yer tutucuları otel bilgileriyle doldurur. */
 export function fillNotice(text: string, p?: Property) {
+  const name = p?.name ?? '';
+  const legal = p?.legalName?.trim() || '';
   return text
-    .replaceAll('{UNVAN}', p?.legalName || p?.name || '')
-    .replaceAll('{OTEL}', p?.name ?? '')
+    // Unvan girilmemişse "Otel (Otel)" tekrarı oluşmaz.
+    .replaceAll('{UNVAN} ({OTEL})', legal && legal !== name ? `${legal} (${name})` : name)
+    .replaceAll('{UNVAN}', legal || name)
+    .replaceAll('{OTEL}', name)
     .replaceAll('{ADRES}', [p?.address, p?.city].filter(Boolean).join(', '))
     .replaceAll('{TELEFON}', p?.phone ? `Tel: ${p.phone}` : '')
-    .replaceAll('{EPOSTA}', p?.email ? `E-posta: ${p.email}` : '');
+    .replaceAll('{EPOSTA}', p?.email ? `E-posta: ${p.email}` : '')
+    // Boş kalan bilgilerden artan noktalama temizlenir.
+    .replace(/,\s*\./g, '.')
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]*İletişim:[ \t]*$/gm, '')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/,\s*$/gm, '.');
 }
 
 export const useKvkkTexts = () => useQuery({
@@ -40,7 +50,7 @@ export function KvkkFormDoc({ people, notice, consent, property }: { people: Kvk
           <div className="kv-text">{fillNotice(notice, property)}</div>
           <div className="kv-consent">
             <div className="kv-box-row"><span className="kv-box" /> Yukarıdaki aydınlatma metnini okudum ve anladım.</div>
-            {consent.trim() && <div className="kv-box-row"><span className="kv-box" /> {consent} <i>(isteğe bağlı)</i></div>}
+            {consent.trim() && <div className="kv-box-row"><span className="kv-box" /><span>{consent} <i>(isteğe bağlı)</i></span></div>}
           </div>
           <div className="kv-sign">
             <div><span>Misafir adı soyadı</span><b>{p.name}</b></div>
