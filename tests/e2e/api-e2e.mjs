@@ -884,6 +884,9 @@ try {
     r = await api('GET', `/api/v1/reservations/${r.id}`);
     await api('POST', `/api/v1/reservations/${r.id}/day-use-charge`, { version: r.version }, { ...k(), expect: 422 });   // ikinci kez işlenmez
     const folio = (await api('GET', `/api/v1/folios?reservationId=${r.id}`))[0];
+    const codes = await api('GET', '/api/v1/finance/transaction-codes');
+    for (const code of ['ROOM', 'KV'])   // oda ücreti ve konaklama vergisi elle masraf olarak girilemez
+      await api('POST', `/api/v1/folios/${folio.id}/charges`, { transactionCodeId: codes.find(x => x.code === code).id, quantity: '1', unitPrice: '100.00' }, { ...k(), expect: 422 });
     await api('POST', `/api/v1/folios/${folio.id}/payments`, { paymentMethodId: state.cash, amount: (await api('GET', `/api/v1/folios/${folio.id}`)).folio.balance, isDeposit: false }, k());
     r = await api('GET', `/api/v1/reservations/${r.id}`);
     await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, k());

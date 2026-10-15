@@ -184,10 +184,10 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
         {dlg.kind === 'charge' && <>
           <Field label="İşlem kodu" required className="span-4">
             <select className="input" value={v.codeId ?? ''} onChange={e => { const c = codes.data?.find(x => x.id === e.target.value); setV(s => ({ ...s, codeId: e.target.value, unitPrice: c?.defaultPrice ?? s.unitPrice ?? '' })); }} autoFocus>
-              <option value="">Seçin</option>{codes.data?.filter(c => c.isActive && c.category !== 'room').map(c => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}
+              <option value="">Seçin</option>{codes.data?.filter(c => c.isActive && c.category !== 'room' && c.category !== 'tax').map(c => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}
             </select>
           </Field>
-          {codes.data && codes.data.filter(c => c.isActive && c.category !== 'room').length === 0 && <div className="warn-box span-4">Tanımlı işlem kodu yok. Yönetim → İşlem Kodları ve Ödeme Tipleri ekranından ekleyin.</div>}
+          {codes.data && codes.data.filter(c => c.isActive && c.category !== 'room' && c.category !== 'tax').length === 0 && <div className="warn-box span-4">Tanımlı işlem kodu yok. Yönetim → İşlem Kodları ve Ödeme Tipleri ekranından ekleyin.</div>}
           <Field label="Miktar" required><input className="input num" value={v.quantity} onChange={set('quantity')} inputMode="decimal" /></Field>
           <Field label="Birim fiyat" required><MoneyInput value={v.unitPrice ?? ''} onChange={setVal('unitPrice')} /></Field>
           <Field label="KDV" ><input className="input" disabled value={code ? `%${code.vatRate}` : ''} /></Field>

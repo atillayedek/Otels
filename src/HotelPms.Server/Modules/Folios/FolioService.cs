@@ -180,6 +180,9 @@ public static class FolioService
         var code = await tx.OneOrNullAsync<(string Name, bool IsActive, decimal VatRate, string Category)>(
             "SELECT name, is_active, vat_rate, category FROM pms.transaction_codes WHERE id = @id", new { id = req.TransactionCodeId });
         if (code == default || !code.IsActive) throw PmsException.Validation("İşlem kodu bulunamadı veya pasif.");
+        // Oda ücreti ve konaklama vergisi yalnız gece denetiminde veya günübirlik ücretle, fiyat ve vergi kurallarına göre yazılır.
+        if (code.Category is "room" or "tax")
+            throw PmsException.Validation("Oda ücreti ve konaklama vergisi elle masraf olarak girilemez; gece denetimi (veya günübirlik ücret) yazar. Düzeltme için indirim/allowance kullanın.");
         if (req.Quantity <= 0 || decimal.Round(req.Quantity, 3) != req.Quantity) throw PmsException.Validation("Miktar pozitif ve en fazla 3 ondalıklı olmalıdır.");
         Validate.Money(req.UnitPrice, "Birim fiyat");
         var amount = decimal.Round(req.Quantity * req.UnitPrice, 2, MidpointRounding.AwayFromZero);
