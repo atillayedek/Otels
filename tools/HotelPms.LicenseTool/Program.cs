@@ -77,11 +77,13 @@ sealed class MainForm : Form
         var copy = new Button { Text = "Metni kopyala", AutoSize = true, Padding = new Padding(10, 4, 10, 4) };
         var verify = new Button { Text = "Lisans dosyası doğrula", AutoSize = true, Padding = new Padding(10, 4, 10, 4) };
         var keyBtn = new Button { Text = "İmza anahtarı…", AutoSize = true, Padding = new Padding(10, 4, 10, 4) };
+        var newKeyBtn = new Button { Text = "Yeni imza anahtarı oluştur", AutoSize = true, Padding = new Padding(10, 4, 10, 4) };
+        newKeyBtn.Click += (_, _) => CreateKey();
         make.Click += (_, _) => Make();
         copy.Click += (_, _) => { if (output.Text.Length > 0) Clipboard.SetText(output.Text); };
         verify.Click += (_, _) => VerifyFile();
         keyBtn.Click += (_, _) => ChooseKey();
-        buttons.Controls.AddRange([make, copy, verify, keyBtn]);
+        buttons.Controls.AddRange([make, copy, verify, keyBtn, newKeyBtn]);
         grid.Controls.Add(buttons); grid.SetColumnSpan(buttons, 2);
         grid.Controls.Add(output); grid.SetColumnSpan(output, 2);
         grid.Controls.Add(keyInfo); grid.SetColumnSpan(keyInfo, 2);
@@ -113,6 +115,32 @@ sealed class MainForm : Form
         }
         catch (Exception ex) when (ex is CryptographicException or IOException or ArgumentException) { Error("Anahtar okunamadı: " + ex.Message); return; }
         FindKey();
+    }
+
+    /// <summary>
+    /// Yeni imza anahtarını bu bilgisayarda oluşturur (özel anahtar yalnız buraya yazılır). Açık anahtar ekranda gösterilir ve panoya kopyalanır;
+    /// ürünün bu anahtarla üretilen lisansları tanıması için açık anahtar ürüne gömülüp ürün yeniden derlenmelidir.
+    /// </summary>
+    void CreateKey()
+    {
+        var target = Path.Combine(Program.DefaultKeyDir, Program.KeyFileName);
+        if (File.Exists(target))
+        {
+            Error($"Bu bilgisayarda zaten bir imza anahtarı var:\n{target}\n\nÜzerine yazılmaz. Gerçekten yenisini istiyorsanız önce bu dosyayı yedekleyip silin.");
+            return;
+        }
+        if (MessageBox.Show(this, "Yeni imza anahtarı oluşturulacak. Daha önce verilmiş lisanslar (varsa) bu anahtarla doğrulanmaz.\n\nDevam edilsin mi?",
+                "Yeni imza anahtarı", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        Directory.CreateDirectory(Program.DefaultKeyDir);
+        var (pem, pub) = LicenseFormat.NewKeyPair();
+        File.WriteAllText(target, pem, new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(Program.DefaultKeyDir, "acik-anahtar.txt"), pub + Environment.NewLine, new UTF8Encoding(false));
+        output.Text = pub;
+        Clipboard.SetText(pub);
+        FindKey();
+        MessageBox.Show(this, $"İmza anahtarı oluşturuldu:\n{target}\n\nAçık anahtar panoya kopyalandı (aşağıdaki kutuda da görünüyor). Bu açık anahtarı geliştiriciye iletin; " +
+            "ürün bu anahtarla yeniden derlendikten sonra lisans üretebilirsiniz.\n\nÖzel anahtar dosyasını (lisans-imza-anahtari.pem) şifreli bir USB belleğe yedekleyin ve kimseyle paylaşmayın.",
+            "Anahtar hazır", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     static ECDsa LoadKey(string path)
