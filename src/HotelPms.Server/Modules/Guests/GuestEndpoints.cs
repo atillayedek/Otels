@@ -7,7 +7,9 @@ public sealed record GuestDto(Guid Id, string FirstName, string LastName, string
     string? FatherName, string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry,
     DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId, string? CompanyName,
     string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool IsBlacklisted, string? BlacklistReason, bool KvkkConsent,
-    DateTime? KvkkConsentAt, bool MarketingConsent, DateTime CreatedAt, string? MigrationSource, int Version, DateTime? AnonymizedAt = null)
+    DateTime? KvkkConsentAt, bool MarketingConsent, DateTime CreatedAt, string? MigrationSource, int Version, DateTime? AnonymizedAt = null,
+    string? Title = null, string? MaritalStatus = null, string? Language = null, string? Phone2 = null, string? IdentitySerial = null,
+    string? IdentityIssuePlace = null, DateOnly? IdentityIssueDate = null, string? District = null, string? PostalCode = null, string? VehiclePlate = null, string? AlertNote = null)
 {
     public GuestDto Masked() => this with { IdentityNumber = Validate.Mask(IdentityNumber) };
 }
@@ -18,7 +20,9 @@ public sealed record GuestListItem(Guid Id, string FirstName, string LastName, s
 public sealed record SaveGuestRequest(string FirstName, string LastName, string? Gender, DateOnly? BirthDate, string? BirthPlace,
     string? FatherName, string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry,
     DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId,
-    string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent, int? Version);
+    string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent, int? Version,
+    string? Title = null, string? MaritalStatus = null, string? Language = null, string? Phone2 = null, string? IdentitySerial = null,
+    string? IdentityIssuePlace = null, DateOnly? IdentityIssueDate = null, string? District = null, string? PostalCode = null, string? VehiclePlate = null, string? AlertNote = null);
 
 public sealed record BlacklistRequest(bool IsBlacklisted, string? Reason, int Version);
 
@@ -35,7 +39,9 @@ public static class GuestEndpoints
         SELECT g.id, g.first_name, g.last_name, g.gender, g.birth_date, g.birth_place, g.father_name, g.mother_name, g.nationality::text AS nationality,
                g.identity_type, g.identity_number, g.identity_country::text AS identity_country, g.identity_expiry, g.phone, g.email, g.address, g.city,
                g.country::text AS country, g.tax_office, g.tax_number, g.company_id, c.name AS company_name, g.notes, g.preferences, g.is_vip, g.vip_level, g.is_blacklisted,
-               g.blacklist_reason, g.kvkk_consent, g.kvkk_consent_at, g.marketing_consent, g.created_at, g.migration_source, g.version, g.anonymized_at
+               g.blacklist_reason, g.kvkk_consent, g.kvkk_consent_at, g.marketing_consent, g.created_at, g.migration_source, g.version, g.anonymized_at,
+               g.title, g.marital_status, g.language, g.phone2, g.identity_serial, g.identity_issue_place, g.identity_issue_date, g.district, g.postal_code,
+               g.vehicle_plate, g.alert_note
         FROM pms.guests g LEFT JOIN pms.companies c ON c.id = g.company_id
         """;
 
@@ -115,7 +121,9 @@ public static class GuestEndpoints
                     phone_normalized = @PhoneNormalized, email = @Email, address = @Address, city = @City, country = @Country, tax_office = @TaxOffice, tax_number = @TaxNumber, company_id = @CompanyId,
                     notes = @Notes, preferences = @Preferences, is_vip = @IsVip, vip_level = @VipLevel,
                     kvkk_consent = @KvkkConsent, kvkk_consent_at = CASE WHEN @KvkkConsent AND NOT kvkk_consent THEN now() WHEN NOT @KvkkConsent THEN NULL ELSE kvkk_consent_at END,
-                    marketing_consent = @MarketingConsent, updated_at = now(), version = version + 1
+                    marketing_consent = @MarketingConsent, title = @Title, marital_status = @MaritalStatus, language = @Language, phone2 = @Phone2,
+                    identity_serial = @IdentitySerial, identity_issue_place = @IdentityIssuePlace, identity_issue_date = @IdentityIssueDate, district = @District,
+                    postal_code = @PostalCode, vehicle_plate = @VehiclePlate, alert_note = @AlertNote, updated_at = now(), version = version + 1
                 WHERE id = @Id AND version = @Version
                 """, p with { Id = id, Version = req.Version ?? -1 });
             await tx.AuditAsync("guest.update", "guest", id, before.Masked(), p with { IdentityNumber = Validate.Mask(p.IdentityNumber) });
@@ -142,10 +150,12 @@ public static class GuestEndpoints
         var id = await tx.ScalarAsync<Guid>("""
             INSERT INTO pms.guests (first_name, last_name, gender, birth_date, birth_place, father_name, mother_name, nationality, identity_type,
                 identity_number, identity_country, identity_expiry, phone, phone_normalized, email, address, city, country, tax_office, tax_number, company_id, notes,
-                preferences, is_vip, vip_level, kvkk_consent, kvkk_consent_at, marketing_consent, created_by)
+                preferences, is_vip, vip_level, kvkk_consent, kvkk_consent_at, marketing_consent, created_by, title, marital_status, language, phone2,
+                identity_serial, identity_issue_place, identity_issue_date, district, postal_code, vehicle_plate, alert_note)
             VALUES (@FirstName, @LastName, @Gender, @BirthDate, @BirthPlace, @FatherName, @MotherName, @Nationality, @IdentityType,
                 @IdentityNumber, @IdentityCountry, @IdentityExpiry, @Phone, @PhoneNormalized, @Email, @Address, @City, @Country, @TaxOffice, @TaxNumber, @CompanyId, @Notes,
-                @Preferences, @IsVip, @VipLevel, @KvkkConsent, CASE WHEN @KvkkConsent THEN now() END, @MarketingConsent, @Uid)
+                @Preferences, @IsVip, @VipLevel, @KvkkConsent, CASE WHEN @KvkkConsent THEN now() END, @MarketingConsent, @Uid, @Title, @MaritalStatus, @Language, @Phone2,
+                @IdentitySerial, @IdentityIssuePlace, @IdentityIssueDate, @District, @PostalCode, @VehiclePlate, @AlertNote)
             RETURNING id
             """, p with { Uid = tx.User.Id });
         await tx.AuditAsync("guest.create", "guest", id, null, p with { IdentityNumber = Validate.Mask(p.IdentityNumber) });
@@ -156,7 +166,9 @@ public static class GuestEndpoints
     public sealed record GuestParams(string FirstName, string LastName, string? Gender, DateOnly? BirthDate, string? BirthPlace, string? FatherName,
         string? MotherName, string? Nationality, string? IdentityType, string? IdentityNumber, string? IdentityCountry, DateOnly? IdentityExpiry,
         string? Phone, string? PhoneNormalized, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId, string? Notes,
-        string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent)
+        string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent, string? Title, string? MaritalStatus, string? Language,
+        string? Phone2, string? IdentitySerial, string? IdentityIssuePlace, DateOnly? IdentityIssueDate, string? District, string? PostalCode, string? VehiclePlate,
+        string? AlertNote)
     {
         public Guid Id { get; init; }
         public int Version { get; init; }
@@ -174,6 +186,10 @@ public static class GuestEndpoints
         if (r.BirthDate is { } bd && (bd > DateOnly.FromDateTime(DateTime.Today) || bd.Year < 1900))
             throw PmsException.Validation("Doğum tarihi geçersiz.");
         var phone = Validate.Optional(r.Phone, 40);
+        if (r.MaritalStatus is not (null or "" or "single" or "married" or "divorced" or "widowed")) throw PmsException.Validation("Geçersiz medeni hal.");
+        var lang = Validate.Optional(r.Language, 2)?.ToLowerInvariant();
+        if (lang is not null && !(lang.Length == 2 && lang.All(char.IsAsciiLetterLower))) throw PmsException.Validation("Dil iki harfli kod olmalıdır (ör. tr, en, de).");
+        if (r.IdentityIssueDate is { } idd && idd > DateOnly.FromDateTime(DateTime.Today)) throw PmsException.Validation("Belge veriliş tarihi ileri bir tarih olamaz.");
         return new GuestParams(
             Validate.Required(r.FirstName, "Ad", 100), Validate.Required(r.LastName, "Soyad", 100),
             string.IsNullOrEmpty(r.Gender) ? null : r.Gender, r.BirthDate, Validate.Optional(r.BirthPlace, 100),
@@ -182,6 +198,9 @@ public static class GuestEndpoints
             Validate.Email(r.Email), Validate.Optional(r.Address), Validate.Optional(r.City, 100), Validate.Country(r.Country),
             Validate.Optional(r.TaxOffice, 100), Validate.Optional(r.TaxNumber, 20), r.CompanyId,
             Validate.Optional(r.Notes, 4000), Validate.Optional(r.Preferences, 2000), r.IsVip, Validate.Optional(r.VipLevel, 20),
-            r.KvkkConsent, r.MarketingConsent);
+            r.KvkkConsent, r.MarketingConsent, Validate.Optional(r.Title, 20), string.IsNullOrEmpty(r.MaritalStatus) ? null : r.MaritalStatus, lang,
+            Validate.Optional(r.Phone2, 40), Validate.Optional(r.IdentitySerial, 30)?.ToUpperInvariant(), Validate.Optional(r.IdentityIssuePlace, 100), r.IdentityIssueDate,
+            Validate.Optional(r.District, 100), Validate.Optional(r.PostalCode, 20), Validate.Optional(r.VehiclePlate, 20)?.ToUpperInvariant().Replace(" ", ""),
+            Validate.Optional(r.AlertNote, 500));
     }
 }

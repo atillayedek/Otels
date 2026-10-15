@@ -22,6 +22,8 @@ export interface RoomStatus {
   id: string; number: string; floor?: string; roomTypeId: string; roomTypeCode: string; hkStatus: string; isDnd: boolean; hkNote?: string; hkUpdatedAt?: string;
   foStatus: 'occupied' | 'vacant'; blockKind?: string; blockReason?: string; inHouseReservationId?: string; inHouseGuest?: string; inHouseDeparture?: DateStr; isVip: boolean;
   arrivalReservationId?: string; arrivalGuest?: string; departureToday: boolean; openTasks: number; openTickets: number;
+  inHouseCheckedInAt?: string; inHouseAccount?: string; inHouseNote?: string; inHousePax?: number; inHouseBalance?: Money; inHouseCurrency?: string;
+  arrivalEta?: string; arrivalAccount?: string; arrivalNote?: string; arrivalDeparture?: DateStr;
 }
 export interface RoomBlock { id: string; roomId: string; roomNumber: string; kind: string; dateFrom: DateStr; dateTo: DateStr; reason: string; ticketId?: string; isActive: boolean; createdAt: string; createdBy?: string }
 
@@ -31,6 +33,8 @@ export interface Guest {
   identityType?: string; identityNumber?: string; identityCountry?: string; identityExpiry?: DateStr; phone?: string; email?: string; address?: string; city?: string; country?: string;
   taxOffice?: string; taxNumber?: string; companyId?: string; companyName?: string; notes?: string; preferences?: string; isVip: boolean; vipLevel?: string; isBlacklisted: boolean;
   blacklistReason?: string; kvkkConsent: boolean; kvkkConsentAt?: string; marketingConsent: boolean; createdAt: string; migrationSource?: string; version: number; anonymizedAt?: string;
+  title?: string; maritalStatus?: string; language?: string; phone2?: string; identitySerial?: string; identityIssuePlace?: string; identityIssueDate?: DateStr;
+  district?: string; postalCode?: string; vehiclePlate?: string; alertNote?: string;
 }
 export interface GuestStay { id: string; reservationNumber: string; status: string; arrival: DateStr; departure: DateStr; roomNumber?: string; roomTypeCode: string; nightlyRate: Money; currency: string }
 export interface GuestFolio { id: string; folioNumber: string; status: string; balance: Money; totalCharges: Money; totalPayments: Money }
@@ -50,7 +54,7 @@ export interface Reservation {
   nightlyRate: Money; totalRate: Money; currency: string; mealPlan: string; source: string; market?: string; segment?: string; isWalkIn: boolean; eta?: string; etd?: string;
   roomChargeWindow: number; notes?: string; specialRequests?: string; depositRequired: Money; optionUntil?: DateStr; checkedInAt?: string; checkedOutAt?: string;
   cancelledAt?: string; cancelReason?: string; createdAt: string; createdBy?: string; balance: Money; version: number; rateCurrency?: string; fxNightlyRate?: Money;
-  channel?: string; channelRef?: string;
+  channel?: string; channelRef?: string; guestAlertNote?: string;
 }
 export interface ReservationListItem {
   id: string; reservationNumber: string; status: string; guestName: string; guestIsVip: boolean; companyName?: string; agencyName?: string; roomTypeCode: string;

@@ -24,7 +24,7 @@ public static class ReservationService
                r.special_requests, r.deposit_required, r.option_until, r.checked_in_at, r.checked_out_at, r.cancelled_at, r.cancel_reason,
                r.created_at, cu.username AS created_by,
                COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance,
-               r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate, r.channel, r.channel_ref
+               r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate, r.channel, r.channel_ref, g.alert_note AS guest_alert_note
         FROM pms.reservations r
         JOIN pms.guests g ON g.id = r.guest_id
         JOIN pms.room_types t ON t.id = r.room_type_id

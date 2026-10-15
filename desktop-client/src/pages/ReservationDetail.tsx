@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, BedDouble, CalendarClock, Crown, LogIn, LogOut, Pencil, Trash2, UserMinus, UserPlus, UserX, XCircle } from 'lucide-react';
+import { AlarmClock, AlertTriangle, ArrowLeft, BedDouble, CalendarClock, Crown, LogIn, LogOut, Pencil, Trash2, UserMinus, UserPlus, UserX, XCircle } from 'lucide-react';
 import { api, del, get, post, qs } from '../lib/api';
 import type { AuditRow, GuestListItem, Paged, Reservation, Sharer } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney, MEAL_LABEL, SOURCE_LABEL, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
@@ -27,9 +27,12 @@ export default function ReservationDetailPage() {
   const confirm = useConfirm();
   const qc = useQueryClient();
   const { can, property } = useSession();
-  const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'traces' | 'history' | 'docs'>('folio');
-  const [dlg, setDlg] = useState<Dlg>(null);
   const [sp, setSp] = useSearchParams();
+  // Oda Rack menüsünden doğrudan bir işlem açılabilir (?do=checkin|checkout|move|extend|wakeup|charge|payment|trace).
+  const [initial] = useState(() => sp.get('do'));
+  const [tab, setTab] = useState<'folio' | 'guests' | 'rates' | 'traces' | 'history' | 'docs'>(initial === 'trace' ? 'traces' : 'folio');
+  const [dlg, setDlg] = useState<Dlg>(['checkin', 'checkout', 'move', 'extend', 'wakeup'].includes(initial ?? '') ? initial as Dlg : null);
+  useEffect(() => { if (sp.has('do')) { const n = new URLSearchParams(sp); n.delete('do'); setSp(n, { replace: true }); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const res = useQuery({ queryKey: ['reservation', id], queryFn: () => get<Reservation>(`/api/v1/reservations/${id}`) });
   const sharers = useQuery({ queryKey: ['reservation', id, 'guests'], queryFn: () => get<Sharer[]>(`/api/v1/reservations/${id}/guests`), enabled: tab === 'guests' });
   const rates = useQuery({ queryKey: ['reservation', id, 'rates'], queryFn: () => get<{ date: string; rate: string }[]>(`/api/v1/reservations/${id}/rates`), enabled: tab === 'rates' });
@@ -70,6 +73,8 @@ export default function ReservationDetailPage() {
         {pre && can('reservation.cancel') && <button className="btn danger" onClick={() => setDlg('cancel')}><XCircle /> İptal</button>}
       </>} />
 
+      {r.guestAlertNote && <div className="warn-box row" style={{ marginBottom: 12, gap: 8, fontSize: 13.5 }}><AlertTriangle size={16} /> <b>Misafir uyarısı:</b> {r.guestAlertNote}</div>}
+
       <div className="grid cols-3" style={{ marginBottom: 14 }}>
         <div className="card"><div className="card-head"><h3>Konaklama</h3></div><div className="card-body">
           <Kv items={[
@@ -99,7 +104,7 @@ export default function ReservationDetailPage() {
 
       <Tabs value={tab} onChange={setTab} items={[{ key: 'folio', label: 'Folyo' }, { key: 'guests', label: 'Ek misafirler' }, { key: 'rates', label: 'Gecelik fiyatlar' }, ...(can('trace.manage') ? [{ key: 'traces' as const, label: 'Hatırlatmalar' }] : []), { key: 'history', label: 'İşlem geçmişi' }, { key: 'docs', label: 'Belgeler' }]} />
       <div className="card"><div className="card-body">
-        {tab === 'folio' && (can('folio.view') ? <FolioPanel reservation={r} /> : <Empty title="Folyo görüntüleme yetkiniz yok" />)}
+        {tab === 'folio' && (can('folio.view') ? <FolioPanel reservation={r} initialDialog={initial === 'charge' || initial === 'payment' ? initial : undefined} /> : <Empty title="Folyo görüntüleme yetkiniz yok" />)}
         {tab === 'guests' && (
           <div className="stack">
             {can('reservation.edit') && r.status !== 'checked_out' && r.status !== 'cancelled' && <div><button className="btn sm" onClick={() => setDlg('sharer')}><UserPlus /> Misafir ekle</button></div>}

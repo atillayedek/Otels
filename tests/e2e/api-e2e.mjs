@@ -90,9 +90,16 @@ try {
 
   await step('Misafir (Türkçe karakter + TCKN) ve maskeleme', async () => {
     state.guest = (await api('POST', '/api/v1/guests', { firstName: 'Çağrı', lastName: 'Işıkoğlu', nationality: 'TR', identityType: 'tckn', identityNumber: tckn(12345678),
-      phone: '0532 111 22 33', email: 'test@example.invalid', isVip: true, kvkkConsent: true, marketingConsent: false })).id;
+      phone: '0532 111 22 33', email: 'test@example.invalid', isVip: true, kvkkConsent: true, marketingConsent: false,
+      title: 'Bay', maritalStatus: 'married', language: 'TR', phone2: '0212 555 00 11', identitySerial: 'a12 b', identityIssuePlace: 'Kadıköy',
+      identityIssueDate: '2020-05-04', district: 'Kadıköy', postalCode: '34710', vehiclePlate: '34 abc 123', alertNote: 'Ödemeyi peşin alın' })).id;
     const prof = await api('GET', `/api/v1/guests/${state.guest}`);
     assert.equal(prof.guest.firstName, 'Çağrı'); assert.equal(prof.guest.lastName, 'Işıkoğlu');
+    const pg = prof.guest;
+    assert.deepEqual([pg.title, pg.maritalStatus, pg.language, pg.phone2, pg.identitySerial, pg.identityIssuePlace, pg.identityIssueDate, pg.district, pg.postalCode, pg.vehiclePlate, pg.alertNote],
+      ['Bay', 'married', 'tr', '0212 555 00 11', 'A12 B', 'Kadıköy', '2020-05-04', 'Kadıköy', '34710', '34ABC123', 'Ödemeyi peşin alın'], 'misafir kartı ek alanları');
+    await api('POST', '/api/v1/guests', { firstName: 'A', lastName: 'B', maritalStatus: 'nisanli', isVip: false, kvkkConsent: false, marketingConsent: false }, { expect: 422 });
+    await api('POST', '/api/v1/guests', { firstName: 'A', lastName: 'B', language: 'tur', isVip: false, kvkkConsent: false, marketingConsent: false }, { expect: 422 });
     const list = await api('GET', '/api/v1/guests?q=' + encodeURIComponent('ışıkoğlu'));
     assert.equal(list.total, 1);
   });
@@ -152,6 +159,9 @@ try {
     await api('POST', `/api/v1/reservations/${state.res}/check-in`, { roomId: state.room101, earlyCheckIn: false, version: r.version }, { key: randomUUID() });
     const after = await api('GET', `/api/v1/reservations/${state.res}`);
     assert.equal(after.status, 'checked_in'); assert.equal(after.roomNumber, '101');
+    assert.equal(after.guestAlertNote, 'Ödemeyi peşin alın', 'misafir uyarısı rezervasyonda görünür');
+    const rack = (await api('GET', '/api/v1/rooms/status')).find(x => x.number === '101');
+    assert.ok(rack.inHouseCheckedInAt && rack.inHousePax >= 1 && rack.inHouseBalance !== undefined && rack.inHouseCurrency, 'Rack giriş zamanı, kişi ve bakiye bilgisi');
     const kbs = await api('GET', '/api/v1/kbs/reports');
     assert.ok(kbs.some(k => k.status === 'blocked_configuration'));
   });
@@ -829,13 +839,15 @@ try {
   await step('KVKK: kişisel veri dökümü, anonimleştirme (geri alınamaz), aktif konaklamada red, saklama süresi imhası', async () => {
     const k = () => ({ key: randomUUID() });
     const g = await api('POST', '/api/v1/guests', { firstName: 'Silme', lastName: 'Talebi', phone: '05321112233', email: 'silme@ornek.com.tr', identityType: 'tckn',
-      identityNumber: tckn(424242), nationality: 'TR', isVip: false, kvkkConsent: true, marketingConsent: true }, k());
+      identityNumber: tckn(424242), nationality: 'TR', isVip: false, kvkkConsent: true, marketingConsent: true, phone2: '02125550000', vehiclePlate: '06XYZ06',
+      identitySerial: 'Z99', district: 'Çankaya', alertNote: 'not' }, k());
     const x = await api('GET', `/api/v1/guests/${g.id}/privacy/export`, undefined, { raw: true });
     assert.equal(x.status, 200); assert.match(x.headers.get('content-type'), /spreadsheetml/); await x.arrayBuffer();
     await api('POST', `/api/v1/guests/${g.id}/anonymize`, { reason: 'İlgili kişinin 14.10.2026 tarihli silme talebi' });
     const a = (await api('GET', `/api/v1/guests/${g.id}`)).guest;
     assert.equal(a.firstName, 'Anonim'); assert.ok(a.lastName.startsWith('Misafir '));
     assert.ok(!a.identityNumber && !a.phone && !a.email && a.anonymizedAt && !a.kvkkConsent && !a.marketingConsent, 'kişisel alanlar silindi');
+    assert.ok(!a.phone2 && !a.vehiclePlate && !a.identitySerial && !a.district && !a.alertNote, 'ek kişisel alanlar da silindi');
     await api('POST', `/api/v1/guests/${g.id}/anonymize`, { reason: 'tekrar' }, { expect: 422 });
     await api('PUT', `/api/v1/guests/${g.id}`, { firstName: 'Geri', lastName: 'Getir', isVip: false, kvkkConsent: false, marketingConsent: false, version: a.version }, { expect: 422 });
     // Aktif konaklaması olan misafir anonimleştirilemez

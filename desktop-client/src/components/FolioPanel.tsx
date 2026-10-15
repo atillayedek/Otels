@@ -20,7 +20,7 @@ type Dialog =
   | { kind: 'charge' } | { kind: 'payment' } | { kind: 'refund' } | { kind: 'discount'; line?: FolioLine } | { kind: 'void'; line: FolioLine }
   | { kind: 'transfer'; line: FolioLine } | { kind: 'balance' } | { kind: 'newFolio' } | { kind: 'invoice' } | { kind: 'reopen' } | null;
 
-export function FolioPanel({ reservation, folioId: fixedFolio }: { reservation?: Reservation; folioId?: string }) {
+export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: { reservation?: Reservation; folioId?: string; initialDialog?: 'charge' | 'payment' }) {
   const { can } = useSession();
   const refresh = useRefresh();
   const menu = useContextMenu();
@@ -31,7 +31,7 @@ export function FolioPanel({ reservation, folioId: fixedFolio }: { reservation?:
   const [sel, setSel] = useState<string | null>(fixedFolio ?? null);
   const activeId = sel ?? folios.data?.[0]?.id ?? null;
   const detail = useQuery({ queryKey: ['folio', activeId], queryFn: () => get<FolioDetail>(`/api/v1/folios/${activeId}`), enabled: !!activeId });
-  const [dlg, setDlg] = useState<Dialog>(null);
+  const [dlg, setDlg] = useState<Dialog>(initialDialog ? { kind: initialDialog } : null);
   const [printing, setPrinting] = useState(false);
   const f = detail.data?.folio;
   const editable = f?.status === 'open';

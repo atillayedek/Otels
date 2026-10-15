@@ -62,6 +62,10 @@ public static class PrivacyEndpoints
                     ("Kimlik türü", guest.IdentityType), ("Kimlik no", guest.IdentityNumber), ("Kimlik ülkesi", guest.IdentityCountry),
                     ("Kimlik geçerlilik", guest.IdentityExpiry?.ToString("dd.MM.yyyy")), ("Telefon", guest.Phone), ("E-posta", guest.Email),
                     ("Adres", guest.Address), ("Şehir", guest.City), ("Ülke", guest.Country), ("Vergi dairesi", guest.TaxOffice), ("Vergi no", guest.TaxNumber),
+                    ("Hitap", guest.Title), ("Medeni hal", guest.MaritalStatus switch { "single" => "Bekâr", "married" => "Evli", "divorced" => "Boşanmış", "widowed" => "Dul", _ => null }),
+                    ("Dil", guest.Language), ("İkinci telefon", guest.Phone2), ("Belge seri no", guest.IdentitySerial), ("Belgenin verildiği yer", guest.IdentityIssuePlace),
+                    ("Belge veriliş tarihi", guest.IdentityIssueDate?.ToString("dd.MM.yyyy")), ("İlçe", guest.District), ("Posta kodu", guest.PostalCode),
+                    ("Araç plakası", guest.VehiclePlate), ("Resepsiyon uyarısı", guest.AlertNote),
                     ("Şirket", guest.CompanyName), ("Notlar", guest.Notes), ("Tercihler", guest.Preferences), ("VIP", guest.IsVip ? "Evet" : "Hayır"),
                     ("Kara liste", guest.IsBlacklisted ? $"Evet ({guest.BlacklistReason})" : "Hayır"),
                     ("KVKK aydınlatma / açık rıza", guest.KvkkConsent ? $"Evet ({guest.KvkkConsentAt?.ToLocalTime():dd.MM.yyyy HH:mm})" : "Hayır"),
@@ -184,6 +188,8 @@ public static class PrivacyEndpoints
                 identity_type = NULL, identity_number = NULL, identity_country = NULL, identity_expiry = NULL, phone = NULL, phone_normalized = NULL, email = NULL,
                 address = NULL, city = NULL, tax_office = NULL, tax_number = NULL, company_id = NULL, notes = NULL, preferences = NULL, is_vip = false, vip_level = NULL,
                 is_blacklisted = false, blacklist_reason = NULL, kvkk_consent = false, kvkk_consent_at = NULL, marketing_consent = false,
+                title = NULL, marital_status = NULL, language = NULL, phone2 = NULL, identity_serial = NULL, identity_issue_place = NULL,
+                identity_issue_date = NULL, district = NULL, postal_code = NULL, vehicle_plate = NULL, alert_note = NULL,
                 anonymized_at = now(), anonymized_by = @uid, updated_at = now(), version = version + 1
             WHERE id = @id
             """, new { id, last = "Misafir " + tag, uid = tx.User.Id });

@@ -10,7 +10,7 @@ public sealed record ReservationDto(
     string Source, string? Market, string? Segment, bool IsWalkIn, TimeOnly? Eta, TimeOnly? Etd, int RoomChargeWindow, string? Notes,
     string? SpecialRequests, decimal DepositRequired, DateOnly? OptionUntil, DateTime? CheckedInAt, DateTime? CheckedOutAt, DateTime? CancelledAt,
     string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version, string? RateCurrency, decimal? FxNightlyRate,
-    string? Channel, string? ChannelRef);
+    string? Channel, string? ChannelRef, string? GuestAlertNote = null);
 
 public sealed record ReservationListItem(Guid Id, string ReservationNumber, string Status, string GuestName, bool GuestIsVip, string? CompanyName,
     string? AgencyName, string RoomTypeCode, string? RoomNumber, DateOnly Arrival, DateOnly Departure, int Adults, int Children,

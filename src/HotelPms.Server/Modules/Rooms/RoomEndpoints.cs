@@ -18,7 +18,9 @@ public sealed record SaveRoomRequest(Guid RoomTypeId, string Number, string? Flo
 public sealed record RoomStatusDto(Guid Id, string Number, string? Floor, Guid RoomTypeId, string RoomTypeCode, string HkStatus, bool IsDnd,
     string? HkNote, DateTime? HkUpdatedAt, string FoStatus, string? BlockKind, string? BlockReason,
     Guid? InHouseReservationId, string? InHouseGuest, DateOnly? InHouseDeparture, bool IsVip,
-    Guid? ArrivalReservationId, string? ArrivalGuest, bool DepartureToday, int OpenTasks, int OpenTickets);
+    Guid? ArrivalReservationId, string? ArrivalGuest, bool DepartureToday, int OpenTasks, int OpenTickets,
+    DateTime? InHouseCheckedInAt, string? InHouseAccount, string? InHouseNote, int? InHousePax, decimal? InHouseBalance, string? InHouseCurrency,
+    TimeOnly? ArrivalEta, string? ArrivalAccount, string? ArrivalNote, DateOnly? ArrivalDeparture);
 
 public sealed record HousekeepingUpdateRequest(string HkStatus, bool IsDnd, string? HkNote, int Version);
 
@@ -99,10 +101,12 @@ public static class RoomEndpoints
             return new { id };
         }, requireKey: false)).RequirePermission("room.manage");
 
-        rooms.MapGet("/status", async (Db db) =>
+        rooms.MapGet("/status", async (Db db, RequestContext ctx) =>
         {
             var bd = await db.ScalarAsync<DateOnly>("SELECT business_date FROM pms.property LIMIT 1");
-            return await db.QueryAsync<RoomStatusDto>(StatusSql, new { bd });
+            var list = await db.QueryAsync<RoomStatusDto>(StatusSql, new { bd });
+            // Folyo bakiyesi yalnız folyo görme yetkisi olanlara (ör. kat hizmetleri görmez).
+            return ctx.RequireUser().Has("folio.view") ? list : list.Select(x => x with { InHouseBalance = null }).ToList();
         });
 
         rooms.MapPost("/{id:guid}/housekeeping", (Guid id, HousekeepingUpdateRequest req, CommandRunner cmd, RequestContext ctx) =>
@@ -202,14 +206,25 @@ public static class RoomEndpoints
                ar.id AS arrival_reservation_id, arg.first_name || ' ' || arg.last_name AS arrival_guest,
                (ih.departure IS NOT NULL AND ih.departure <= @bd) AS departure_today,
                (SELECT count(*)::int FROM pms.hk_tasks k WHERE k.room_id = r.id AND k.status IN ('open','in_progress')) AS open_tasks,
-               (SELECT count(*)::int FROM pms.maintenance_tickets m WHERE m.room_id = r.id AND m.status IN ('open','in_progress')) AS open_tickets
+               (SELECT count(*)::int FROM pms.maintenance_tickets m WHERE m.room_id = r.id AND m.status IN ('open','in_progress')) AS open_tickets,
+               ih.checked_in_at AS in_house_checked_in_at, COALESCE(ihc.name, iha.name) AS in_house_account,
+               NULLIF(btrim(concat_ws(' · ', ih.notes, ih.special_requests)), '') AS in_house_note,
+               ih.adults + ih.children AS in_house_pax,
+               CASE WHEN ih.id IS NOT NULL THEN COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = ih.id), 0) END AS in_house_balance,
+               ih.currency::text AS in_house_currency,
+               ar.eta AS arrival_eta, COALESCE(arc.name, ara.name) AS arrival_account,
+               NULLIF(btrim(concat_ws(' · ', ar.notes, ar.special_requests)), '') AS arrival_note, ar.departure AS arrival_departure
         FROM pms.rooms r
         JOIN pms.room_types t ON t.id = r.room_type_id
         LEFT JOIN pms.reservations ih ON ih.room_id = r.id AND ih.status = 'checked_in'
         LEFT JOIN pms.guests ihg ON ihg.id = ih.guest_id
-        LEFT JOIN LATERAL (SELECT x.id, x.guest_id FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative')
+        LEFT JOIN pms.companies ihc ON ihc.id = ih.company_id
+        LEFT JOIN pms.agencies iha ON iha.id = ih.agency_id
+        LEFT JOIN LATERAL (SELECT x.id, x.guest_id, x.eta, x.notes, x.special_requests, x.company_id, x.agency_id, x.departure FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative')
                             AND x.arrival = @bd ORDER BY x.created_at LIMIT 1) ar ON true
         LEFT JOIN pms.guests arg ON arg.id = ar.guest_id
+        LEFT JOIN pms.companies arc ON arc.id = ar.company_id
+        LEFT JOIN pms.agencies ara ON ara.id = ar.agency_id
         LEFT JOIN LATERAL (SELECT kind, reason FROM pms.room_blocks bb WHERE bb.room_id = r.id AND bb.is_active
                             AND bb.date_from <= @bd AND bb.date_to > @bd LIMIT 1) b ON true
         WHERE r.is_active

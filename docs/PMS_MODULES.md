@@ -15,6 +15,8 @@
 - Konaklama uzatma/kısaltma, no-show, iptal (gerekçeli)
 - Check-out: tüm folyo pencerelerinin bakiyesi sıfır olmalı
 - Oda rack ve blokaj zaman çizelgesi (sürükle-bırak ile oda atama), uyandırma kayıtları
+- Oda Rack kartında misafir, firma/acente, giriş zamanı → çıkış tarihi, kişi sayısı, bakiye ve rezervasyon notu; firma, giriş ve çıkış tarihi filtreleri; kart boyutu (küçült/büyült) ve Rack dökümü yazdırma. Odaya tıklayınca: konaklamayı aç, masraf, tahsilat, adisyon aç, oda değişimi, uzat/kısalt, uyandırma, misafir isteği, çıkış; gelişte giriş yap; boş odada walk-in ve rezervasyon; oda durumu/notu, arıza ve satışa kapatma
+- Misafir kartı: hitap, medeni hal, dil, ikinci telefon, belge seri no, belgenin verildiği yer ve tarih, ilçe, posta kodu, araç plakası ve resepsiyon uyarısı (rezervasyon ve giriş ekranında gösterilir). Bu alanlar eski programdan aktarımda da eşlenir, anonimleştirmede silinir
 
 ## Folyo ve kasa
 

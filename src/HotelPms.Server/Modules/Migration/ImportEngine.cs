@@ -282,6 +282,8 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
         return ids.Count == 1 ? ids[0] : null;
     }
 
+    static string? Cut(string? s, int max) => s is null ? null : s.Length <= max ? s : s[..max];
+
     async Task<(Guid, string)> GuestAsync(Dictionary<string, string?> m, Guid? updateId)
     {
         var (idType, idNo) = S(m, "tckn") is { } tc ? ("tckn", tc) : S(m, "passport_no") is { } pp ? ("passport", pp.ToUpperInvariant()) : S(m, "identity_number") is { } other ? ("other", other.ToUpperInvariant()) : (null, null);
@@ -297,6 +299,9 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
             city = S(m, "city"), country = S(m, "country"), taxOffice = S(m, "tax_office"), taxNo = S(m, "tax_number"), companyId, notes = LostNotes(m, S(m, "notes")), prefs = S(m, "preferences"), vip = B(m, "is_vip"),
             vipLevel = S(m, "vip_level"), bl = B(m, "is_blacklisted"), blReason = S(m, "blacklist_reason"), kvkk = B(m, "kvkk_consent"), mkt = B(m, "marketing_consent"),
             jobId, src = sourceLabel, sid = S(m, "source_id"), userId, id = updateId,
+            phone2 = Cut(S(m, "phone2"), 40), serial = Cut(S(m, "identity_serial")?.ToUpperInvariant(), 30), issuePlace = Cut(S(m, "identity_issue_place"), 100),
+            issueDate = Dt(m, "identity_issue_date"), district = Cut(S(m, "district"), 100), postal = Cut(S(m, "postal_code"), 20),
+            plate = Cut(S(m, "vehicle_plate")?.ToUpperInvariant().Replace(" ", ""), 20), title = Cut(S(m, "title"), 20),
         };
         if (updateId is { } uid)
         {
@@ -312,6 +317,9 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
                     notes = CASE WHEN @notes IS NULL THEN notes WHEN notes IS NULL THEN @notes ELSE notes || E'\n' || @notes END,
                     preferences = COALESCE(preferences, @prefs), is_vip = is_vip OR @vip, vip_level = COALESCE(vip_level, @vipLevel),
                     is_blacklisted = is_blacklisted OR @bl, blacklist_reason = COALESCE(blacklist_reason, @blReason),
+                    phone2 = COALESCE(phone2, @phone2), identity_serial = COALESCE(identity_serial, @serial), identity_issue_place = COALESCE(identity_issue_place, @issuePlace),
+                    identity_issue_date = COALESCE(identity_issue_date, @issueDate), district = COALESCE(district, @district), postal_code = COALESCE(postal_code, @postal),
+                    vehicle_plate = COALESCE(vehicle_plate, @plate), title = COALESCE(title, @title),
                     updated_at = now(), version = version + 1
                 WHERE id = @id RETURNING version
                 """, p);
@@ -321,10 +329,11 @@ public sealed class EntityWriter(NpgsqlConnection c, NpgsqlTransaction tx, Guid 
         var newId = await Scalar<Guid>("""
             INSERT INTO pms.guests (first_name, last_name, gender, birth_date, birth_place, father_name, mother_name, nationality, identity_type, identity_number,
                 identity_country, phone, phone_normalized, email, address, city, country, tax_office, tax_number, company_id, notes, preferences, is_vip, vip_level, is_blacklisted,
-                blacklist_reason, kvkk_consent, kvkk_consent_at, marketing_consent, created_by, migration_job_id, migration_source, migration_source_id)
+                blacklist_reason, kvkk_consent, kvkk_consent_at, marketing_consent, created_by, migration_job_id, migration_source, migration_source_id,
+                phone2, identity_serial, identity_issue_place, identity_issue_date, district, postal_code, vehicle_plate, title)
             VALUES (@first, @last, @gender, @birth, @birthPlace, @father, @mother, @nationality, @idType, @idNo, @idCountry, @phone, @phoneN, @email, @address,
                 @city, @country, @taxOffice, @taxNo, @companyId, @notes, @prefs, @vip, @vipLevel, @bl, @blReason, @kvkk, CASE WHEN @kvkk THEN now() END, @mkt, @userId,
-                @jobId, @src, @sid)
+                @jobId, @src, @sid, @phone2, @serial, @issuePlace, @issueDate, @district, @postal, @plate, @title)
             RETURNING id
             """, p);
         await Record("guests", newId, "created", null, 1);

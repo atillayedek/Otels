@@ -36,6 +36,7 @@ export function CheckInModal({ reservation: r, onClose }: { reservation: Reserva
     </>}>
       <div className="stack">
         <div><b>{r.guestName}</b> · {fmtDate(r.arrival)} → {fmtDate(r.departure)} ({r.nights} gece) · {r.roomTypeCode} · {r.adults}+{r.children} kişi</div>
+        {r.guestAlertNote && <div className="warn-box"><b>Misafir uyarısı:</b> {r.guestAlertNote}</div>}
         <Field label="Oda" required>
           <select className="input" value={roomId} onChange={e => setRoomId(e.target.value)} autoFocus>
             <option value="">Oda seçin</option>

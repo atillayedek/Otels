@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ChefHat, Percent, Plus, Receipt, Search, Utensils, Wallet, X } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
@@ -25,7 +26,11 @@ export default function PosPage() {
   useEffect(() => { if (outlet && outlet.id !== outletId) setOutletId(outlet.id); }, [outlet, outletId]);
   const [view, setView] = useState<'open' | 'closed'>('open');
   const [sel, setSel] = useState<string | null>(null);
-  const [newCheck, setNewCheck] = useState(false);
+  // Oda Rack'ten "Adisyon aç" ile gelindiyse (?room=101) yeni adisyon penceresi oda adıyla açılır.
+  const [sp, setSp] = useSearchParams();
+  const [roomLabel] = useState(() => sp.get('room'));
+  const [newCheck, setNewCheck] = useState(() => !!sp.get('room') && can('pos.order'));
+  useEffect(() => { if (sp.has('room')) setSp({}, { replace: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (outlets.isLoading) return <div className="page"><Spinner /></div>;
   if (outlets.error) return <div className="page"><ErrorBox error={outlets.error} /></div>;
@@ -50,7 +55,7 @@ export default function PosPage() {
           {sel ? <CheckScreen key={sel} id={sel} outletId={outlet.id} onClosed={() => setSel(null)} /> : <Empty icon={<Receipt />} title="Adisyon seçin" text="Soldan bir adisyon seçin veya yeni adisyon açın." />}
         </div>
       </div>
-      {newCheck && <NewCheckModal outletId={outlet.id} onClose={() => setNewCheck(false)} onCreated={id => { setNewCheck(false); setView('open'); setSel(id); }} />}
+      {newCheck && <NewCheckModal outletId={outlet.id} initialTable={roomLabel ? `Oda ${roomLabel}` : ''} onClose={() => setNewCheck(false)} onCreated={id => { setNewCheck(false); setView('open'); setSel(id); }} />}
     </div>
   );
 }
@@ -79,9 +84,9 @@ function CheckList({ outletId, view, selected, onSelect }: { outletId: string; v
   );
 }
 
-function NewCheckModal({ outletId, onClose, onCreated }: { outletId: string; onClose: () => void; onCreated: (id: string) => void }) {
+function NewCheckModal({ outletId, initialTable = '', onClose, onCreated }: { outletId: string; initialTable?: string; onClose: () => void; onCreated: (id: string) => void }) {
   const qc = useQueryClient();
-  const [table, setTable] = useState('');
+  const [table, setTable] = useState(initialTable);
   const [covers, setCovers] = useState('1');
   const open = useAction(async (key: string) => {
     const r = await post<PosCheckDetail>('/api/v1/pos/checks', { outletId, tableLabel: table.trim() || null, covers: Number(covers) || 1 }, key);
