@@ -182,7 +182,7 @@ public static class FolioService
         if (code == default || !code.IsActive) throw PmsException.Validation("İşlem kodu bulunamadı veya pasif.");
         // Oda ücreti ve konaklama vergisi yalnız gece denetiminde veya günübirlik ücretle, fiyat ve vergi kurallarına göre yazılır.
         if (code.Category is "room" or "tax")
-            throw PmsException.Validation("Oda ücreti ve konaklama vergisi elle masraf olarak girilemez; gece denetimi (veya günübirlik ücret) yazar. Düzeltme için indirim/allowance kullanın.");
+            throw PmsException.Validation("Oda ücreti ve konaklama vergisi elle masraf olarak girilemez; gece denetimi (veya günübirlik ücret) yazar. Tutarı düzeltmek için folyodaki İndirim düğmesini (indirim veya düzeltme) kullanın.");
         if (req.Quantity <= 0 || decimal.Round(req.Quantity, 3) != req.Quantity) throw PmsException.Validation("Miktar pozitif ve en fazla 3 ondalıklı olmalıdır.");
         Validate.Money(req.UnitPrice, "Birim fiyat");
         var amount = decimal.Round(req.Quantity * req.UnitPrice, 2, MidpointRounding.AwayFromZero);
@@ -314,7 +314,7 @@ public static class FolioService
         if (req.RelatedLineId is { } rl && !await tx.ScalarAsync<bool>(
                 "SELECT EXISTS (SELECT 1 FROM pms.folio_lines WHERE id = @rl AND folio_id = @folioId AND line_type = 'charge')", new { rl, folioId }))
             throw PmsException.Validation("İndirim yalnız bu folyodaki bir masraf satırına bağlanabilir.");
-        var id = await InsertLineAsync(tx, folioId, req.Kind, (req.Kind == "discount" ? "İndirim" : "Allowance") + " - " + reason, -req.Amount, f.Currency, bd,
+        var id = await InsertLineAsync(tx, folioId, req.Kind, (req.Kind == "discount" ? "İndirim" : "Düzeltme") + " - " + reason, -req.Amount, f.Currency, bd,
             reason: reason, related: req.RelatedLineId, room: f.RoomNumber);
         await tx.AuditAsync("folio." + req.Kind, "folio", folioId, null, new { lineId = id, req.Amount }, reason);
         tx.Publish("folios", folioId);
@@ -334,8 +334,8 @@ public static class FolioService
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
         var reason = Validate.Required(req.Reason, "İptal gerekçesi", 300);
         if (line.LineType is "void" or "transfer_in" or "transfer_out") throw PmsException.Validation("Bu satır türü iptal edilemez; aktarım için ters aktarım yapın.");
-        if (line.BusinessDate != bd) throw PmsException.Validation("Yalnız bugünkü iş gününe ait satırlar iptal edilebilir. Geçmiş gün için allowance veya iade kullanın.");
-        if (line.IsRoomCharge) throw PmsException.Validation("Gece denetimi oda ücreti iptal edilemez; allowance kullanın.");
+        if (line.BusinessDate != bd) throw PmsException.Validation("Yalnız bugünkü iş gününe ait satırlar iptal edilebilir. Geçmiş gün için İndirim (düzeltme) veya İade kullanın.");
+        if (line.IsRoomCharge) throw PmsException.Validation("Gece denetiminin yazdığı oda ücreti iptal edilemez; tutarı düzeltmek için folyodaki İndirim düğmesini (düzeltme) kullanın.");
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.folio_lines WHERE related_line_id = @lineId AND line_type IN ('void','transfer_out'))", new { lineId }))
             throw PmsException.Validation("Bu satır daha önce iptal edilmiş veya aktarılmış.");
         Guid? shift = line.LineType is "payment" or "deposit" or "refund" ? await CurrentShiftAsync(tx, false) : null;

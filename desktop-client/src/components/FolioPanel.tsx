@@ -173,7 +173,7 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
     reopen: !!v.reason?.trim(),
   }[dlg.kind];
 
-  const titles: Record<string, string> = { charge: 'Masraf ekle', payment: 'Tahsilat', refund: 'İade', discount: 'İndirim / allowance', void: 'Satır iptali', transfer: 'Satır aktarımı', balance: 'Bakiye aktarımı', newFolio: 'Yeni folyo penceresi', invoice: 'Fatura bilgisi', reopen: 'Folyoyu yeniden aç' };
+  const titles: Record<string, string> = { charge: 'Masraf ekle', payment: 'Tahsilat', refund: 'İade', discount: 'İndirim / düzeltme', void: 'Satır iptali', transfer: 'Satır aktarımı', balance: 'Bakiye aktarımı', newFolio: 'Yeni folyo penceresi', invoice: 'Fatura bilgisi', reopen: 'Folyoyu yeniden aç' };
   const reason = <Field label="Gerekçe" required className="span-4"><input className="input" value={v.reason ?? ''} onChange={set('reason')} maxLength={300} /></Field>;
 
   return (
@@ -234,7 +234,7 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
           {needsShift && <div className="error-box span-4">Nakit/kart işlemi için açık kasa vardiyanız yok. Ön Kasa → Kasa Vardiyası ekranından vardiya açın.</div>}
         </>}
         {dlg.kind === 'discount' && <>
-          <Field label="Tür" className="span-2"><select className="input" value={v.kind} onChange={set('kind')}><option value="discount">İndirim</option><option value="allowance">Allowance (düzeltme)</option></select></Field>
+          <Field label="Tür" className="span-2"><select className="input" value={v.kind} onChange={set('kind')}><option value="discount">İndirim</option><option value="allowance">Düzeltme</option></select></Field>
           <Field label="Tutar" required className="span-2" hint={dlg.line ? `İlgili masraf: ${dlg.line.description} (${fmtMoney(dlg.line.amount)})` : undefined}><MoneyInput value={v.amount ?? ''} onChange={setVal('amount')} autoFocus /></Field>
           {reason}
         </>}

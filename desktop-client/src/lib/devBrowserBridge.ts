@@ -14,7 +14,8 @@ const deviceId = (() => {
 })();
 let token: string | null = sessionStorage.getItem('pms-dev-token');
 
-const server = { id: 'dev', name: 'Test sunucusu', host: '127.0.0.1', port: 18443, ca_pem: '', ca_fingerprint: 'dev', added_at: new Date().toISOString() };
+// Alan adları Tauri tarafındaki ServerEntry ile aynı (serde camelCase).
+const server = { id: 'dev', name: 'Test sunucusu', host: '127.0.0.1', port: 18443, caPem: '', caFingerprint: 'GELISTIRMETESTSUNUCUSU', addedAt: new Date().toISOString() };
 
 async function call(method: string, path: string, body: unknown, key: string | null) {
   const headers: Record<string, string> = { 'X-PMS-Device-Id': deviceId, 'X-PMS-Hostname': 'TARAYICI-DEV', 'X-PMS-Client-Version': '1.0.0' };

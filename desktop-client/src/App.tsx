@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Loader2, RefreshCw, Settings2 } from 'lucide-react';
 import { useSession } from './lib/session';
 import { api, ApiError } from './lib/api';
 import { Layout } from './components/Layout';
 import { Spinner } from './components/ui';
+import { PageErrorBoundary } from './components/PageErrorBoundary';
 import { FirstConnectPage, ConnectionSettingsPage } from './pages/Connection';
 import { ForcedPasswordPage, LoginPage, SetupWizard } from './pages/Auth';
 import { MobileApp } from './pages/Mobile';
@@ -64,6 +65,7 @@ type Stage = 'loading' | 'no-server' | 'unreachable' | 'setup' | 'ready';
 
 export function App() {
   const { client, me, outdated, reloadClient } = useSession();
+  const { pathname } = useLocation();
   const [stage, setStage] = useState<Stage>('loading');
   const [message, setMessage] = useState('');
   const [showConn, setShowConn] = useState(false);
@@ -122,6 +124,7 @@ export function App() {
 
   return (
     <Layout>
+      <PageErrorBoundary key={pathname}>
       <Suspense fallback={<div className="empty"><Loader2 className="spin" /></div>}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -174,6 +177,7 @@ export function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+      </PageErrorBoundary>
     </Layout>
   );
 }

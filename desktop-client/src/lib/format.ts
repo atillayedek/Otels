@@ -85,7 +85,7 @@ export const SOURCE_LABEL: Record<string, string> = {
   direct: 'Doğrudan', walk_in: 'Walk-in', phone: 'Telefon', email: 'E-posta', web: 'Web', agency: 'Acente', company: 'Şirket', ota: 'Online kanal', migration: 'Aktarım', other: 'Diğer',
 };
 export const LINE_LABEL: Record<string, string> = {
-  charge: 'Masraf', payment: 'Tahsilat', refund: 'İade', discount: 'İndirim', allowance: 'Allowance', deposit: 'Depozito', void: 'İptal', transfer_in: 'Aktarım (gelen)', transfer_out: 'Aktarım (giden)',
+  charge: 'Masraf', payment: 'Tahsilat', refund: 'İade', discount: 'İndirim', allowance: 'Düzeltme', deposit: 'Depozito', void: 'İptal', transfer_in: 'Aktarım (gelen)', transfer_out: 'Aktarım (giden)',
 };
 export const PRIORITY_LABEL: Record<string, string> = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' };
 export const TICKET_STATUS: Record<string, string> = { open: 'Açık', in_progress: 'Çalışılıyor', resolved: 'Çözüldü', closed: 'Kapandı', cancelled: 'İptal' };
