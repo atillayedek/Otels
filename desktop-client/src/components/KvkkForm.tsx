@@ -4,9 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { FileSignature } from 'lucide-react';
 import { get } from '../lib/api';
 import type { Property, Setting } from '../lib/types';
-import { fmtDate, fmtDateTime } from '../lib/format';
+import { fmtDate } from '../lib/format';
 import { useSession } from '../lib/session';
 import { useToast } from './ui';
+import { DocFooter, DocHeader } from './PrintDoc';
 
 export interface KvkkPerson { name: string; room?: string; reservationNumber?: string; arrival?: string; departure?: string }
 
@@ -33,14 +34,9 @@ export function KvkkFormDoc({ people, notice, consent, property }: { people: Kvk
   return (
     <>
       {people.map((p, i) => (
-        <div key={i} className="doc kvkk-doc" style={i > 0 ? { breakBefore: 'page' } : undefined}>
-          <div className="kv-head">
-            <div><b>{property?.name}</b><div className="fine">{property?.legalName}</div></div>
-            <div style={{ textAlign: 'right' }}>
-              {p.reservationNumber && <div>Rez. {p.reservationNumber}{p.room ? ` · Oda ${p.room}` : ''}</div>}
-              {p.arrival && <div>{fmtDate(p.arrival)} – {fmtDate(p.departure)}</div>}
-            </div>
-          </div>
+        <div key={i} className="doc folio-doc kvkk-doc" style={i > 0 ? { breakBefore: 'page' } : undefined}>
+          <DocHeader kind="KVKK aydınlatma ve onay formu" lines={[p.reservationNumber ? `Rez. ${p.reservationNumber}${p.room ? ` · Oda ${p.room}` : ''}` : null,
+            p.arrival ? `${fmtDate(p.arrival)} – ${fmtDate(p.departure)}` : null]} />
           <div className="kv-text">{fillNotice(notice, property)}</div>
           <div className="kv-consent">
             <div className="kv-box-row"><span className="kv-box" /> Yukarıdaki aydınlatma metnini okudum ve anladım.</div>
@@ -51,7 +47,7 @@ export function KvkkFormDoc({ people, notice, consent, property }: { people: Kvk
             <div><span>Tarih</span><b>{fmtDate(new Date().toISOString().slice(0, 10))}</b></div>
             <div><span>İmza</span><b>&nbsp;</b></div>
           </div>
-          <div className="fine" style={{ marginTop: '6mm' }}>Yazdırma: {fmtDateTime(new Date().toISOString())}. İmzalı form otelde KVKK kapsamında saklanır.</div>
+          <DocFooter note="İmzalı form otelde KVKK kapsamında saklanır." />
         </div>
       ))}
     </>

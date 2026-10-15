@@ -27,6 +27,9 @@ public sealed class MainForm : Form
 
     readonly TextBox _address = RoBox(), _port = RoBox(), _fingerprint = RoBox(), _setupCode = RoBox();
     readonly Label _setupHint = new() { AutoSize = true, ForeColor = Muted, MaximumSize = new Size(520, 0) };
+    readonly Label _netWarn = new() { AutoSize = true, ForeColor = Color.FromArgb(185, 28, 28), MaximumSize = new Size(700, 0), Visible = false };
+    readonly Button _netFix = Btn("Ağı \"Özel\" olarak işaretle");
+    DateTime _netCheckedAt;
     readonly ListView _checks = Lv(("Kontrol", 160), ("Durum", 90), ("Açıklama", 420));
     readonly ListView _metrics = Lv(("Ölçüm", 180), ("Değer", 300));
     readonly ListView _clients = Lv(("Kullanıcı", 140), ("Bilgisayar", 160), ("IP", 130), ("Bağlantı", 150));
@@ -103,6 +106,20 @@ public sealed class MainForm : Form
         grid.Controls.Add(new Label());
         grid.Controls.Add(_setupHint);
         conn.Controls.Add(grid);
+        // Windows ağı "Ortak" olarak işaretlenmişse güvenlik duvarı kuralları (yalnız Özel/Etki alanı) devreye girmez; istemciler bağlanamaz.
+        var net = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
+        _netFix.Visible = false;
+        _netFix.Click += (_, _) =>
+        {
+            if (!Ask("Bu bilgisayarın bağlı olduğu \"Ortak\" ağlar \"Özel\" olarak işaretlenecek. Otel ağında (Wi-Fi/kablolu) sunucuya erişim için gereklidir; halka açık bir ağdaysanız yapmayın. Devam edilsin mi?")) return;
+            var r = RunPs("Get-NetConnectionProfile | Where-Object NetworkCategory -eq 'Public' | Set-NetConnectionProfile -NetworkCategory Private");
+            _netCheckedAt = default;
+            CheckNetwork();
+            if (!_netWarn.Visible) Info("Ağ \"Özel\" olarak işaretlendi; istemciler artık sunucuya bağlanabilir.");
+            else Error("Ağ profili değiştirilemedi. Windows Ayarlar → Ağ ve İnternet → ağ özellikleri → \"Özel\" seçin." + (r.Length > 0 ? "\n\n" + r : ""));
+        };
+        net.Controls.AddRange([_netWarn, _netFix]);
+        page.Controls.Add(net);
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterDistance = 560 };
         split.Panel1.Controls.Add(Group("Sağlık kontrolleri", _checks));
@@ -238,9 +255,36 @@ public sealed class MainForm : Form
 
     // ------------------------------------------------------------------ Veri
 
+    /// <summary>Bağlı ağlardan biri "Ortak" ise uyarı ve düzeltme düğmesi gösterir (dakikada bir denetlenir).</summary>
+    void CheckNetwork()
+    {
+        if (DateTime.UtcNow - _netCheckedAt < TimeSpan.FromMinutes(1)) return;
+        _netCheckedAt = DateTime.UtcNow;
+        var output = RunPs("Get-NetConnectionProfile | ForEach-Object { $_.Name + '|' + $_.NetworkCategory }");
+        var pub = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => l.Split('|')).Where(p => p.Length == 2 && p[1] == "Public").Select(p => p[0]).ToList();
+        _netWarn.Text = pub.Count == 0 ? "" : $"Uyarı: \"{string.Join(", ", pub)}\" ağı Windows'ta \"Ortak\" olarak işaretli. Bu durumda diğer bilgisayarlar ve telefonlar sunucuya bağlanamaz.";
+        _netWarn.Visible = _netFix.Visible = pub.Count > 0;
+    }
+
+    static string RunPs(string command)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -Command \"[Console]::OutputEncoding=[Text.Encoding]::UTF8; {command}\"")
+            { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+              StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8 })!;
+            var o = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+            p.WaitForExit(15000);
+            return o.Trim();
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return ""; }
+    }
+
     async Task RefreshAsync()
     {
         if (_busy) return;
+        CheckNetwork();
         var svc = ServiceState();
         _serviceInfo.Text = svc is null ? "Sunucu hizmeti bu bilgisayarda kurulu değil." : $"Windows hizmeti: {Tr(svc.Value)}  ·  Veritabanı hizmeti: {PgState()}";
         _start.Enabled = svc is ServiceControllerStatus.Stopped;
@@ -266,8 +310,9 @@ public sealed class MainForm : Form
                 : "İlk bağlanan PMS Client, otel bilgilerini ve ilk yönetici hesabını oluştururken bu kodu isteyecektir.";
             Fill(_checks, s.Checks.Select(c => new[] { c.Name, c.Status == "healthy" ? "Tamam" : c.Status == "warning" ? "Uyarı" : "Hata", c.Message }),
                 (item, i) => item.ForeColor = s.Checks[i].Status == "healthy" ? Color.Black : s.Checks[i].Status == "warning" ? Warn : Bad);
+            if (s.LicenseRestricted && s.License is { } lw) _setupHint.Text = "Lisans: " + lw;
             Fill(_metrics, [
-                ["Sürüm", s.Version], ["Veritabanı", $"{s.DatabaseVersion} · şema {s.SchemaVersion}"], ["Çalışma süresi", Duration(s.Uptime)],
+                ["Lisans", s.License ?? "—"], ["Sürüm", s.Version], ["Veritabanı", $"{s.DatabaseVersion} · şema {s.SchemaVersion}"], ["Çalışma süresi", Duration(s.Uptime)],
                 ["Bağlı istemci", s.ConnectedClients.ToString()], ["Açık oturum", $"{s.ActiveSessions} ({string.Join(", ", s.LoggedInUsers)})"],
                 ["Veritabanı boyutu", Bytes(s.DatabaseSizeBytes)], ["Boş disk", $"{Bytes(s.FreeDiskBytes)} / {Bytes(s.TotalDiskBytes)}"],
                 ["Bellek / CPU", $"{Bytes(s.MemoryBytes)} · %{s.CpuPercent:0.0}"],

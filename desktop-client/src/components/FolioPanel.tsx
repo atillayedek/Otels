@@ -8,6 +8,7 @@ import { fmtDate, fmtDateTime, fmtMoney, fmtQty, fmtRate, isZero, LINE_LABEL, pa
 import { useAgencies, useCompanies, usePaymentMethods, useTransactionCodes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useAction } from './common';
+import { DocFooter, DocHeader } from './PrintDoc';
 import { Badge, Empty, ErrorBox, Field, Modal, Money, MoneyInput, Spinner, useContextMenu } from './ui';
 
 function useRefresh() {
@@ -20,7 +21,7 @@ type Dialog =
   | { kind: 'transfer'; line: FolioLine } | { kind: 'balance' } | { kind: 'newFolio' } | { kind: 'invoice' } | { kind: 'reopen' } | null;
 
 export function FolioPanel({ reservation, folioId: fixedFolio }: { reservation?: Reservation; folioId?: string }) {
-  const { can, property } = useSession();
+  const { can } = useSession();
   const refresh = useRefresh();
   const menu = useContextMenu();
   const folios = useQuery({
@@ -110,7 +111,7 @@ export function FolioPanel({ reservation, folioId: fixedFolio }: { reservation?:
       {menu.node}
       {dlg && f && <FolioDialog dlg={dlg} folio={f} reservation={reservation} folios={folios.data ?? []} onClose={() => setDlg(null)} onDone={refresh} />}
       {dlg?.kind === 'newFolio' && !f && reservation && <FolioDialog dlg={dlg} reservation={reservation} folios={[]} onClose={() => setDlg(null)} onDone={refresh} />}
-      {printing && f && detail.data && createPortal(<FolioPrint detail={detail.data} reservation={reservation} hotel={property?.name ?? ''} legal={property} />, document.getElementById('print-root')!)}
+      {printing && f && detail.data && createPortal(<FolioPrint detail={detail.data} reservation={reservation} />, document.getElementById('print-root')!)}
     </div>
   );
 }
@@ -267,17 +268,14 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   );
 }
 
-type PrintLegal = { legalName?: string; taxOffice?: string; taxNumber?: string; address?: string; city?: string; phone?: string; email?: string };
-
 /** Misafire verilen folyo dökümü: borç ve alacak ayrı sütunlarda, bakiye belirgin. A4, kenar boşluklarını belge kendisi verir. */
-function FolioPrint({ detail, reservation, hotel, legal }: { detail: FolioDetail; reservation?: Reservation; hotel: string; legal?: PrintLegal }) {
+function FolioPrint({ detail, reservation }: { detail: FolioDetail; reservation?: Reservation }) {
   const f = detail.folio;
   const lines = detail.lines.filter(l => !l.isVoided && l.lineType !== 'void');
   const abs = (m: string) => m.replace('-', '');
   const isDebit = (m: string) => !m.startsWith('-');
   const qty = (l: FolioLine) => l.lineType === 'charge' && Number(l.quantity) !== 1 ? `${fmtQty(l.quantity)} × ${fmtMoney(l.unitPrice)}` : '';
   const balance = Number(f.balance);
-  const contact = [legal?.phone && `Tel: ${legal.phone}`, legal?.email].filter(Boolean).join(' · ');
   const info: [string, string | undefined][] = [
     ['Misafir / Ödeyen', f.name],
     ['Oda', reservation?.roomNumber ?? undefined],
@@ -288,20 +286,7 @@ function FolioPrint({ detail, reservation, hotel, legal }: { detail: FolioDetail
   ];
   return (
     <div className="doc folio-doc">
-      <header className="fd-head">
-        <div>
-          <div className="fd-hotel">{hotel}</div>
-          {legal?.legalName && <div className="fd-legal">{legal.legalName}</div>}
-          <div className="fd-legal">{[legal?.address, legal?.city].filter(Boolean).join(', ')}</div>
-          {(legal?.taxOffice || legal?.taxNumber) && <div className="fd-legal">{legal?.taxOffice && `${legal.taxOffice} V.D. `}{legal?.taxNumber && `· VKN ${legal.taxNumber}`}</div>}
-          {contact && <div className="fd-legal">{contact}</div>}
-        </div>
-        <div className="fd-title">
-          <div className="fd-kind">Folyo</div>
-          <div className="fd-no">{f.folioNumber}</div>
-          <div className="fd-legal">Pencere {f.windowNo} · {f.currency}</div>
-        </div>
-      </header>
+      <DocHeader kind="Folyo" no={f.folioNumber} lines={[`Pencere ${f.windowNo} · ${f.currency}`]} />
 
       <section className="fd-info">
         {info.filter(([, v]) => v).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}
@@ -338,10 +323,8 @@ function FolioPrint({ detail, reservation, hotel, legal }: { detail: FolioDetail
         <div><div className="fd-line" />Resepsiyon</div>
       </section>
 
-      <footer className="fd-foot">
-        <div>Konaklamanız için teşekkür ederiz.</div>
-        <div>Bu belge bilgi amaçlıdır, fatura yerine geçmez.{f.invoiceNumber ? ` Fatura no: ${f.invoiceNumber}${f.invoiceDate ? ` (${fmtDate(f.invoiceDate)})` : ''}.` : ''} Yazdırma: {fmtDateTime(new Date().toISOString())}</div>
-      </footer>
+      <DocFooter lead="Konaklamanız için teşekkür ederiz."
+        note={`Bu belge bilgi amaçlıdır, fatura yerine geçmez.${f.invoiceNumber ? ` Fatura no: ${f.invoiceNumber}${f.invoiceDate ? ` (${fmtDate(f.invoiceDate)})` : ''}.` : ''}`} />
     </div>
   );
 }

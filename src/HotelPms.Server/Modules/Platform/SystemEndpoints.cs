@@ -19,7 +19,7 @@ public sealed record ManageStatus(string Status, string Hostname, IReadOnlyList<
     string? DatabaseVersion, string SchemaVersion, bool DatabaseReady, string? StartupError, TimeSpan Uptime, int ConnectedClients,
     IReadOnlyList<ConnectedClient> Clients, int ActiveSessions, IReadOnlyList<string> LoggedInUsers, long DatabaseSizeBytes, DateTime? LastBackupAt,
     string? LastBackupStatus, long FreeDiskBytes, long TotalDiskBytes, long MemoryBytes, double CpuPercent, IReadOnlyList<HealthCheck> Checks,
-    string DataRoot, string BackupDirectory, string? SetupCode, string LogsDirectory);
+    string DataRoot, string BackupDirectory, string? SetupCode, string LogsDirectory, string? License = null, bool LicenseRestricted = false);
 
 public sealed record RestoreRequest(string FilePath, string Confirmation);
 public sealed record EmergencyResetRequest(string Username, string NewPassword);
@@ -81,7 +81,7 @@ public static class SystemEndpoints
                 return await next(ctx);
             });
 
-        m.MapGet("/status", async (HealthState h, ServerConfig cfg, PmsPaths paths, RealtimeHub hub, Db db, BackupService backups) =>
+        m.MapGet("/status", async (HealthState h, ServerConfig cfg, PmsPaths paths, RealtimeHub hub, Db db, BackupService backups, LicenseService license) =>
         {
             var sessions = 0;
             IReadOnlyList<string> users = [];
@@ -100,6 +100,8 @@ public static class SystemEndpoints
                 }
                 catch (NpgsqlException) { }
             }
+            LicenseStatus? lic = null;
+            if (h.DatabaseReady) try { lic = await license.StatusAsync(); } catch (NpgsqlException) { }
             var proc = Process.GetCurrentProcess();
             UpdateCpu(proc);
             var setupCode = File.Exists(paths.SetupTokenFile) ? File.ReadAllText(paths.SetupTokenFile).Trim() : null;
@@ -107,7 +109,7 @@ public static class SystemEndpoints
                 CertificateManager.LocalAddresses().Select(a => a.ToString()).ToList(), cfg.HttpsPort, cfg.HttpPort, PmsConstants.VersionText, h.DatabaseVersion,
                 schema, h.DatabaseReady, h.StartupError, DateTime.UtcNow - h.StartedAt, hub.Clients.Count, hub.Clients, sessions, users, h.DatabaseSizeBytes,
                 h.LastBackupAt, h.LastBackupStatus, h.FreeDiskBytes, h.TotalDiskBytes, proc.WorkingSet64, _cpu, h.Checks, paths.DataRoot,
-                backups.PrimaryDirectory, setupCode, paths.LogsDir);
+                backups.PrimaryDirectory, setupCode, paths.LogsDir, lic?.Message, lic?.Restricted ?? false);
         });
 
         m.MapGet("/logs", (PmsPaths paths, int? lines) =>
@@ -158,7 +160,8 @@ public static class SystemEndpoints
             var sw = Stopwatch.StartNew();
             await using var c = new NpgsqlConnection(new PostgresTools(paths, cfg, secrets).OwnerConnectionString());
             await c.OpenAsync();
-            await c.ExecuteAsync(sql, commandTimeout: 3600);
+            // CommandType açıkça Text: Dapper tek kelimelik komutu ("ANALYZE") saklı yordam sanıp "CALL ANALYZE()" olarak gönderir.
+            await c.ExecuteAsync(new CommandDefinition(sql, commandTimeout: 3600, commandType: System.Data.CommandType.Text));
             return Results.Ok(new { task, elapsedMs = sw.ElapsedMilliseconds });
         });
 

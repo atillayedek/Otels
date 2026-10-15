@@ -9,6 +9,7 @@ import {
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
 import { SupportModal } from './Support';
+import { useLogo } from './PrintDoc';
 
 interface NavItem { to: string; label: string; perm?: string | string[] }
 interface NavGroup { label: string; icon: ReactNode; module?: string; items: NavItem[] }
@@ -146,6 +147,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const here = loc.pathname + loc.search;
   // Sayaçlar genel durum özetinden gelir; gerçek zamanlı değişikliklerde ('dashboard' anahtarı) kendiliğinden yenilenir.
   const license = useLicense();
+  // Otel logosu menüde gösterilir ve yazdırma anında hazır olması için önbelleğe alınır.
+  const hotelLogo = useLogo().data?.dataUrl;
   const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => get<QuickCounts>('/api/v1/dashboard'), enabled: can('dashboard.view'), refetchInterval: 60_000 });
 
   const groups = useMemo(() => {
@@ -159,6 +162,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand"><img src="/logo.svg" alt="" /><span>Ferrolit PMS<small>{property?.name}</small></span></div>
+        {hotelLogo && !collapsed && <div className="hotel-logo"><img src={hotelLogo} alt={property?.name ?? ''} /></div>}
         <div className="menu-search"><Search size={14} /><input placeholder="Menüde ara" value={q} onChange={e => setQ(e.target.value)} /></div>
         <nav className="nav">
           {groups.map(g => {

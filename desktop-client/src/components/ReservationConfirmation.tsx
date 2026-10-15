@@ -4,15 +4,15 @@ import { useQuery } from '@tanstack/react-query';
 import { FileCheck2 } from 'lucide-react';
 import { get } from '../lib/api';
 import type { Property, Reservation, Setting } from '../lib/types';
-import { fmtDate, fmtDateTime, fmtMoney, MEAL_LABEL } from '../lib/format';
+import { fmtDate, fmtMoney, MEAL_LABEL } from '../lib/format';
 import { CHANNEL_NAME } from '../lib/product';
 import { useSession } from '../lib/session';
 import { useToast } from './ui';
+import { DocFooter, DocHeader } from './PrintDoc';
 
 /** Misafire veya acenteye verilen rezervasyon onay belgesi (yazdır / PDF olarak kaydet). */
 function ConfirmationDoc({ r, rates, note, property }: { r: Reservation; rates: { date: string; rate: string }[]; note: string; property?: Property }) {
   const time = (t?: string) => (t ? t.slice(0, 5) : '');
-  const contact = [property?.phone && `Tel: ${property.phone}`, property?.email].filter(Boolean).join(' · ');
   const rows: [string, string | undefined][] = [
     ['Misafir', r.guestName],
     ['Rezervasyon no', r.reservationNumber + (r.channel ? ` · ${CHANNEL_NAME[r.channel] ?? r.channel}${r.channelRef ? ' ' + r.channelRef : ''}` : '')],
@@ -28,19 +28,7 @@ function ConfirmationDoc({ r, rates, note, property }: { r: Reservation; rates: 
   const deposit = Number(r.depositRequired);
   return (
     <div className="doc folio-doc">
-      <header className="fd-head">
-        <div>
-          <div className="fd-hotel">{property?.name}</div>
-          {property?.legalName && <div className="fd-legal">{property.legalName}</div>}
-          <div className="fd-legal">{[property?.address, property?.city].filter(Boolean).join(', ')}</div>
-          {contact && <div className="fd-legal">{contact}</div>}
-        </div>
-        <div className="fd-title">
-          <div className="fd-kind">Rezervasyon onayı</div>
-          <div className="fd-no">{r.reservationNumber}</div>
-          <div className="fd-legal">Düzenleme: {fmtDate(new Date().toISOString().slice(0, 10))}</div>
-        </div>
-      </header>
+      <DocHeader kind="Rezervasyon onayı" no={r.reservationNumber} lines={[`Düzenleme: ${fmtDate(new Date().toISOString().slice(0, 10))}`]} />
       <p style={{ margin: '5mm 0 3mm' }}>Sayın <b>{r.guestName}</b>, rezervasyonunuz aşağıdaki bilgilerle {r.status === 'tentative' ? <b>opsiyonlu olarak</b> : ''} kayıt altına alınmıştır.
         {r.status === 'tentative' && r.optionUntil ? <> Opsiyon bitiş tarihi: <b>{fmtDate(r.optionUntil)}</b>.</> : null}</p>
       <section className="fd-info">
@@ -58,10 +46,7 @@ function ConfirmationDoc({ r, rates, note, property }: { r: Reservation; rates: 
         <div className="fd-balance"><span>Toplam</span><span>{fmtMoney(r.totalRate, r.currency)}</span></div>
       </section>
       {note.trim() && <div className="kv-text" style={{ whiteSpace: 'pre-wrap', marginTop: '8mm', fontSize: '9pt', color: '#374151' }}>{note}</div>}
-      <footer className="fd-foot">
-        <div>Sizi ağırlamaktan mutluluk duyacağız.</div>
-        <div>Bu belge bilgi amaçlıdır, fatura yerine geçmez. Yazdırma: {fmtDateTime(new Date().toISOString())}</div>
-      </footer>
+      <DocFooter lead="Sizi ağırlamaktan mutluluk duyacağız." note="Bu belge bilgi amaçlıdır, fatura yerine geçmez." />
     </div>
   );
 }

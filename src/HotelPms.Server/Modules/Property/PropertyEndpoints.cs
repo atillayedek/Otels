@@ -68,6 +68,30 @@ Başvurularınızı yukarıdaki iletişim bilgileri üzerinden yazılı olarak i
 Ticari elektronik ileti izni: Otelin kampanya, tanıtım ve özel teklif bildirimlerini e-posta, SMS veya telefonla almayı kabul ediyorum.
 """;
 
+    public sealed record LogoDto(string? DataUrl);
+
+    /// <summary>Logo yalnız PNG veya JPEG, en fazla 600 KB olabilir; içerik türü dosyanın ilk baytlarıyla doğrulanır.</summary>
+    static string ValidateLogo(string dataUrl)
+    {
+        var m = global::System.Text.RegularExpressions.Regex.Match(dataUrl, "^data:image/(png|jpeg);base64,([A-Za-z0-9+/=]+)$");
+        if (!m.Success) throw PmsException.Validation("Logo PNG veya JPEG olmalıdır.");
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(m.Groups[2].Value); } catch (FormatException) { throw PmsException.Validation("Logo dosyası okunamadı."); }
+        if (bytes.Length is 0 or > 600 * 1024) throw PmsException.Validation("Logo en fazla 600 KB olabilir.");
+        var png = bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+        var jpg = bytes.Length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
+        if (m.Groups[1].Value == "png" ? !png : !jpg) throw PmsException.Validation("Logo dosyasının içeriği türüyle uyuşmuyor.");
+        return dataUrl;
+    }
+
+    /// <summary>Excel çıktısına eklemek için logonun ham baytları (yoksa null).</summary>
+    public static async Task<byte[]?> LogoBytesAsync(Db db)
+    {
+        var data = await db.ScalarAsync<string?>("SELECT logo_data FROM pms.property LIMIT 1");
+        var i = data?.IndexOf(";base64,", StringComparison.Ordinal) ?? -1;
+        return data is null || i < 0 ? null : Convert.FromBase64String(data[(i + 8)..]);
+    }
+
     public const string PropertySelect = """
         SELECT id, name, legal_name, tax_office, tax_number, address, city, country::text AS country, phone, email, time_zone,
                currency::text AS currency, business_date, check_in_time, check_out_time, version FROM pms.property
@@ -76,6 +100,17 @@ Ticari elektronik ileti izni: Otelin kampanya, tanıtım ve özel teklif bildiri
     public static void Map(WebApplication app)
     {
         var g = app.MapGroup("/api/v1/property").WithTags("Property");
+
+        // ---- Otel logosu (yazdırılan belgeler ve Excel çıktıları)
+        g.MapGet("/logo", async (Db db) => new LogoDto(await db.ScalarAsync<string?>("SELECT logo_data FROM pms.property LIMIT 1")));
+        g.MapPut("/logo", (LogoDto req, CommandRunner cmd) => cmd.RunAsync("property.logo", new { length = req.DataUrl?.Length }, async tx =>
+        {
+            var data = req.DataUrl is null ? null : ValidateLogo(req.DataUrl);
+            await tx.ExecAsync("UPDATE pms.property SET logo_data = @data, logo_updated_at = now()", new { data });
+            await tx.AuditAsync(data is null ? "property.logo_remove" : "property.logo", "property", null, null, new { bytes = data?.Length });
+            tx.Publish("property");
+            return new { ok = true };
+        }, requireKey: false)).RequirePermission("settings.manage");
 
         g.MapGet("/", async (Db db) => await db.QuerySingleOrDefaultAsync<PropertyDto>(PropertySelect + " LIMIT 1")
             ?? throw PmsException.NotFound("Tesis"));

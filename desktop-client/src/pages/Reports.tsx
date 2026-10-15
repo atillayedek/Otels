@@ -11,6 +11,7 @@ interface GlAccount { code: string; name: string; isActive: boolean }
 import { addDays, fmtDate, fmtDateTime, fmtMoney } from '../lib/format';
 import { useSession } from '../lib/session';
 import { PageHead } from '../components/common';
+import { DocFooter, DocHeader } from '../components/PrintDoc';
 import { Empty, ErrorBox, Field, Spinner, useToast } from '../components/ui';
 
 function cellText(v: unknown, type: string) {
@@ -101,9 +102,15 @@ export default function ReportsPage() {
         </div>
       </div>
       {printing && result.data && createPortal(
-        <div className="doc">
-          <div className="doc-head"><div><h1>{result.data.title}</h1><div>{property?.name}</div></div><div style={{ textAlign: 'right' }}>{Object.entries(params).filter(([, v]) => v).map(([k, v]) => <div key={k}>{def?.params.find(p => p.key === k)?.label}: {def?.params.find(p => p.key === k)?.type === 'date' ? fmtDate(v) : def?.params.find(p => p.key === k)?.type === 'account' ? `${v} ${accounts.data?.find(a => a.code === v)?.name ?? ''}` : v}</div>)}<div>Oluşturma: {fmtDateTime(result.data.generatedAt)}</div></div></div>
+        <div className={`doc folio-doc report-doc ${result.data.columns.length > 7 ? 'dense' : ''}`}>
+          <DocHeader kind={def?.category ?? 'Rapor'} no={result.data.title} lines={[
+            ...Object.entries(params).filter(([, v]) => v).map(([k, v]) => {
+              const p = def?.params.find(x => x.key === k);
+              return `${p?.label}: ${p?.type === 'date' ? fmtDate(v) : p?.type === 'account' ? `${v} ${accounts.data?.find(a => a.code === v)?.name ?? ''}` : v}`;
+            }),
+            `Oluşturma: ${fmtDateTime(result.data.generatedAt)}`]} />
           <ReportTable r={result.data} print />
+          <DocFooter note={`${result.data.rows.length} kayıt.`} />
         </div>, document.getElementById('print-root')!)}
     </div>
   );
@@ -112,7 +119,7 @@ export default function ReportsPage() {
 function ReportTable({ r, print }: { r: ReportResult; print?: boolean }) {
   const right = (t: string) => ['money', 'int', 'decimal'].includes(t);
   const table = (
-    <table className={print ? '' : 'dt'}>
+    <table className={print ? 'fd-table' : 'dt'}>
       <thead><tr>{r.columns.map(c => <th key={c.key} style={{ textAlign: right(c.type) ? 'right' : undefined }}>{c.header}</th>)}</tr></thead>
       <tbody>{r.rows.map((row, i) => <tr key={i}>{r.columns.map(c => <td key={c.key} className={right(c.type) ? 'num r' : ''}>{cellText(row[c.key], c.type)}</td>)}</tr>)}</tbody>
       {Object.keys(r.totals ?? {}).length > 0 && <tfoot><tr>{r.columns.map((c, i) => <td key={c.key} className={right(c.type) ? 'num r' : ''}><b>{i === 0 && r.totals[c.key] === undefined ? 'Toplam' : cellText(r.totals[c.key], c.type)}</b></td>)}</tr></tfoot>}

@@ -36,6 +36,9 @@ public sealed class PostgresTools
         Host = _config.DbHost, Port = _config.DbPort, Database = _config.DbName,
         Username = _config.DbAppUser, Password = _secrets.Get(SecretStore.DbAppPassword),
         Timeout = 5, CommandTimeout = 60, MaxPoolSize = 100, ApplicationName = "HotelPMS-Server",
+        // Bilgisayar uyku/hazırda bekleme sonrası kopmuş bağlantıların havuzda kalıp ilk istekte hata vermemesi için:
+        // boşta kalan bağlantılar 60 sn sonra kapatılır, açık bağlantılar 30 sn'de bir yoklanır.
+        KeepAlive = 30, TcpKeepAlive = true, ConnectionIdleLifetime = 60, ConnectionPruningInterval = 10,
     }.ConnectionString;
 
     public string SuperConnectionString(string database = "postgres") => new NpgsqlConnectionStringBuilder

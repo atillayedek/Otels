@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Sunucu Yöneticisi'nin (PMS Server Manager) çağırdığı tüm yönetim uçlarını izole test ortamında dener. Kullanım: scripts/test-env.ps1 sonrası
+       HOTELPMS_DATA_ROOT ortam değişkeni test veri köküne (…\HotelPMS-Test\data) ayarlanarak bu proje çalıştırılır. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HotelPms.Manager\HotelPms.Manager.csproj" />
+  </ItemGroup>
+
+</Project>

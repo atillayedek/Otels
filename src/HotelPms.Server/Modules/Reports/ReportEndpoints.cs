@@ -610,10 +610,14 @@ public static class ReportEndpoints
             await using (var c = await db.OpenAsync())
                 await c.ExecuteAsync("INSERT INTO pms.audit_log (user_id, username, device_id, ip, action, entity_type, entity_id) VALUES (@u, @n, @d, @ip::inet, 'report.export', 'report', @name)",
                     new { u = ctx.User!.Id, n = ctx.User.Username, d = ctx.DeviceId, ip = ctx.Ip?.ToString(), name = $"{name}.{format}" });
+            var hotel = await db.QuerySingleOrDefaultAsync<(string Name, string? Legal)>("SELECT name, legal_name FROM pms.property LIMIT 1");
+            var criteria = def.Params.Select(p => (p.Label, Value: req.Query[p.Key].ToString().Trim())).Where(x => x.Value.Length > 0)
+                .Select(x => $"{x.Label}: {(DateOnly.TryParseExact(x.Value, "yyyy-MM-dd", out var dd) ? dd.ToString("dd.MM.yyyy") : x.Value)}").ToList();
+            var meta = new ExportMeta(hotel.Name, hotel.Legal, criteria, ctx.User.FullName, format == "xlsx" ? await Property.PropertyEndpoints.LogoBytesAsync(db) : null);
             return format switch
             {
                 "csv" => Results.File(ToCsv(result), "text/csv; charset=utf-8", $"{name}-{stamp}.csv"),
-                "xlsx" => Results.File(ToXlsx(result), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{name}-{stamp}.xlsx"),
+                "xlsx" => Results.File(ToXlsx(result, meta), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{name}-{stamp}.xlsx"),
                 _ => throw PmsException.Validation("Desteklenen biçimler: csv, xlsx. PDF için rapor ekranındaki Yazdır/PDF seçeneğini kullanın."),
             };
         });
@@ -703,66 +707,167 @@ public static class ReportEndpoints
         return new ReportResult(def.Name, def.Title, def.Columns, rows, totals, DateTime.UtcNow, bd);
     }
 
-    static string Format(object? v, string type) => v switch
-    {
-        null => "",
-        decimal d => d.ToString(type == "money" ? "0.00" : "0.##", CultureInfo.InvariantCulture),
-        DateOnly d => d.ToString("yyyy-MM-dd"),
-        DateTime dt => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
-        bool b => b ? "Evet" : "Hayır",
-        _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "",
-    };
+    sealed record ExportMeta(string Hotel, string? LegalName, IReadOnlyList<string> Criteria, string User, byte[]? Logo);
 
+    static readonly CultureInfo Tr = CultureInfo.GetCultureInfo("tr-TR");
+
+    /// <summary>CSV: Türkiye'deki Excel varsayılanıyla uyumlu (noktalı virgül ayırıcı, UTF-8 BOM, virgüllü ondalık, gg.aa.yyyy tarih).</summary>
     static byte[] ToCsv(ReportResult r)
     {
-        // Türkiye'deki Excel varsayılanıyla uyumlu: noktalı virgül ayırıcı, UTF-8 BOM.
         var sb = new StringBuilder();
-        static string Esc(string s) => s.Contains(';') || s.Contains('"') || s.Contains('\n') ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
-        sb.AppendLine(string.Join(';', r.Columns.Select(c => Esc(c.Header))));
-        foreach (var row in r.Rows) sb.AppendLine(string.Join(';', r.Columns.Select(c => Esc(Format(row[c.Key], c.Type)))));
+        static string Esc(string s) => s.IndexOfAny([';', '"', '\n', '\r']) >= 0 ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
+        static string Cell(object? v, string type) => v switch
+        {
+            null => "",
+            decimal d => d.ToString(type == "money" ? "0.00" : "0.###", Tr),
+            double d => d.ToString("0.###", Tr),
+            DateOnly d => d.ToString("dd.MM.yyyy"),
+            DateTime dt => dt.ToLocalTime().ToString("dd.MM.yyyy HH:mm"),
+            bool b => b ? "Evet" : "Hayır",
+            _ => Convert.ToString(v, Tr) ?? "",
+        };
+        sb.Append(string.Join(';', r.Columns.Select(c => Esc(c.Header)))).Append("\r\n");
+        foreach (var row in r.Rows) sb.Append(string.Join(';', r.Columns.Select(c => Esc(Cell(row[c.Key], c.Type))))).Append("\r\n");
+        if (r.Totals.Count > 0)
+            sb.Append(string.Join(';', r.Columns.Select((c, i) => r.Totals.TryGetValue(c.Key, out var v) ? Esc(Cell(v, c.Type)) : i == 0 ? "Toplam" : ""))).Append("\r\n");
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(sb.ToString())];
     }
 
-    static byte[] ToXlsx(ReportResult r)
+    /// <summary>
+    /// Excel: otel logosu ve adı, rapor başlığı, seçilen ölçütler, oluşturma bilgisi; renkli başlık satırı, filtre, dondurulmuş başlık,
+    /// sayı ve tarih biçimleri, zebra satırlar, toplam satırı; yazdırmada sayfaya sığdırma, başlığın her sayfada tekrarı ve sayfa numarası.
+    /// </summary>
+    static byte[] ToXlsx(ReportResult r, ExportMeta meta)
     {
+        var ink = XLColor.FromHtml("#22262E");
+        var accent = XLColor.FromHtml("#C2461A");
+        var zebra = XLColor.FromHtml("#F6F7F9");
+        var line = XLColor.FromHtml("#D9DDE3");
         using var wb = new XLWorkbook();
         // Excel sayfa adı en fazla 31 karakter olabilir ve : \ / ? * [ ] içeremez.
         var sheet = global::System.Text.RegularExpressions.Regex.Replace(r.Title, @"[:\\/?*\[\]]", "-").Trim('\'', ' ');
         var ws = wb.Worksheets.Add(sheet.Length > 31 ? sheet[..31].TrimEnd() : sheet);
+        ws.Style.Font.FontName = "Calibri";
+        ws.Style.Font.FontSize = 10;
+        var cols = Math.Max(r.Columns.Count, 1);
+
+        // Başlık bloğu
+        ws.Cell(1, 1).Value = meta.Hotel;
+        ws.Cell(1, 1).Style.Font.SetBold().Font.SetFontSize(15).Font.SetFontColor(ink);
+        ws.Cell(2, 1).Value = r.Title;
+        ws.Cell(2, 1).Style.Font.SetBold().Font.SetFontSize(12).Font.SetFontColor(accent);
+        var info = new List<string>();
+        if (!string.IsNullOrWhiteSpace(meta.LegalName)) info.Add(meta.LegalName!);
+        if (meta.Criteria.Count > 0) info.Add(string.Join("  ·  ", meta.Criteria));
+        ws.Cell(3, 1).Value = string.Join("   |   ", info);
+        ws.Cell(4, 1).Value = $"Oluşturma: {DateTime.Now:dd.MM.yyyy HH:mm} · {meta.User} · İş günü {r.BusinessDate:dd.MM.yyyy}";
+        ws.Range(3, 1, 4, 1).Style.Font.SetFontColor(XLColor.FromHtml("#6B7280")).Font.SetFontSize(9);
+        ws.Row(1).Height = 24;
+        ws.Row(2).Height = 18;
+        if (meta.Logo is { Length: > 0 } logo && cols >= 2)
+        {
+            try
+            {
+                using var img = new MemoryStream(logo);
+                var pic = ws.AddPicture(img).MoveTo(ws.Cell(1, cols));
+                var scale = 52.0 / pic.OriginalHeight;
+                pic.WithSize((int)Math.Round(pic.OriginalWidth * Math.Min(scale, 1)), (int)Math.Round(pic.OriginalHeight * Math.Min(scale, 1)));
+            }
+            catch (Exception) { /* bozuk logo raporu engellemez */ }
+        }
+        ws.Range(4, 1, 4, cols).Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        ws.Range(4, 1, 4, cols).Style.Border.BottomBorderColor = ink;
+
+        // Tablo başlığı
+        const int head = 6;
         for (var i = 0; i < r.Columns.Count; i++)
         {
-            ws.Cell(1, i + 1).Value = r.Columns[i].Header;
-            ws.Cell(1, i + 1).Style.Font.Bold = true;
+            var c = ws.Cell(head, i + 1);
+            c.Value = r.Columns[i].Header;
+            c.Style.Font.SetBold().Font.SetFontColor(XLColor.White).Fill.SetBackgroundColor(ink);
+            c.Style.Alignment.SetVertical(XLAlignmentVerticalValues.Center).Alignment.SetWrapText(true);
+            if (r.Columns[i].Type is "money" or "int" or "decimal") c.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
         }
-        var rowNo = 2;
+        ws.Row(head).Height = 22;
+
+        var rowNo = head + 1;
         foreach (var row in r.Rows)
+        {
+            for (var i = 0; i < r.Columns.Count; i++) Put(ws.Cell(rowNo, i + 1), row[r.Columns[i].Key], r.Columns[i].Type);
+            if ((rowNo - head) % 2 == 0) ws.Range(rowNo, 1, rowNo, cols).Style.Fill.SetBackgroundColor(zebra);
+            rowNo++;
+        }
+        var last = rowNo - 1;
+        if (r.Rows.Count > 0)
+        {
+            var body = ws.Range(head, 1, last, cols);
+            body.Style.Border.InsideBorder = XLBorderStyleValues.Hair;
+            body.Style.Border.InsideBorderColor = line;
+            body.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            body.Style.Border.OutsideBorderColor = line;
+            ws.Range(head, 1, last, cols).SetAutoFilter();
+        }
+        else
+        {
+            ws.Cell(rowNo, 1).Value = "Seçilen ölçütlere uyan kayıt bulunmuyor.";
+            ws.Cell(rowNo, 1).Style.Font.SetItalic().Font.SetFontColor(XLColor.FromHtml("#6B7280"));
+            rowNo++;
+        }
+
+        // Toplam satırı
+        if (r.Totals.Count > 0 && r.Rows.Count > 0)
         {
             for (var i = 0; i < r.Columns.Count; i++)
             {
-                var col = r.Columns[i];
-                var cell = ws.Cell(rowNo, i + 1);
-                switch (row[col.Key])
-                {
-                    case null: break;
-                    case decimal d:
-                        cell.Value = d;
-                        cell.Style.NumberFormat.Format = col.Type == "money" ? "#,##0.00" : "0.##";
-                        break;
-                    case int n: cell.Value = n; break;
-                    case long n: cell.Value = n; break;
-                    case DateOnly d: cell.Value = d.ToDateTime(TimeOnly.MinValue); cell.Style.DateFormat.Format = "dd.MM.yyyy"; break;
-                    case DateTime dt: cell.Value = dt.ToLocalTime(); cell.Style.DateFormat.Format = "dd.MM.yyyy HH:mm"; break;
-                    case bool b: cell.Value = b ? "Evet" : "Hayır"; break;
-                    default: cell.Value = Convert.ToString(row[col.Key], CultureInfo.InvariantCulture); break;
-                }
+                var c = ws.Cell(rowNo, i + 1);
+                if (r.Totals.TryGetValue(r.Columns[i].Key, out var v)) Put(c, v, r.Columns[i].Type);
+                else if (i == 0) c.Value = "Toplam";
             }
+            var tr = ws.Range(rowNo, 1, rowNo, cols);
+            tr.Style.Font.SetBold().Fill.SetBackgroundColor(XLColor.FromHtml("#ECEEF2"));
+            tr.Style.Border.TopBorder = XLBorderStyleValues.Medium;
+            tr.Style.Border.TopBorderColor = ink;
             rowNo++;
         }
-        ws.SheetView.FreezeRows(1);
-        ws.Columns().AdjustToContents(1, Math.Min(rowNo, 500));
+
+        ws.SheetView.FreezeRows(head);
+        ws.Columns(1, cols).AdjustToContents(head, Math.Min(rowNo, head + 500), 8, 60);
+        if (ws.Column(1).Width < 14) ws.Column(1).Width = 14;
+
+        // Yazdırma: yatay (geniş raporlar), genişliğe sığdır, başlık her sayfada, altbilgide sayfa numarası
+        var ps = ws.PageSetup;
+        ps.PaperSize = XLPaperSize.A4Paper;
+        ps.PageOrientation = cols > 6 ? XLPageOrientation.Landscape : XLPageOrientation.Portrait;
+        ps.FitToPages(1, 0);
+        ps.SetRowsToRepeatAtTop(head, head);
+        ps.Margins.SetLeft(0.4).SetRight(0.4).SetTop(0.5).SetBottom(0.6);
+        ps.Footer.Left.AddText($"{meta.Hotel} · {r.Title}");
+        ps.Footer.Right.AddText("Sayfa &P / &N");
+        ps.CenterHorizontally = true;
+
         using var ms = new MemoryStream();
         wb.SaveAs(ms);
         return ms.ToArray();
+    }
+
+    static void Put(IXLCell cell, object? value, string type)
+    {
+        switch (value)
+        {
+            case null: break;
+            case decimal d:
+                cell.Value = d;
+                cell.Style.NumberFormat.Format = type == "money" ? "#,##0.00" : type == "int" ? "#,##0" : "#,##0.###";
+                break;
+            case int n: cell.Value = n; cell.Style.NumberFormat.Format = "#,##0"; break;
+            case long n: cell.Value = n; cell.Style.NumberFormat.Format = "#,##0"; break;
+            case double d: cell.Value = d; cell.Style.NumberFormat.Format = "#,##0.###"; break;
+            case DateOnly d: cell.Value = d.ToDateTime(TimeOnly.MinValue); cell.Style.DateFormat.Format = "dd.MM.yyyy"; break;
+            case DateTime dt: cell.Value = dt.ToLocalTime(); cell.Style.DateFormat.Format = "dd.MM.yyyy HH:mm"; break;
+            case bool b: cell.Value = b ? "Evet" : "Hayır"; break;
+            default: cell.Value = Convert.ToString(value, CultureInfo.InvariantCulture); break;
+        }
+        if (type is "money" or "int" or "decimal") cell.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
     }
 
     static async Task<DashboardDto> DashboardAsync(Tx tx)

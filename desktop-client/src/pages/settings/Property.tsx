@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save } from 'lucide-react';
+import { ImageUp, Save, Trash2 } from 'lucide-react';
 import { api, get } from '../../lib/api';
 import type { Property, Setting } from '../../lib/types';
 import { fmtDate } from '../../lib/format';
 import { useSession } from '../../lib/session';
 import { PageHead, useAction } from '../../components/common';
 import { ErrorBox, Field, Spinner, useToast } from '../../components/ui';
+import { useLogo } from '../../components/PrintDoc';
 
 const TOGGLES: [string, string, string][] = [
   ['finance.require_cashier_shift', 'Nakit ve kart tahsilatı için açık kasa vardiyası zorunlu', 'Kasa farklarının izlenebilmesi için önerilir.'],
@@ -17,6 +18,61 @@ const TOGGLES: [string, string, string][] = [
   ['night_audit.block_on_open_shifts', 'Açık kasa vardiyası varken gece denetimini engelle', ''],
   ['night_audit.cancel_expired_options', 'Gece denetiminde opsiyon süresi dolan rezervasyonları varsayılan olarak iptal et', 'Kapalıyken yalnız uyarı gösterilir.'],
 ];
+
+/** Logo istemcide en fazla 800×300 piksele küçültülür ve PNG olarak gönderilir (sunucu PNG/JPEG, en fazla 600 KB kabul eder). */
+async function shrinkLogo(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('Görüntü okunamadı.')); i.src = url; });
+    const scale = Math.min(1, 800 / img.naturalWidth, 300 / img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * scale)); c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    const png = c.toDataURL('image/png');
+    return png.length < 780_000 ? png : c.toDataURL('image/jpeg', 0.9);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+function LogoCard() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const logo = useLogo();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async (dataUrl: string | null) => {
+    setBusy(true);
+    try {
+      await api('PUT', '/api/v1/property/logo', { dataUrl });
+      await qc.invalidateQueries({ queryKey: ['property', 'logo'] });
+      toast.ok(dataUrl ? 'Logo kaydedildi; tüm çıktılarda kullanılacak.' : 'Logo kaldırıldı.');
+    } catch (e) { toast.error(e); } finally { setBusy(false); }
+  };
+  const pick = async (f?: File) => {
+    if (!f) return;
+    if (!/^image\/(png|jpeg)$/.test(f.type)) { toast.error('Logo PNG veya JPG dosyası olmalıdır.'); return; }
+    try { await save(await shrinkLogo(f)); } catch (e) { toast.error(e instanceof Error ? e.message : e); }
+  };
+  const url = logo.data?.dataUrl;
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card-head"><h3>Otel logosu</h3></div>
+      <div className="card-body row wrap" style={{ alignItems: 'center', gap: 16 }}>
+        <div style={{ width: 220, height: 90, border: '1px dashed var(--border-strong)', borderRadius: 8, display: 'grid', placeItems: 'center', background: '#fff' }}>
+          {url ? <img src={url} alt="Otel logosu" style={{ maxWidth: 200, maxHeight: 76, objectFit: 'contain' }} /> : <span className="muted" style={{ fontSize: 12 }}>Logo yok</span>}
+        </div>
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="muted" style={{ fontSize: 12, maxWidth: 520 }}>Logo folyo, rezervasyon onay belgesi, KVKK ve kimlik bildirim formları, rapor çıktıları ve Excel dosyalarında otomatik kullanılır.
+            PNG veya JPG; şeffaf arka planlı yatay logo en iyi sonucu verir.</div>
+          <input ref={fileRef} type="file" accept="image/png,image/jpeg" style={{ display: 'none' }} onChange={e => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
+          <div className="row">
+            <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}><ImageUp /> {url ? 'Logoyu değiştir' : 'Logo yükle'}</button>
+            {url && <button className="btn ghost" disabled={busy} onClick={() => void save(null)}><Trash2 /> Kaldır</button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ConfirmationNoteCard({ initial, loaded }: { initial: string; loaded: boolean }) {
   const qc = useQueryClient();
@@ -80,6 +136,7 @@ export default function PropertySettingsPage() {
         <Field label="Çıkış saati"><input type="time" className="input" value={f.checkOutTime.slice(0, 5)} onChange={set('checkOutTime')} /></Field>
       </div></div>
       <ErrorBox error={save.error} />
+      <LogoCard />
       <ConfirmationNoteCard initial={String(settings.data?.find(s => s.key === 'frontoffice.confirmation_note')?.value ?? '')} loaded={!!settings.data} />
       <div className="card"><div className="card-head"><h3>İşleyiş kuralları</h3></div><div className="card-body">
         <ul className="list-plain">

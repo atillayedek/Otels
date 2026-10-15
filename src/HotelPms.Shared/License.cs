@@ -39,7 +39,7 @@ public static class LicenseFormat
     public const string Prefix = "TSDMR-LISANS-1.";
 
     /// <summary>TSDMR Digital Studio lisans imzalama anahtarının açık kısmı (SubjectPublicKeyInfo, base64).</summary>
-    public const string PublicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECLpcMPkd04Fus4QZZhqH8CQDNUS3my+3uwu3UE7K1y7Cal9dDJYOm+HAvjOEyLFy4Zqc48NkSqvrHU00Foqfsw==";
+    public const string PublicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMY8H57qbkk9PX9/Mt2kYybczP98NSAueAPqFCzpHv7547RfOYcY+/1xrgeUEQEAwYir6399S7MqVnLd+q1s+CQ==";
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
 

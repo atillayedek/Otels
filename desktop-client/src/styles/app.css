@@ -73,6 +73,8 @@ h1, h2, .brand span, .kpi .value { font-family: var(--font-display); }
 .sidebar { grid-row: 1 / 4; background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; min-height: 0; }
 .brand { height: 62px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: var(--nav-2); color: #fff; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; }
 .brand img { width: 28px; height: 28px; border-radius: 7px; flex: none; }
+.hotel-logo { margin: 10px 12px 0; padding: 8px; background: #fff; border-radius: 8px; display: grid; place-items: center; }
+.hotel-logo img { max-width: 100%; max-height: 48px; object-fit: contain; }
 .brand small { display: block; font-size: 10.5px; color: #9aa1ad; font-weight: 400; font-family: var(--font); }
 .menu-search { margin: 10px 12px; position: relative; }
 .menu-search input { width: 100%; background: var(--nav-hover); border: 1px solid var(--nav-line); color: #e2e8f0; border-radius: var(--radius-sm); padding: 7px 10px 7px 30px; }
@@ -139,6 +141,7 @@ h1, h2, .brand span, .kpi .value { font-family: var(--font-display); }
 .page-head .sub { color: var(--muted); font-size: 12.5px; }
 .page-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; border-bottom: 0; }
+.toolbar > input[type="date"].input { width: 150px; flex: none; }
 .toolbar .count { margin-left: auto; color: var(--muted); font-size: 12px; }
 .grid { display: grid; gap: 14px; }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -353,9 +356,9 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 
 /* KVKK aydınlatma ve onay formu */
 .kvkk-doc { font-size: 9.5pt; line-height: 1.5; color: #111827; }
-.kvkk-doc .kv-head { display: flex; justify-content: space-between; gap: 8mm; padding-bottom: 3mm; margin-bottom: 4mm; border-bottom: 1.5px solid #1e3a5f; }
-.kvkk-doc .kv-head b { font-size: 13pt; color: #1e3a5f; }
-.kvkk-doc .kv-text { white-space: pre-wrap; font-size: 9pt; text-align: justify; }
+.kvkk-doc .kv-head { display: flex; justify-content: space-between; gap: 8mm; padding-bottom: 3mm; margin-bottom: 4mm; border-bottom: 1.5px solid var(--pd-ink); }
+.kvkk-doc .kv-head b { font-size: 13pt; color: var(--pd-ink); }
+.kvkk-doc .kv-text { white-space: pre-wrap; font-size: 9pt; text-align: justify; margin-top: 5mm; }
 .kvkk-doc .kv-consent { margin-top: 5mm; padding: 3mm 4mm; border: 1px solid #cbd5e1; border-radius: 1.5mm; display: grid; gap: 2.5mm; break-inside: avoid; }
 .kvkk-doc .kv-box-row { display: flex; gap: 3mm; align-items: flex-start; }
 .kvkk-doc .kv-box { flex: none; width: 4mm; height: 4mm; border: 1.2px solid #1f2937; border-radius: 0.6mm; margin-top: 0.6mm; }
@@ -364,12 +367,28 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .kvkk-doc .kv-sign span { font-size: 7.5pt; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5pt; }
 
 /* Folyo dökümü */
-.folio-doc { font-size: 9.5pt; line-height: 1.45; color: #1f2937; }
-.folio-doc .fd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; padding-bottom: 5mm; border-bottom: 2px solid #1e3a5f; }
-.folio-doc .fd-hotel { font-size: 20pt; font-weight: 700; color: #1e3a5f; letter-spacing: -0.2pt; line-height: 1.15; margin-bottom: 1.5mm; }
+.folio-doc { --pd-ink: #22262e; --pd-accent: #c2461a; --pd-soft: #f4f5f7; font-size: 9.5pt; line-height: 1.45; color: #1f2937; }
+.folio-doc .fd-brand { display: flex; align-items: center; gap: 5mm; min-width: 0; }
+.folio-doc .fd-logo { max-height: 20mm; max-width: 48mm; object-fit: contain; flex: none; }
+.folio-doc .fd-head { position: relative; }
+.folio-doc .fd-head::after { content: ''; position: absolute; left: 0; bottom: -2px; width: 28mm; height: 2px; background: var(--pd-accent); }
+.folio-doc .fd-kind { background: var(--pd-accent) !important; }
+.folio-doc .fd-no { color: var(--pd-ink); }
+.folio-doc .fd-info { background: var(--pd-soft) !important; border-left: 2.5px solid var(--pd-accent); }
+.folio-doc .fd-table tfoot td { font-weight: 700; border-top: 1.5px solid var(--pd-ink); border-bottom: 0; background: var(--pd-soft); }
+.folio-doc .fd-table thead { display: table-header-group; }
+.folio-doc .fd-lead { font-size: 9pt; color: var(--pd-ink); font-weight: 600; margin-bottom: 1mm; }
+/* Raporlar: tablo başlığı her sayfada tekrar eder; çok sütunlu raporlar daha sıkı yazılır */
+.report-doc .fd-table { margin-top: 5mm; }
+.report-doc .fd-no { font-size: 14pt; max-width: 110mm; }
+.report-doc.dense .fd-table th, .report-doc.dense .fd-table td { font-size: 7.5pt; padding: 1.5mm 1.2mm; }
+.report-doc .fd-table td { white-space: normal; }
+
+.folio-doc .fd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; padding-bottom: 5mm; border-bottom: 2px solid var(--pd-ink); }
+.folio-doc .fd-hotel { font-size: 20pt; font-weight: 700; color: var(--pd-ink); letter-spacing: -0.2pt; line-height: 1.15; margin-bottom: 1.5mm; }
 .folio-doc .fd-legal { font-size: 8.5pt; color: #6b7280; text-transform: none; }
 .folio-doc .fd-title { text-align: right; flex-shrink: 0; }
-.folio-doc .fd-kind { display: inline-block; font-size: 8pt; font-weight: 700; letter-spacing: 1.5pt; text-transform: uppercase; color: #fff; background: #1e3a5f; padding: 1mm 3mm; border-radius: 1mm; }
+.folio-doc .fd-kind { display: inline-block; font-size: 8pt; font-weight: 700; letter-spacing: 1.5pt; text-transform: uppercase; color: #fff; background: var(--pd-ink); padding: 1mm 3mm; border-radius: 1mm; }
 .folio-doc .fd-no { font-size: 16pt; font-weight: 700; color: #111827; margin: 1.5mm 0 0.5mm; font-variant-numeric: tabular-nums; }
 .folio-doc .fd-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm 6mm; margin: 5mm 0; padding: 4mm 5mm; background: #f3f6fa; border-radius: 2mm; }
 .folio-doc .fd-info div { display: flex; flex-direction: column; min-width: 0; }
@@ -377,7 +396,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .folio-doc .fd-info b { font-size: 10pt; font-weight: 600; color: #111827; overflow-wrap: anywhere; }
 .folio-doc .fd-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
 .folio-doc .fd-table th, .folio-doc .fd-table td { border: 0; border-bottom: 1px solid #e5e7eb; padding: 2.2mm 2mm; font-size: 9pt; vertical-align: top; }
-.folio-doc .fd-table thead th { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6pt; color: #6b7280; border-bottom: 1.5px solid #1e3a5f; }
+.folio-doc .fd-table thead th { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6pt; color: #6b7280; border-bottom: 1.5px solid var(--pd-ink); }
 .folio-doc .fd-table tbody tr:nth-child(even) td { background: #fafbfc; }
 .folio-doc .fd-table tr { break-inside: avoid; }
 .folio-doc .fd-table td.r, .folio-doc .fd-table th.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -385,12 +404,11 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .folio-doc .fd-muted, .folio-doc .fd-ref { color: #9ca3af; font-size: 8pt; }
 .folio-doc .fd-totals { margin: 4mm 0 0 auto; width: 78mm; break-inside: avoid; font-variant-numeric: tabular-nums; }
 .folio-doc .fd-totals > div { display: flex; justify-content: space-between; padding: 1.4mm 2mm; color: #4b5563; }
-.folio-doc .fd-totals .fd-balance { margin-top: 1.5mm; padding: 3mm; background: #1e3a5f; color: #fff; border-radius: 1.5mm; font-size: 11.5pt; font-weight: 700; }
+.folio-doc .fd-totals .fd-balance { margin-top: 1.5mm; padding: 3mm; background: var(--pd-ink); color: #fff; border-radius: 1.5mm; font-size: 11.5pt; font-weight: 700; }
 .folio-doc .fd-sign { display: flex; justify-content: space-between; gap: 20mm; margin-top: 20mm; break-inside: avoid; }
 .folio-doc .fd-sign > div { flex: 1; text-align: center; font-size: 8.5pt; color: #6b7280; }
 .folio-doc .fd-line { border-top: 1px solid #9ca3af; margin-bottom: 1.5mm; }
 .folio-doc .fd-foot { margin-top: 10mm; padding-top: 3mm; border-top: 1px solid #e5e7eb; text-align: center; font-size: 7.5pt; color: #9ca3af; break-inside: avoid; }
-.folio-doc .fd-foot div:first-child { font-size: 9pt; color: #1e3a5f; font-weight: 600; margin-bottom: 1mm; }
 
 /* Ek düzenler */
 .kpi.clickable { cursor: pointer; }

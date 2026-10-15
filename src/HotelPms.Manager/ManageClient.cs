@@ -11,7 +11,7 @@ public sealed record ManageStatus(string Status, string Hostname, List<string> A
     string? DatabaseVersion, string SchemaVersion, bool DatabaseReady, string? StartupError, TimeSpan Uptime, int ConnectedClients,
     List<ConnectedClient> Clients, int ActiveSessions, List<string> LoggedInUsers, long DatabaseSizeBytes, DateTime? LastBackupAt,
     string? LastBackupStatus, long FreeDiskBytes, long TotalDiskBytes, long MemoryBytes, double CpuPercent, List<HealthCheck> Checks,
-    string DataRoot, string BackupDirectory, string? SetupCode, string LogsDirectory);
+    string DataRoot, string BackupDirectory, string? SetupCode, string LogsDirectory, string? License = null, bool LicenseRestricted = false);
 public sealed record BackupManifest(string Format, Guid Id, string Kind, DateTime CreatedAt, string AppVersion, string SchemaVersion,
     string DatabaseName, string DumpSha256, long DumpBytes, int StorageFiles, string MachineName);
 public sealed record BackupFileInfo(string Path, string FileName, long SizeBytes, DateTime ModifiedAt, BackupManifest? Manifest, string? Problem);

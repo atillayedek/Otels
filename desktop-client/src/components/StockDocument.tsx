@@ -27,9 +27,19 @@ export function ItemDatalist({ items }: { items: StockItem[] }) {
 export function ItemPicker({ items, value, onChange, autoFocus }: { items: StockItem[]; value: string; onChange: (id: string) => void; autoFocus?: boolean }) {
   const cur = items.find(i => i.id === value);
   const [text, setText] = useState(cur ? itemLabel(cur) : '');
+  // Listeden seçilen etiket, stok kodu veya tam adı kabul edilir (büyük/küçük harf duyarsız).
+  const resolve = (v: string) => {
+    const s = v.trim().toLocaleLowerCase('tr-TR');
+    if (!s) return undefined;
+    return items.find(i => itemLabel(i) === v) ?? items.find(i => i.code.toLocaleLowerCase('tr-TR') === s)
+      ?? (items.filter(i => i.name.toLocaleLowerCase('tr-TR') === s).length === 1 ? items.find(i => i.name.toLocaleLowerCase('tr-TR') === s) : undefined);
+  };
+  const unresolved = text.trim() !== '' && !resolve(text);
   return (
     <input className="input" list="stock-item-list" value={text} autoFocus={autoFocus} placeholder="Kod veya ad yazın"
-      onChange={e => { setText(e.target.value); const m = items.find(i => itemLabel(i) === e.target.value); onChange(m?.id ?? ''); }} />
+      style={unresolved ? { borderColor: 'var(--danger)' } : undefined} title={unresolved ? 'Stok kartı bulunamadı; listeden seçin veya kodu tam yazın.' : undefined}
+      onChange={e => { setText(e.target.value); onChange(resolve(e.target.value)?.id ?? ''); }}
+      onBlur={() => { const m = resolve(text); if (m) setText(itemLabel(m)); }} />
   );
 }
 

@@ -6,6 +6,7 @@ import { get, post } from '../lib/api';
 import { fmtDate, fmtDateTime, KBS_STATUS } from '../lib/format';
 import { useSession } from '../lib/session';
 import { useAction } from './common';
+import { DocFooter, DocHeader } from './PrintDoc';
 import { ID_TYPES } from './GuestFields';
 import { Badge, ErrorBox, Field, Modal, Spinner, useToast } from './ui';
 
@@ -139,15 +140,14 @@ export function KbsFormModal({ reservationId, onClose }: { reservationId: string
         <ErrorBox error={save.error} />
       </div>
       {printing && createPortal(
-        <div className="doc">
-          <div className="doc-head"><div><h1>Kimlik Bildirim Formu</h1><div>{r.propertyName}</div><div>{r.propertyAddress} {r.propertyCity}</div></div>
-            <div style={{ textAlign: 'right' }}><div>Oda {r.roomNumber ?? '—'}</div><div>{fmtDate(r.arrival)} – {fmtDate(r.departure)}</div><div>Rez. {r.reservationNumber}</div></div></div>
-          <table>
+        <div className="doc folio-doc">
+          <DocHeader kind="Kimlik bildirim formu" no={`Oda ${r.roomNumber ?? '—'}`} lines={[`Rez. ${r.reservationNumber}`, `${fmtDate(r.arrival)} – ${fmtDate(r.departure)}`]} />
+          <table className="fd-table" style={{ marginTop: '5mm' }}>
             <thead><tr><th>Ad soyad</th><th>Uyruk</th><th>Kimlik türü / no</th><th>Doğum tarihi</th><th>Cinsiyet</th><th>Baba / anne adı</th></tr></thead>
-            <tbody>{f.guests.map(g => <tr key={g.guestId}><td>{g.firstName} {g.lastName}</td><td>{g.nationality}</td><td>{g.identityType ? ID_TYPES[g.identityType] ?? g.identityType : ''} {g.identityNumber}</td>
+            <tbody>{f.guests.map(g => <tr key={g.guestId}><td><b>{g.firstName} {g.lastName}</b></td><td>{g.nationality}</td><td>{g.identityType ? ID_TYPES[g.identityType] ?? g.identityType : ''} {g.identityNumber}</td>
               <td>{fmtDate(g.birthDate)}</td><td>{g.gender ? GENDER[g.gender] ?? '' : ''}</td><td>{[g.fatherName, g.motherName].filter(Boolean).join(' / ')}</td></tr>)}</tbody>
           </table>
-          <div className="fine">Yazdırma: {fmtDateTime(new Date().toISOString())}. Bu belge kişisel veri içerir; işi bitince güvenli biçimde imha edin.</div>
+          <DocFooter note="Bu belge kişisel veri içerir; işi bitince güvenli biçimde imha edin." />
         </div>, document.getElementById('print-root')!)}
     </Modal>
   );

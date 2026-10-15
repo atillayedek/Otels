@@ -78,7 +78,7 @@ function EntriesTab() {
   return (
     <>
       <div className="toolbar">
-        <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} /> – <input type="date" className="input" value={to} onChange={e => setTo(e.target.value)} />
+        <input type="date" className="input" style={{ width: 150 }} value={from} onChange={e => setFrom(e.target.value)} /> – <input type="date" className="input" style={{ width: 150 }} value={to} onChange={e => setTo(e.target.value)} />
         <select className="input" style={{ width: 150 }} value={kind} onChange={e => setKind(e.target.value)}><option value="">Tüm fişler</option>{Object.entries(ENTRY_KIND).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select>
         {can('accounting.manage') && <button className="btn primary" onClick={() => setManual(true)}><Plus /> Elle fiş</button>}
         {can('accounting.manage') && <button className="btn" onClick={() => setGen(true)}>Geçmiş günlerin fişlerini oluştur</button>}
