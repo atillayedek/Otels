@@ -68,7 +68,7 @@ sealed class MainForm : Form
         var hint = new Label
         {
             AutoSize = true, MaximumSize = new Size(560, 0), ForeColor = Color.DimGray, Margin = new Padding(0, 6, 0, 6),
-            Text = "Vergi no girilirse lisans yalnız Yönetim → Otel Bilgileri'nde aynı vergi numarası kayıtlı otelde geçerli olur (lisansın başka otelde kullanılmasını önler).",
+            Text = "Vergi no girilirse lisans yalnız Yönetim → Tesis Bilgileri'nde aynı vergi numarası kayıtlı otelde geçerli olur (lisansın başka otelde kullanılmasını önler).",
         };
         grid.Controls.Add(hint); grid.SetColumnSpan(hint, 2);
 
@@ -159,6 +159,7 @@ sealed class MainForm : Form
         if (c.Length < 2 || h.Length < 2) { Error("Müşteri unvanı ve otel adı zorunludur."); return; }
         if (v.Length is not (0 or 10 or 11)) { Error("Vergi no 10 haneli VKN veya 11 haneli TCKN olmalıdır (boş bırakılabilir)."); return; }
         if (!perpetual.Checked && expires.Value.Date <= DateTime.Today) { Error("Bitiş tarihi bugünden sonra olmalıdır."); return; }
+        if (support.Value.Date < DateTime.Today) { Error("Destek / güncelleme bitişi bugünden önce olamaz."); return; }
         var modules = new List<string>();
         if (modRestaurant.Checked) modules.Add(LicenseModules.Restaurant);
         if (modStock.Checked) modules.Add(LicenseModules.Stock);
@@ -178,13 +179,21 @@ sealed class MainForm : Form
 
         using var save = new SaveFileDialog { Filter = "TSDMR lisans dosyası (*.lisans)|*.lisans", FileName = $"{Safe(h)}-{payload.LicenseId}.lisans" };
         if (save.ShowDialog(this) != DialogResult.OK) return;
-        File.WriteAllText(save.FileName, text + Environment.NewLine, new UTF8Encoding(false));
-        AppendLedger(payload);
+        try { File.WriteAllText(save.FileName, text + Environment.NewLine, new UTF8Encoding(false)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Error("Lisans dosyası kaydedilemedi: " + ex.Message); return; }
         output.Text = text;
-        MessageBox.Show(this, $"Lisans kaydedildi:\n{save.FileName}\n\n{LicenseFormat.Describe(payload)}\n\nOtelde: Yönetim → Lisans ekranında dosyayı açın veya metni yapıştırın.",
-            "Lisans hazır", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        var ledgerNote = "";
+        try { AppendLedger(payload); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Liste dosyası Excel'de açıkken yazılamaz; lisans yine de geçerlidir.
+            ledgerNote = $"\n\nUYARI: Lisans, verilen lisanslar listesine yazılamadı ({ex.Message}). {Program.LedgerFileName} dosyası açıksa kapatıp bu lisansı listeye elle ekleyin.";
+        }
+        MessageBox.Show(this, $"Lisans kaydedildi:\n{save.FileName}\n\n{LicenseFormat.Describe(payload)}\n\nOtelde: Yönetim → Lisans ekranında dosyayı açın veya metni yapıştırın.{ledgerNote}",
+            "Lisans hazır", MessageBoxButtons.OK, ledgerNote.Length > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
     }
 
+    /// <summary>Verilen lisansları imza anahtarının yanındaki CSV listesine ekler (Excel'de açılır; ayırıcı noktalı virgül).</summary>
     void AppendLedger(LicensePayload p)
     {
         if (keyPath is null) return;
@@ -201,7 +210,10 @@ sealed class MainForm : Form
     {
         using var dlg = new OpenFileDialog { Filter = "TSDMR lisans dosyası (*.lisans)|*.lisans|Tüm dosyalar|*.*" };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        var p = LicenseFormat.Verify(File.ReadAllText(dlg.FileName), out var err);
+        string content;
+        try { content = File.ReadAllText(dlg.FileName); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Error("Dosya okunamadı: " + ex.Message); return; }
+        var p = LicenseFormat.Verify(content, out var err);
         if (p is null) Error(err ?? "Geçersiz lisans.");
         else MessageBox.Show(this, $"Geçerli lisans: {p.LicenseId}\n{LicenseFormat.Describe(p)}\nVergi no: {p.TaxNumber ?? "—"}\nDestek bitişi: {p.SupportUntil:dd.MM.yyyy}",
             "Lisans doğrulandı", MessageBoxButtons.OK, MessageBoxIcon.Information);

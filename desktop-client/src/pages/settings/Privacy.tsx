@@ -57,7 +57,7 @@ function PrivacyForm({ settings }: { settings: Setting[] }) {
             <div className="card-body stack">
               <div className="muted" style={{ fontSize: 12 }}>
                 Resepsiyonda misafire imzalatılan metin. <code>{'{UNVAN}'}</code>, <code>{'{OTEL}'}</code>, <code>{'{ADRES}'}</code>, <code>{'{TELEFON}'}</code>, <code>{'{EPOSTA}'}</code> otel bilgileriyle
-                (Yönetim → Otel Bilgileri) doldurulur. Metni otelinizin hukuk danışmanıyla gözden geçirin.
+                (Yönetim → Tesis Bilgileri) doldurulur. Metni otelinizin hukuk danışmanıyla gözden geçirin.
               </div>
               <textarea className="input" rows={16} value={notice} onChange={e => setNotice(e.target.value)} style={{ fontSize: 12.5, lineHeight: 1.5 }} />
               <Field label="Ticari elektronik ileti açık rıza metni (isteğe bağlı onay kutusu)">

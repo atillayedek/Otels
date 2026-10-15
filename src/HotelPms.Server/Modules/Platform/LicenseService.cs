@@ -67,7 +67,7 @@ public sealed partial class LicenseService(Db db)
         if (p is null) return new("invalid", "Yüklü lisans geçersiz: " + error, true, null, null, null, null, null, [], null, null, null, null, activeRooms);
         var digits = new string((propertyTaxNumber ?? "").Where(char.IsDigit).ToArray());
         if (p.TaxNumber is { Length: > 0 } t && t != digits)
-            return new("invalid", $"Lisans {t} vergi numaralı işletme için verilmiş; Otel Bilgileri'ndeki vergi numarası ({(digits.Length > 0 ? digits : "boş")}) uyuşmuyor.",
+            return new("invalid", $"Lisans {t} vergi numaralı işletme için verilmiş; Yönetim → Tesis Bilgileri'ndeki vergi numarası ({(digits.Length > 0 ? digits : "boş")}) uyuşmuyor.",
                 true, p.LicenseId, p.Customer, p.Hotel, p.TaxNumber, p.MaxRooms, p.Modules, p.ExpiresAt, p.SupportUntil, null, null, activeRooms);
         if (p.ExpiresAt is { } e && e < today)
             return new("expired", $"Lisans süresi {e:dd.MM.yyyy} tarihinde doldu. Yenileme için {PmsConstants.SupportEmail} adresine yazın.",

@@ -115,7 +115,7 @@ Ticari elektronik ileti izni: Otelin kampanya, tanıtım ve özel teklif bildiri
         g.MapGet("/", async (Db db) => await db.QuerySingleOrDefaultAsync<PropertyDto>(PropertySelect + " LIMIT 1")
             ?? throw PmsException.NotFound("Tesis"));
 
-        g.MapPut("/", (UpdatePropertyRequest req, CommandRunner cmd) => cmd.RunAsync("property.update", req, async tx =>
+        g.MapPut("/", (UpdatePropertyRequest req, CommandRunner cmd, Platform.LicenseService license) => cmd.RunAsync("property.update", req, async tx =>
         {
             var before = await tx.OneAsync<PropertyDto>(PropertySelect + " LIMIT 1");
             var tz = Validate.Required(req.TimeZone, "Saat dilimi", 60);
@@ -135,6 +135,7 @@ Ticari elektronik ileti izni: Otelin kampanya, tanıtım ve özel teklif bildiri
             });
             await tx.AuditAsync("property.update", "property", before.Id, before, req);
             tx.Publish("property");
+            license.Invalidate(); // lisans vergi numarasına bağlı olabilir; durum yeniden hesaplanır
             return new { id = before.Id };
         }, requireKey: false)).RequirePermission("settings.manage");
 
