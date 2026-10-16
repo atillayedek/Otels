@@ -189,7 +189,7 @@ public static class PrivacyEndpoints
                 address = NULL, city = NULL, tax_office = NULL, tax_number = NULL, company_id = NULL, notes = NULL, preferences = NULL, is_vip = false, vip_level = NULL,
                 is_blacklisted = false, blacklist_reason = NULL, kvkk_consent = false, kvkk_consent_at = NULL, marketing_consent = false,
                 title = NULL, marital_status = NULL, language = NULL, phone2 = NULL, identity_serial = NULL, identity_issue_place = NULL,
-                identity_issue_date = NULL, district = NULL, postal_code = NULL, vehicle_plate = NULL, alert_note = NULL,
+                identity_issue_date = NULL, district = NULL, postal_code = NULL, vehicle_plate = NULL, alert_note = NULL, room_discount_pct = 0, extra_discount_pct = 0,
                 anonymized_at = now(), anonymized_by = @uid, updated_at = now(), version = version + 1
             WHERE id = @id
             """, new { id, last = "Misafir " + tag, uid = tx.User.Id });

@@ -171,10 +171,10 @@ public static class ReservationEndpoints
             return days.Select(d => d with { Available = d.Total - d.Blocked - d.Sold - d.Held }).ToList();
         }).WithTags("Reservations").RequirePermission("reservation.view");
 
-        app.MapGet("/api/v1/rates/preview", (Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure, CommandRunner cmd) =>
+        app.MapGet("/api/v1/rates/preview", (Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure, Guid? guestId, CommandRunner cmd) =>
         {
             Validate.DateRange(arrival, departure);
-            return cmd.ReadAsync(tx => ReservationService.ComputeRatesAsync(tx, roomTypeId, ratePlanId, arrival, departure));
+            return cmd.ReadAsync(tx => ReservationService.ComputeRatesAsync(tx, roomTypeId, ratePlanId, arrival, departure, guestId));
         }).WithTags("Reservations").RequirePermission("reservation.view");
 
         // ---- Room rack

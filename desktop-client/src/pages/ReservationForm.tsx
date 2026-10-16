@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Crown, Save, Search, UserPlus, X } from 'lucide-react';
 import { api, ApiError, get, newKey, qs } from '../lib/api';
 import type { ExchangeRatesView, GuestListItem, Paged, RatePreview, Reservation } from '../lib/types';
-import { addDays, fmtDate, fmtMoney, fmtRate, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
+import { addDays, fmtDate, fmtMoney, fmtQty, fmtRate, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
 import { useAgencies, useChannels, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
@@ -89,8 +89,8 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   }, [d.roomId, d.roomTypeId, status.data]);
 
   const preview = useQuery({
-    queryKey: ['ratePrices', 'preview', d.roomTypeId, d.ratePlanId, d.arrival, d.departure],
-    queryFn: () => get<RatePreview>(`/api/v1/rates/preview${qs({ roomTypeId: d.roomTypeId, ratePlanId: d.ratePlanId || null, arrival: d.arrival, departure: d.departure })}`),
+    queryKey: ['ratePrices', 'preview', d.roomTypeId, d.ratePlanId, d.arrival, d.departure, guest?.id],
+    queryFn: () => get<RatePreview>(`/api/v1/rates/preview${qs({ roomTypeId: d.roomTypeId, ratePlanId: d.ratePlanId || null, arrival: d.arrival, departure: d.departure, guestId: guest?.id ?? null })}`),
     enabled: !!d.roomTypeId && nights > 0,
   });
 
@@ -213,6 +213,9 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
                   <option value="">{property?.currency}</option>{fx.data!.currencies.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Field>
+            )}
+            {preview.data && !d.overrideRate && !needsManual && Number(preview.data.discountPct) > 0 && (
+              <div className="info-box">Misafir kartındaki %{fmtQty(preview.data.discountPct)} konaklama indirimi gecelik fiyatlara uygulandı.</div>
             )}
             {preview.data && !d.overrideRate && !needsManual && (
               <div className="table-wrap" style={{ maxHeight: 220 }}>

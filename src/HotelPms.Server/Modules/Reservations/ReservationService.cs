@@ -51,7 +51,8 @@ public static class ReservationService
     }
 
     // ------------------------------------------------------------------ Fiyat
-    public static async Task<RatePreview> ComputeRatesAsync(Tx tx, Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure)
+    /// <param name="guestId">Verilirse misafir kartındaki konaklama indirimi (%) gecelik fiyatlara uygulanır.</param>
+    public static async Task<RatePreview> ComputeRatesAsync(Tx tx, Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure, Guid? guestId = null)
     {
         var defaultRate = await tx.ScalarAsync<decimal?>("SELECT default_rate FROM pms.room_types WHERE id = @roomTypeId AND is_active", new { roomTypeId })
             ?? throw PmsException.Validation("Oda tipi bulunamadı veya pasif.");
@@ -84,8 +85,14 @@ public static class ReservationService
         {
             for (var d = arrival; d < departure; d = d.AddDays(1)) nights.Add(new NightRate(d, defaultRate));
         }
+        decimal discount = 0;
+        if (guestId is { } gid && await tx.ScalarAsync<decimal?>("SELECT room_discount_pct FROM pms.guests WHERE id = @gid", new { gid }) is decimal pct && pct > 0)
+        {
+            discount = pct;
+            nights = nights.Select(n => n with { Rate = decimal.Round(n.Rate * (100 - pct) / 100, 2, MidpointRounding.AwayFromZero) }).ToList();
+        }
         var total = nights.Sum(n => n.Rate);
-        return new RatePreview(nights, total, nights.Count == 0 ? 0 : decimal.Round(total / nights.Count, 2), source, planCurrency);
+        return new RatePreview(nights, total, nights.Count == 0 ? 0 : decimal.Round(total / nights.Count, 2), source, planCurrency, discount);
     }
 
     static async Task WriteRatesAsync(Tx tx, Guid reservationId, IEnumerable<NightRate> nights, IReadOnlyDictionary<DateOnly, decimal>? fx = null)
@@ -213,7 +220,7 @@ public static class ReservationService
         if (req.RoomId is { } roomId) await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, null, false);
 
         var ch = await ChannelAsync(tx, req.Channel, req.ChannelRef, null);
-        var rates = await ResolveRatesAsync(tx, req);
+        var rates = await ResolveRatesAsync(tx, req, guestId);
         var (nights, nightly) = (rates.Nights, rates.Nightly);
         var number = "R" + await tx.ScalarAsync<long>("SELECT nextval('pms.reservation_number_seq')");
         var id = await tx.ScalarAsync<Guid>("""
@@ -283,7 +290,7 @@ public static class ReservationService
         decimal? fxNightly = r.FxNightlyRate;
         if (rateChanged)
         {
-            var rates = await ResolveRatesAsync(tx, req);
+            var rates = await ResolveRatesAsync(tx, req, req.GuestId ?? r.GuestId);
             (nightly, fxCur, fxNightly) = (rates.Nightly, rates.FxCurrency, rates.FxNightly);
             // Postalanmış gecelerin fiyatı geçmişe dönük değişmez.
             var posted = await tx.ListAsync<DateOnly>("SELECT business_date FROM pms.room_charge_postings WHERE reservation_id = @id", new { id });
@@ -335,9 +342,9 @@ public static class ReservationService
     }
 
     /// <param name="trusted">Fiyatı kullanıcı değiştirmiyor (ör. erken girişte mevcut anlaşma korunuyor); elle fiyat yetkisi aranmaz.</param>
-    async static Task<ResolvedRates> ResolveRatesAsync(Tx tx, SaveReservationRequest req, bool trusted = false)
+    async static Task<ResolvedRates> ResolveRatesAsync(Tx tx, SaveReservationRequest req, Guid? guestId, bool trusted = false)
     {
-        var preview = await ComputeRatesAsync(tx, req.RoomTypeId, req.RatePlanId, req.Arrival, req.Departure);
+        var preview = await ComputeRatesAsync(tx, req.RoomTypeId, req.RatePlanId, req.Arrival, req.Departure, guestId);
         var cur = await NormalizeCurrencyAsync(tx, req.RateCurrency) ?? preview.Currency;
         List<NightRate> nights;
         if (req.NightlyRate is { } manual && (preview.Currency != cur || preview.Nights.Any(n => n.Rate != manual)))
@@ -452,7 +459,7 @@ public static class ReservationService
         {
             var rates = await ResolveRatesAsync(tx, new SaveReservationRequest(r.GuestId, null, r.CompanyId, r.AgencyId, r.GroupId, r.RoomTypeId, req.RoomId,
                 arrival, r.Departure, r.Adults, r.Children, r.RatePlanId, r.RateCurrency is null ? null : r.FxNightlyRate, r.MealPlan, "confirmed", r.Source,
-                r.Market, r.Segment, r.Eta, r.Etd, r.Notes, r.SpecialRequests, r.DepositRequired, r.OptionUntil, r.Version, RateCurrency: r.RateCurrency), trusted: true);
+                r.Market, r.Segment, r.Eta, r.Etd, r.Notes, r.SpecialRequests, r.DepositRequired, r.OptionUntil, r.Version, RateCurrency: r.RateCurrency), r.GuestId, trusted: true);
             var existing = (await tx.ListAsync<(DateOnly Date, decimal Rate, decimal? Fx)>(
                 "SELECT stay_date, rate, fx_amount FROM pms.reservation_rates WHERE reservation_id = @id", new { id })).ToDictionary(x => x.Date);
             var fx = rates.FxNights is null ? new Dictionary<DateOnly, decimal>() : new Dictionary<DateOnly, decimal>(rates.FxNights);
@@ -614,7 +621,7 @@ public static class ReservationService
                 var usePlan = planCur == cur;
                 var rates = await ResolveRatesAsync(tx, new SaveReservationRequest(r.GuestId, null, r.CompanyId, r.AgencyId, r.GroupId, r.RoomTypeId, r.RoomId,
                     r.Departure, req.Departure, r.Adults, r.Children, usePlan ? r.RatePlanId : null, usePlan ? null : r.FxNightlyRate, r.MealPlan, "confirmed",
-                    r.Source, r.Market, r.Segment, r.Eta, r.Etd, r.Notes, r.SpecialRequests, r.DepositRequired, r.OptionUntil, r.Version, RateCurrency: cur), trusted: true);
+                    r.Source, r.Market, r.Segment, r.Eta, r.Etd, r.Notes, r.SpecialRequests, r.DepositRequired, r.OptionUntil, r.Version, RateCurrency: cur), r.GuestId, trusted: true);
                 foreach (var n in rates.Nights)
                     await tx.ExecAsync("""
                         INSERT INTO pms.reservation_rates (reservation_id, stay_date, rate, fx_amount) VALUES (@id, @Date, @Rate, @fx) ON CONFLICT DO NOTHING
@@ -622,7 +629,7 @@ public static class ReservationService
             }
             else
             {
-                var extra = await ComputeRatesAsync(tx, r.RoomTypeId, r.RatePlanId, r.Departure, req.Departure);
+                var extra = await ComputeRatesAsync(tx, r.RoomTypeId, r.RatePlanId, r.Departure, req.Departure, r.GuestId);
                 var lastRate = await tx.ScalarAsync<decimal?>("SELECT rate FROM pms.reservation_rates WHERE reservation_id = @id ORDER BY stay_date DESC LIMIT 1", new { id });
                 // Uzatmada mevcut anlaşmalı fiyat korunur (fiyat planı yoksa).
                 foreach (var n in extra.Nights)

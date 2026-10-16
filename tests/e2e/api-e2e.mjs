@@ -910,6 +910,38 @@ try {
     await api('PUT', '/api/v1/property/settings/frontoffice.allow_checkin_dirty_room', false);
   });
 
+  await step('Misafir indirimleri: konaklama indirimi fiyata, ekstra indirimi ayrı satıra; masraf iptalinde bağlı indirim de iptal; yetkisiz kullanıcı indirim veremez', async () => {
+    const k = () => ({ key: randomUUID() });
+    const g = await api('POST', '/api/v1/guests', { firstName: 'İndirimli', lastName: 'Misafir', identityType: 'tckn', identityNumber: tckn(717171), nationality: 'TR',
+      isVip: false, kvkkConsent: true, marketingConsent: false, roomDiscountPct: 10, extraDiscountPct: 20 }, k());
+    await api('POST', '/api/v1/guests', { firstName: 'A', lastName: 'B', isVip: false, kvkkConsent: false, marketingConsent: false, roomDiscountPct: 120 }, { ...k(), expect: 422 });
+    const full = await api('GET', `/api/v1/rates/preview?roomTypeId=${state.std}&arrival=${state.bd}&departure=${addDays(state.bd, 1)}`);
+    const disc = await api('GET', `/api/v1/rates/preview?roomTypeId=${state.std}&arrival=${state.bd}&departure=${addDays(state.bd, 1)}&guestId=${g.id}`);
+    assert.equal(Number(disc.total), Math.round(Number(full.total) * 90) / 100, 'konaklama indirimi %10'); assert.equal(Number(disc.discountPct), 10);
+    const id = (await api('POST', '/api/v1/reservations', { guestId: g.id, roomTypeId: state.std, arrival: state.bd, departure: addDays(state.bd, 1), adults: 1, children: 0,
+      status: 'confirmed', depositRequired: '0' }, k())).id;
+    const res = await api('GET', `/api/v1/reservations/${id}`);
+    assert.equal(Number(res.totalRate), Number(disc.total), 'rezervasyon indirimli fiyatla kaydedildi');
+    const fid = (await api('POST', `/api/v1/folios?reservationId=${id}`, { payerKind: 'guest' }, k())).id;
+    const codes = await api('GET', '/api/v1/finance/transaction-codes');
+    const mini = codes.find(x => x.category !== 'room' && x.category !== 'tax' && x.isActive);
+    const ch = await api('POST', `/api/v1/folios/${fid}/charges`, { transactionCodeId: mini.id, quantity: '1', unitPrice: '250.00' }, k());
+    let d = await api('GET', `/api/v1/folios/${fid}`);
+    const auto = d.lines.find(l => l.lineType === 'discount');
+    assert.equal(Number(auto.amount), -50, 'ekstra indirimi %20 ayrı satır'); assert.equal(Number(d.folio.balance), 200);
+    await api('POST', `/api/v1/folio-lines/${ch.id}/void`, { reason: 'Yanlış masraf' }, k());
+    d = await api('GET', `/api/v1/folios/${fid}`);
+    assert.equal(Number(d.folio.balance), 0, 'masraf iptalinde bağlı indirim de iptal edildi');
+    // Resepsiyon (fiyat değiştirme yetkisi yok) misafire indirim veremez
+    const adminToken = token; token = '';
+    await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
+    const gg = (await api('GET', `/api/v1/guests/${g.id}`)).guest;
+    await api('PUT', `/api/v1/guests/${g.id}`, { ...gg, roomDiscountPct: 50, version: gg.version }, { expect: 403 });
+    await api('PUT', `/api/v1/guests/${g.id}`, { ...gg, notes: 'Resepsiyon notu', version: gg.version });   // indirim değişmeden düzenleme serbest
+    token = adminToken;
+    await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${id}`)).version }, k());
+  });
+
   await step('Kayıp eşya: kayıt, düzenleme, teslim (teslim alan zorunlu), imha; kapanan kayıt değişmez', async () => {
     const k = () => ({ key: randomUUID() });
     const rooms = await api('GET', '/api/v1/rooms');

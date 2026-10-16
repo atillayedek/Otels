@@ -66,7 +66,7 @@ public sealed record CreateWakeupRequest(Guid ReservationId, DateTime CallAt, st
 /// <summary>Held: başka acentelere ayrılmış, henüz kullanılmamış ve release süresi dolmamış kontenjan (bu satış için kapalı).</summary>
 public sealed record AvailabilityDay(DateOnly Date, Guid RoomTypeId, string RoomTypeCode, int Total, int Blocked, int Sold, int Held, int Available);
 /// <summary>Currency: fiyat planının para birimi (boşsa tesis para birimi); tutarlar bu para birimindedir.</summary>
-public sealed record RatePreview(IReadOnlyList<NightRate> Nights, decimal Total, decimal Average, string Source, string? Currency = null);
+public sealed record RatePreview(IReadOnlyList<NightRate> Nights, decimal Total, decimal Average, string Source, string? Currency = null, decimal DiscountPct = 0);
 public sealed record NightRate(DateOnly Date, decimal Rate);
 
 public sealed record RackRoom(Guid Id, string Number, string? Floor, Guid RoomTypeId, string RoomTypeCode, string HkStatus, bool IsDnd, int SortOrder);

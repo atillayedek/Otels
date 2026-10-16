@@ -191,6 +191,7 @@ public static class FolioService
         var id = await InsertLineAsync(tx, folioId, "charge", desc, amount, f.Currency, bd, codeId: req.TransactionCodeId, quantity: req.Quantity,
             unitPrice: req.UnitPrice, reference: Validate.Optional(req.Reference, 100), room: f.RoomNumber, vat: code.VatRate);
         await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, req.TransactionCodeId, desc });
+        await GuestExtraDiscountAsync(tx, folioId, id, amount, f.Currency, bd, f.RoomNumber);
         tx.Publish("folios", folioId);
         return id;
     }
@@ -206,8 +207,27 @@ public static class FolioService
         var id = await InsertLineAsync(tx, folioId, "charge", description, amount, f.Currency, bd, codeId: codeId, unitPrice: amount, reference: reference,
             room: f.RoomNumber, vat: vatRate);
         await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, codeId, description, reference });
+        await GuestExtraDiscountAsync(tx, folioId, id, amount, f.Currency, bd, f.RoomNumber);
         tx.Publish("folios", folioId);
         return id;
+    }
+
+    /// <summary>
+    /// Misafir folyosuna yazılan masrafa, misafir kartındaki ekstra indirim oranı kadar bağlı indirim satırı ekler.
+    /// Brüt gelir ve indirim ayrı satırlarda kalır; masraf iptal edilince bu indirim de iptal edilir.
+    /// </summary>
+    static async Task GuestExtraDiscountAsync(Tx tx, Guid folioId, Guid chargeId, decimal amount, string currency, DateOnly bd, string? room)
+    {
+        var pct = await tx.ScalarAsync<decimal?>("""
+            SELECT g.extra_discount_pct FROM pms.folios f JOIN pms.guests g ON g.id = f.guest_id
+            WHERE f.id = @folioId AND f.payer_kind = 'guest'
+            """, new { folioId });
+        if (pct is not decimal p || p <= 0) return;
+        var disc = decimal.Round(amount * p / 100, 2, MidpointRounding.AwayFromZero);
+        if (disc <= 0) return;
+        var reason = $"Misafir ekstra indirimi %{p:0.##}";
+        var id = await InsertLineAsync(tx, folioId, "discount", "İndirim - " + reason, -disc, currency, bd, reason: reason, related: chargeId, room: room);
+        await tx.AuditAsync("folio.discount", "folio", folioId, null, new { lineId = id, amount = disc, chargeId, automatic = true }, reason);
     }
 
     public static async Task<Guid> PostPaymentAsync(Tx tx, Guid folioId, PostPaymentRequest req)
@@ -342,6 +362,17 @@ public static class FolioService
         var id = await InsertLineAsync(tx, line.FolioId, "void", "İPTAL: " + line.Description, -line.Amount, f.Currency, bd, methodId: line.MethodId,
             shiftId: shift, reason: reason, related: lineId, room: f.RoomNumber,
             tender: line.TCur is null ? null : new Tender(line.TCur, -line.TAmt!.Value, line.TRate!.Value));
+        // Masrafa bağlı (iptal edilmemiş) indirim ve düzeltmeler de iptal edilir; aksi halde folyoda karşılıksız alacak kalır.
+        if (line.LineType == "charge")
+        {
+            var linked = await tx.ListAsync<(Guid Id, decimal Amount, string Description)>("""
+                SELECT d.id, d.amount, d.description FROM pms.folio_lines d
+                WHERE d.related_line_id = @lineId AND d.line_type IN ('discount','allowance')
+                  AND NOT EXISTS (SELECT 1 FROM pms.folio_lines v WHERE v.related_line_id = d.id AND v.line_type = 'void')
+                """, new { lineId });
+            foreach (var d in linked)
+                await InsertLineAsync(tx, line.FolioId, "void", "İPTAL: " + d.Description, -d.Amount, f.Currency, bd, reason: reason, related: d.Id, room: f.RoomNumber);
+        }
         // Cari hesaba aktarılmış tahsilatın karşı kaydı da iptal edilir.
         var mirrors = await tx.ListAsync<(Guid Id, Guid FolioId, decimal Amount, string Description)>(
             "SELECT id, folio_id, amount, description FROM pms.folio_lines WHERE related_line_id = @lineId AND line_type = 'charge'", new { lineId });
@@ -376,7 +407,14 @@ public static class FolioService
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.folio_lines WHERE related_line_id = @lineId AND line_type = 'void')", new { lineId }))
             throw PmsException.Validation("İptal edilmiş satır aktarılamaz.");
         var already = await tx.ScalarAsync<decimal>("SELECT COALESCE(-sum(amount), 0) FROM pms.folio_lines WHERE related_line_id = @lineId AND line_type = 'transfer_out'", new { lineId });
-        var remaining = line.Amount - already;
+        // Masrafa bağlı indirimler kaynak folyoda kalır; aktarılabilir tutar indirimli net tutardır.
+        var discounted = await tx.ScalarAsync<decimal>("""
+            SELECT COALESCE(-sum(d.amount), 0) FROM pms.folio_lines d
+            WHERE d.related_line_id = @lineId AND d.line_type IN ('discount','allowance')
+              AND NOT EXISTS (SELECT 1 FROM pms.folio_lines v WHERE v.related_line_id = d.id AND v.line_type = 'void')
+            """, new { lineId });
+        var remaining = line.Amount - already - discounted;
+        if (remaining <= 0) throw PmsException.Validation("Bu masrafın aktarılabilir tutarı kalmadı.");
         var amount = req.Amount ?? remaining;
         Validate.Money(amount, "Aktarım tutarı");
         if (amount > remaining) throw PmsException.Validation($"Aktarılabilir tutar {remaining:N2}.");

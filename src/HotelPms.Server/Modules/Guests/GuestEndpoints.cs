@@ -9,7 +9,8 @@ public sealed record GuestDto(Guid Id, string FirstName, string LastName, string
     string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool IsBlacklisted, string? BlacklistReason, bool KvkkConsent,
     DateTime? KvkkConsentAt, bool MarketingConsent, DateTime CreatedAt, string? MigrationSource, int Version, DateTime? AnonymizedAt = null,
     string? Title = null, string? MaritalStatus = null, string? Language = null, string? Phone2 = null, string? IdentitySerial = null,
-    string? IdentityIssuePlace = null, DateOnly? IdentityIssueDate = null, string? District = null, string? PostalCode = null, string? VehiclePlate = null, string? AlertNote = null)
+    string? IdentityIssuePlace = null, DateOnly? IdentityIssueDate = null, string? District = null, string? PostalCode = null, string? VehiclePlate = null, string? AlertNote = null,
+    decimal RoomDiscountPct = 0, decimal ExtraDiscountPct = 0)
 {
     public GuestDto Masked() => this with { IdentityNumber = Validate.Mask(IdentityNumber) };
 }
@@ -22,7 +23,8 @@ public sealed record SaveGuestRequest(string FirstName, string LastName, string?
     DateOnly? IdentityExpiry, string? Phone, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId,
     string? Notes, string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent, int? Version,
     string? Title = null, string? MaritalStatus = null, string? Language = null, string? Phone2 = null, string? IdentitySerial = null,
-    string? IdentityIssuePlace = null, DateOnly? IdentityIssueDate = null, string? District = null, string? PostalCode = null, string? VehiclePlate = null, string? AlertNote = null);
+    string? IdentityIssuePlace = null, DateOnly? IdentityIssueDate = null, string? District = null, string? PostalCode = null, string? VehiclePlate = null, string? AlertNote = null,
+    decimal? RoomDiscountPct = null, decimal? ExtraDiscountPct = null);
 
 public sealed record BlacklistRequest(bool IsBlacklisted, string? Reason, int Version);
 
@@ -41,7 +43,7 @@ public static class GuestEndpoints
                g.country::text AS country, g.tax_office, g.tax_number, g.company_id, c.name AS company_name, g.notes, g.preferences, g.is_vip, g.vip_level, g.is_blacklisted,
                g.blacklist_reason, g.kvkk_consent, g.kvkk_consent_at, g.marketing_consent, g.created_at, g.migration_source, g.version, g.anonymized_at,
                g.title, g.marital_status, g.language, g.phone2, g.identity_serial, g.identity_issue_place, g.identity_issue_date, g.district, g.postal_code,
-               g.vehicle_plate, g.alert_note
+               g.vehicle_plate, g.alert_note, g.room_discount_pct, g.extra_discount_pct
         FROM pms.guests g LEFT JOIN pms.companies c ON c.id = g.company_id
         """;
 
@@ -114,6 +116,9 @@ public static class GuestEndpoints
             // Kimlik görme yetkisi olmayan kullanıcı maskeli değeri geri gönderirse gerçek değer korunur.
             if (!ctx.RequireUser().Has("guest.identity.view") && p.IdentityNumber is { } idn && idn.Contains('*'))
                 p = p with { IdentityNumber = before.IdentityNumber };
+            // İndirim oranını değiştirmek fiyat değiştirme yetkisi ister.
+            if ((p.RoomDiscountPct is { } rd && rd != before.RoomDiscountPct) || (p.ExtraDiscountPct is { } xd && xd != before.ExtraDiscountPct))
+                tx.Ctx.Require("rate.override");
             await tx.ExecVersionedAsync("""
                 UPDATE pms.guests SET first_name = @FirstName, last_name = @LastName, gender = @Gender, birth_date = @BirthDate, birth_place = @BirthPlace,
                     father_name = @FatherName, mother_name = @MotherName, nationality = @Nationality, identity_type = @IdentityType,
@@ -123,7 +128,9 @@ public static class GuestEndpoints
                     kvkk_consent = @KvkkConsent, kvkk_consent_at = CASE WHEN @KvkkConsent AND NOT kvkk_consent THEN now() WHEN NOT @KvkkConsent THEN NULL ELSE kvkk_consent_at END,
                     marketing_consent = @MarketingConsent, title = @Title, marital_status = @MaritalStatus, language = @Language, phone2 = @Phone2,
                     identity_serial = @IdentitySerial, identity_issue_place = @IdentityIssuePlace, identity_issue_date = @IdentityIssueDate, district = @District,
-                    postal_code = @PostalCode, vehicle_plate = @VehiclePlate, alert_note = @AlertNote, updated_at = now(), version = version + 1
+                    postal_code = @PostalCode, vehicle_plate = @VehiclePlate, alert_note = @AlertNote,
+                    room_discount_pct = COALESCE(@RoomDiscountPct, room_discount_pct), extra_discount_pct = COALESCE(@ExtraDiscountPct, extra_discount_pct),
+                    updated_at = now(), version = version + 1
                 WHERE id = @Id AND version = @Version
                 """, p with { Id = id, Version = req.Version ?? -1 });
             await tx.AuditAsync("guest.update", "guest", id, before.Masked(), p with { IdentityNumber = Validate.Mask(p.IdentityNumber) });
@@ -147,15 +154,17 @@ public static class GuestEndpoints
     public static async Task<Guid> CreateGuestAsync(Tx tx, SaveGuestRequest req)
     {
         var p = Params(req);
+        if (p.RoomDiscountPct > 0 || p.ExtraDiscountPct > 0) tx.Ctx.Require("rate.override");
         var id = await tx.ScalarAsync<Guid>("""
             INSERT INTO pms.guests (first_name, last_name, gender, birth_date, birth_place, father_name, mother_name, nationality, identity_type,
                 identity_number, identity_country, identity_expiry, phone, phone_normalized, email, address, city, country, tax_office, tax_number, company_id, notes,
                 preferences, is_vip, vip_level, kvkk_consent, kvkk_consent_at, marketing_consent, created_by, title, marital_status, language, phone2,
-                identity_serial, identity_issue_place, identity_issue_date, district, postal_code, vehicle_plate, alert_note)
+                identity_serial, identity_issue_place, identity_issue_date, district, postal_code, vehicle_plate, alert_note, room_discount_pct, extra_discount_pct)
             VALUES (@FirstName, @LastName, @Gender, @BirthDate, @BirthPlace, @FatherName, @MotherName, @Nationality, @IdentityType,
                 @IdentityNumber, @IdentityCountry, @IdentityExpiry, @Phone, @PhoneNormalized, @Email, @Address, @City, @Country, @TaxOffice, @TaxNumber, @CompanyId, @Notes,
                 @Preferences, @IsVip, @VipLevel, @KvkkConsent, CASE WHEN @KvkkConsent THEN now() END, @MarketingConsent, @Uid, @Title, @MaritalStatus, @Language, @Phone2,
-                @IdentitySerial, @IdentityIssuePlace, @IdentityIssueDate, @District, @PostalCode, @VehiclePlate, @AlertNote)
+                @IdentitySerial, @IdentityIssuePlace, @IdentityIssueDate, @District, @PostalCode, @VehiclePlate, @AlertNote,
+                COALESCE(@RoomDiscountPct, 0), COALESCE(@ExtraDiscountPct, 0))
             RETURNING id
             """, p with { Uid = tx.User.Id });
         await tx.AuditAsync("guest.create", "guest", id, null, p with { IdentityNumber = Validate.Mask(p.IdentityNumber) });
@@ -168,12 +177,15 @@ public static class GuestEndpoints
         string? Phone, string? PhoneNormalized, string? Email, string? Address, string? City, string? Country, string? TaxOffice, string? TaxNumber, Guid? CompanyId, string? Notes,
         string? Preferences, bool IsVip, string? VipLevel, bool KvkkConsent, bool MarketingConsent, string? Title, string? MaritalStatus, string? Language,
         string? Phone2, string? IdentitySerial, string? IdentityIssuePlace, DateOnly? IdentityIssueDate, string? District, string? PostalCode, string? VehiclePlate,
-        string? AlertNote)
+        string? AlertNote, decimal? RoomDiscountPct, decimal? ExtraDiscountPct)
     {
         public Guid Id { get; init; }
         public int Version { get; init; }
         public Guid? Uid { get; init; }
     }
+
+    static decimal? Pct(decimal? v, string label) => v is null ? null
+        : v < 0 || v > 100 || decimal.Round(v.Value, 2) != v ? throw PmsException.Validation($"{label} 0 ile 100 arasında, en fazla 2 ondalıklı olmalıdır.") : v;
 
     public static GuestParams Params(SaveGuestRequest r)
     {
@@ -201,6 +213,6 @@ public static class GuestEndpoints
             r.KvkkConsent, r.MarketingConsent, Validate.Optional(r.Title, 20), string.IsNullOrEmpty(r.MaritalStatus) ? null : r.MaritalStatus, lang,
             Validate.Optional(r.Phone2, 40), Validate.Optional(r.IdentitySerial, 30)?.ToUpperInvariant(), Validate.Optional(r.IdentityIssuePlace, 100), r.IdentityIssueDate,
             Validate.Optional(r.District, 100), Validate.Optional(r.PostalCode, 20), Validate.Optional(r.VehiclePlate, 20)?.ToUpperInvariant().Replace(" ", ""),
-            Validate.Optional(r.AlertNote, 500));
+            Validate.Optional(r.AlertNote, 500), Pct(r.RoomDiscountPct, "Konaklama indirimi"), Pct(r.ExtraDiscountPct, "Ekstra indirimi"));
     }
 }

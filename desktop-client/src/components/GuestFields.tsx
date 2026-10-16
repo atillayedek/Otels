@@ -1,6 +1,7 @@
 import type { Guest } from '../lib/types';
 import { useCompanies } from '../lib/queries';
 import { Field } from './ui';
+import { useSession } from '../lib/session';
 
 export const ID_TYPES: Record<string, string> = { tckn: 'T.C. Kimlik No', passport: 'Pasaport', id_card: 'Kimlik kartı', driver_license: 'Ehliyet', other: 'Diğer' };
 
@@ -12,14 +13,14 @@ export interface GuestDraft {
   identityType: string; identityNumber: string; identityCountry: string; identityExpiry: string; phone: string; email: string; address: string; city: string; country: string;
   taxOffice: string; taxNumber: string; companyId: string; notes: string; preferences: string; isVip: boolean; vipLevel: string; kvkkConsent: boolean; marketingConsent: boolean;
   title: string; maritalStatus: string; language: string; phone2: string; identitySerial: string; identityIssuePlace: string; identityIssueDate: string;
-  district: string; postalCode: string; vehiclePlate: string; alertNote: string;
+  district: string; postalCode: string; vehiclePlate: string; alertNote: string; roomDiscountPct: string; extraDiscountPct: string;
 }
 
 export const emptyGuest = (): GuestDraft => ({
   firstName: '', lastName: '', gender: '', birthDate: '', birthPlace: '', fatherName: '', motherName: '', nationality: 'TR', identityType: 'tckn', identityNumber: '',
   identityCountry: '', identityExpiry: '', phone: '', email: '', address: '', city: '', country: 'TR', taxOffice: '', taxNumber: '', companyId: '', notes: '', preferences: '',
   isVip: false, vipLevel: '', kvkkConsent: false, marketingConsent: false,
-  title: '', maritalStatus: '', language: '', phone2: '', identitySerial: '', identityIssuePlace: '', identityIssueDate: '', district: '', postalCode: '', vehiclePlate: '', alertNote: '',
+  title: '', maritalStatus: '', language: '', phone2: '', identitySerial: '', identityIssuePlace: '', identityIssueDate: '', district: '', postalCode: '', vehiclePlate: '', alertNote: '', roomDiscountPct: '0', extraDiscountPct: '0',
 });
 
 export function guestToDraft(g: Guest): GuestDraft {
@@ -31,13 +32,14 @@ export function guestToDraft(g: Guest): GuestDraft {
     notes: s(g.notes), preferences: s(g.preferences), isVip: g.isVip, vipLevel: s(g.vipLevel), kvkkConsent: g.kvkkConsent, marketingConsent: g.marketingConsent,
     title: s(g.title), maritalStatus: s(g.maritalStatus), language: s(g.language), phone2: s(g.phone2), identitySerial: s(g.identitySerial),
     identityIssuePlace: s(g.identityIssuePlace), identityIssueDate: s(g.identityIssueDate), district: s(g.district), postalCode: s(g.postalCode),
-    vehiclePlate: s(g.vehiclePlate), alertNote: s(g.alertNote),
+    vehiclePlate: s(g.vehiclePlate), alertNote: s(g.alertNote), roomDiscountPct: String(Number(g.roomDiscountPct ?? 0)), extraDiscountPct: String(Number(g.extraDiscountPct ?? 0)),
   };
 }
 
 /** Sunucuya gidecek gövde: boş metinler null olur. */
 export function draftToBody(d: GuestDraft, version?: number) {
   const n = (v: string) => (v.trim() === '' ? null : v.trim());
+  const pct = (v: string) => Number((v.trim() || '0').replace(',', '.'));
   return {
     firstName: d.firstName.trim(), lastName: d.lastName.trim(), gender: n(d.gender), birthDate: n(d.birthDate), birthPlace: n(d.birthPlace), fatherName: n(d.fatherName),
     motherName: n(d.motherName), nationality: n(d.nationality)?.toUpperCase() ?? null, identityType: n(d.identityType), identityNumber: n(d.identityNumber),
@@ -46,12 +48,14 @@ export function draftToBody(d: GuestDraft, version?: number) {
     isVip: d.isVip, vipLevel: n(d.vipLevel), kvkkConsent: d.kvkkConsent, marketingConsent: d.marketingConsent, version: version ?? null,
     title: n(d.title), maritalStatus: n(d.maritalStatus), language: n(d.language), phone2: n(d.phone2), identitySerial: n(d.identitySerial),
     identityIssuePlace: n(d.identityIssuePlace), identityIssueDate: n(d.identityIssueDate), district: n(d.district), postalCode: n(d.postalCode),
-    vehiclePlate: n(d.vehiclePlate), alertNote: n(d.alertNote),
+    vehiclePlate: n(d.vehiclePlate), alertNote: n(d.alertNote), roomDiscountPct: pct(d.roomDiscountPct), extraDiscountPct: pct(d.extraDiscountPct),
   };
 }
 
 export function GuestFields({ value: g, onChange, compact }: { value: GuestDraft; onChange: (g: GuestDraft) => void; compact?: boolean }) {
   const companies = useCompanies();
+  const { can } = useSession();
+  const canDiscount = can('rate.override');
   const set = (k: keyof GuestDraft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     onChange({ ...g, [k]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value });
   return (
@@ -90,6 +94,8 @@ export function GuestFields({ value: g, onChange, compact }: { value: GuestDraft
         <Field label="Vergi dairesi"><input className="input" value={g.taxOffice} onChange={set('taxOffice')} /></Field>
         <Field label="Vergi / T.C. no (fatura)"><input className="input mono" value={g.taxNumber} onChange={set('taxNumber')} maxLength={20} /></Field>
         <Field label="Şirket" className="span-2"><select className="input" value={g.companyId} onChange={set('companyId')}><option value="">—</option>{companies.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+        <Field label="Konaklama indirimi %" hint="Yeni rezervasyonlarda gecelik fiyata uygulanır."><input className="input num" inputMode="decimal" disabled={!canDiscount} title={canDiscount ? '' : 'Fiyat değiştirme yetkisi gerekir'} value={g.roomDiscountPct} onChange={e => onChange({ ...g, roomDiscountPct: e.target.value.replace(/[^\d.,]/g, '') })} /></Field>
+        <Field label="Ekstra indirimi %" hint="Misafir folyosuna yazılan masraflara ayrı indirim satırı olarak uygulanır."><input className="input num" inputMode="decimal" disabled={!canDiscount} title={canDiscount ? '' : 'Fiyat değiştirme yetkisi gerekir'} value={g.extraDiscountPct} onChange={e => onChange({ ...g, extraDiscountPct: e.target.value.replace(/[^\d.,]/g, '') })} /></Field>
         {g.isVip && <Field label="VIP seviyesi"><input className="input" value={g.vipLevel} onChange={set('vipLevel')} maxLength={20} /></Field>}
         <Field label="Tercihler" className="span-2"><input className="input" value={g.preferences} onChange={set('preferences')} placeholder="Yüksek kat, yastık tercihi…" /></Field>
         <Field label="Notlar" className="span-4"><textarea className="input" rows={2} value={g.notes} onChange={set('notes')} /></Field>
