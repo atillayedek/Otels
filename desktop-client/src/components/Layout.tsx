@@ -95,6 +95,7 @@ export const NAV: NavGroup[] = [
       { to: '/settings/import', label: 'Veri Aktarım Merkezi', perm: 'migration.manage' },
       { to: '/settings/printers', label: 'Yazıcılar', perm: 'printer.manage' },
       { to: '/settings/privacy', label: 'KVKK ve Kişisel Veriler', perm: 'settings.manage' },
+      { to: '/settings/wifi', label: 'Wi-Fi Girişi', perm: 'settings.manage' },
       { to: '/settings/license', label: 'Lisans', perm: 'license.manage' },
       { to: '/settings/audit', label: 'Denetim Kayıtları', perm: 'audit.view' },
       { to: '/settings/connection', label: 'Sunucu Bağlantısı' },

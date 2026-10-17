@@ -50,6 +50,8 @@ public static class PrivacyEndpoints
                     """, new { id });
                 var audit = await tx.ListAsync<(DateTime At, string? User, string Action, string? Reason)>(
                     "SELECT at, username, action, reason FROM pms.audit_log WHERE entity_type = 'guest' AND entity_id = @sid ORDER BY id", new { sid = id.ToString() });
+                var wifi = await tx.ListAsync<(DateTime Start, DateTime? Stop, string? Room, string? Mac, string? Ip)>(
+                    "SELECT started_at, stopped_at, room_number, mac, host(framed_ip) FROM pms.wifi_sessions WHERE guest_id = @id ORDER BY started_at", new { id });
                 var property = await tx.OneAsync<(string Name, string? Legal)>("SELECT name, legal_name FROM pms.property LIMIT 1");
 
                 using var wb = new XLWorkbook();
@@ -82,6 +84,8 @@ public static class PrivacyEndpoints
                     docs.Select(d => new object?[] { d.Name, d.Category, d.Size, d.At.ToLocalTime().ToString("dd.MM.yyyy HH:mm") }));
                 Sheet(wb, "Kimlik bildirimleri", ["Rezervasyon", "Olay", "Durum", "Tarih"],
                     reports.Select(r => new object?[] { r.No, r.Event, r.Status, r.At.ToLocalTime().ToString("dd.MM.yyyy HH:mm") }));
+                Sheet(wb, "Wi-Fi oturumları", ["Başlangıç", "Bitiş", "Oda", "Cihaz (MAC)", "İç IP"],
+                    wifi.Select(w => new object?[] { w.Start.ToLocalTime().ToString("dd.MM.yyyy HH:mm"), w.Stop?.ToLocalTime().ToString("dd.MM.yyyy HH:mm"), w.Room, w.Mac, w.Ip }));
                 Sheet(wb, "İşlem kayıtları", ["Tarih", "Kullanıcı", "İşlem", "Gerekçe"],
                     audit.Select(a => new object?[] { a.At.ToLocalTime().ToString("dd.MM.yyyy HH:mm"), a.User, a.Action, a.Reason }));
                 foreach (var s in wb.Worksheets) { s.Row(1).Style.Font.Bold = true; s.Columns().AdjustToContents(8, 80); }

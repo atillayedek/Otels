@@ -19,6 +19,7 @@ using HotelPms.Server.Modules.Platform;
 using HotelPms.Server.Modules.Pos;
 using HotelPms.Server.Modules.Stock;
 using HotelPms.Server.Modules.Users;
+using HotelPms.Server.Modules.Wifi;
 using HotelPms.Server.Realtime;
 using HotelPms.Shared;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -97,6 +98,7 @@ try
     s.AddSingleton<BackupService>();
     s.AddSingleton<MigrationRunnerFactory>();
     s.AddSingleton<ImportService>();
+    s.AddSingleton<WifiService>();
     s.AddScoped<RequestContext>();
     s.AddScoped<CommandRunner>();
     s.AddHttpContextAccessor();
@@ -104,6 +106,8 @@ try
     s.AddHostedService<HealthMonitor>();
     s.AddHostedService<BackupScheduler>();
     s.AddHostedService<DiscoveryResponder>();
+    s.AddSingleton<RadiusServer>();
+    s.AddHostedService(sp => sp.GetRequiredService<RadiusServer>());
     s.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = 210L * 1024 * 1024);
     s.AddExceptionHandler<PmsExceptionHandler>();
     s.AddProblemDetails();
@@ -183,6 +187,7 @@ try
     DocumentEndpoints.Map(app);
     BackupEndpoints.Map(app);
     ImportEndpoints.Map(app);
+    WifiEndpoints.Map(app);
     app.Map("/api/v1/realtime", (HttpContext http, RequestContext ctx, RealtimeHub hub) => hub.HandleAsync(http, ctx));
     app.MapFallback("/api/{**rest}", () => Results.Json(new ErrorResponse("not_found", "API ucu bulunamadı.", "-"), Json.Options, statusCode: 404));
 

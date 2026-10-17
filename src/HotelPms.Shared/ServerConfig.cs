@@ -10,6 +10,9 @@ public sealed class ServerConfig
     public int HttpsPort { get; set; } = 443;
     public int HttpPort { get; set; } = 80;
     public int DiscoveryPort { get; set; } = PmsConstants.DiscoveryPort;
+    /// <summary>Misafir Wi-Fi girişi (RADIUS) portları. Yalnız Yönetim → Wi-Fi Girişi açıkken dinlenir.</summary>
+    public int RadiusAuthPort { get; set; } = 1812;
+    public int RadiusAcctPort { get; set; } = 1813;
     public string DbHost { get; set; } = "127.0.0.1";
     public int DbPort { get; set; } = 54329;
     public string DbName { get; set; } = "hotelpms";

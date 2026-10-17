@@ -3,7 +3,8 @@
 // Kullanım: node tests/e2e/api-e2e.mjs <baseUrl> <setupCodeFile> <caCertFile>
 // Üretim/otel veritabanına karşı ÇALIŞTIRMAYIN: test kayıtları oluşturur.
 import { readFileSync } from 'node:fs';
-import { createSign, randomUUID } from 'node:crypto';
+import { createHash, createHmac, createSign, randomBytes, randomUUID } from 'node:crypto';
+import dgram from 'node:dgram';
 import net from 'node:net';
 import assert from 'node:assert/strict';
 
@@ -45,6 +46,58 @@ function tckn(seed) {
 const addDays = (s, n) => { const x = new Date(s + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 const state = {};
+
+// ---- Asgari RADIUS istemcisi (otelin hotspot cihazı yerine): RFC 2865/2866/3579
+const RADIUS_HOST = '127.0.0.1', RADIUS_AUTH = 18812, RADIUS_ACCT = 18813;
+const md5 = (...parts) => createHash('md5').update(Buffer.concat(parts.map(p => Buffer.from(p)))).digest();
+const attr = (type, value) => { const v = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8'); return Buffer.concat([Buffer.from([type, v.length + 2]), v]); };
+const u32 = n => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0); return b; };
+const ip4 = s => Buffer.from(s.split('.').map(Number));
+function papEncrypt(pass, secret, ra) {
+  const p = Buffer.alloc(Math.ceil(Math.max(1, Buffer.byteLength(pass)) / 16) * 16); Buffer.from(pass, 'utf8').copy(p);
+  const out = Buffer.alloc(p.length); let prev = ra;
+  for (let i = 0; i < p.length; i += 16) { const b = md5(secret, prev); for (let j = 0; j < 16; j++) out[i + j] = p[i + j] ^ b[j]; prev = out.subarray(i, i + 16); }
+  return out;
+}
+function packet(code, id, auth, attrs) {
+  const body = Buffer.concat(attrs); const h = Buffer.alloc(20); h[0] = code; h[1] = id; h.writeUInt16BE(20 + body.length, 2); auth.copy(h, 4);
+  return Buffer.concat([h, body]);
+}
+function parse(buf) {
+  const attrs = []; for (let i = 20; i < buf.readUInt16BE(2);) { attrs.push({ type: buf[i], value: buf.subarray(i + 2, i + buf[i + 1]) }); i += buf[i + 1]; }
+  return { code: buf[0], id: buf[1], auth: buf.subarray(4, 20), attrs, get: t => attrs.find(a => a.type === t)?.value };
+}
+function send(port, pkt, timeoutMs = 1500) {
+  return new Promise(resolve => {
+    const s = dgram.createSocket('udp4'); const timer = setTimeout(() => { s.close(); resolve(null); }, timeoutMs);
+    s.on('message', m => { clearTimeout(timer); s.close(); resolve(m); }); s.send(pkt, port, RADIUS_HOST);
+  });
+}
+/** Access-Request gönderir; yanıtın Response Authenticator ve Message-Authenticator değerlerini doğrular. */
+async function radiusAuth(secret, user, { pass, chapPass, mac = 'AA-BB-CC-00-11-22', withMA = true } = {}) {
+  const id = randomBytes(1)[0], ra = randomBytes(16);
+  const attrs = [attr(1, user), attr(31, mac), attr(4, ip4('127.0.0.1'))];
+  if (pass !== undefined) attrs.push(attr(2, papEncrypt(pass, secret, ra)));
+  if (chapPass !== undefined) { const cid = 7, ch = randomBytes(16); attrs.push(attr(3, Buffer.concat([Buffer.from([cid]), md5(Buffer.from([cid]), chapPass, ch)])), attr(60, ch)); }
+  if (withMA) attrs.push(attr(80, Buffer.alloc(16)));
+  let pkt = packet(1, id, ra, attrs);
+  if (withMA) { const mac16 = createHmac('md5', secret).update(pkt).digest(); mac16.copy(pkt, pkt.length - 16); }
+  const res = await send(RADIUS_AUTH, pkt);
+  if (!res) return null;
+  const r = parse(res);
+  const check = Buffer.from(res); ra.copy(check, 4);
+  assert.ok(md5(check, secret).equals(r.auth), 'Response Authenticator doğru');
+  const ma = r.get(80); assert.ok(ma, 'yanıtta Message-Authenticator var');
+  const z = Buffer.from(check); const off = res.indexOf(ma, 20); z.fill(0, off, off + 16);
+  assert.ok(createHmac('md5', secret).update(z).digest().equals(ma), 'Message-Authenticator doğru');
+  return r;
+}
+async function radiusAcct(secret, attrs) {
+  const pkt = packet(4, randomBytes(1)[0], Buffer.alloc(16), attrs);
+  md5(pkt, secret).copy(pkt, 4);
+  const res = await send(RADIUS_ACCT, pkt);
+  return res ? parse(res) : null;
+}
 try {
   await step('Kurulum durumu: kurulum gerekli', async () => {
     const s = await api('GET', '/api/v1/setup/status');
@@ -164,6 +217,42 @@ try {
     assert.ok(rack.inHouseCheckedInAt && rack.inHousePax >= 1 && rack.inHouseBalance !== undefined && rack.inHouseCurrency, 'Rack giriş zamanı, kişi ve bakiye bilgisi');
     const kbs = await api('GET', '/api/v1/kbs/reports');
     assert.ok(kbs.some(k => k.status === 'blocked_configuration'));
+  });
+
+  await step('Wi-Fi girişi (RADIUS): kimlik no + oda no, PAP/CHAP, yanlış oda, yanlış anahtar, hatalı deneme sınırı, oturum kaydı', async () => {
+    const user = tckn(12345678);
+    const t = await api('POST', '/api/v1/wifi/test', { userName: user, password: '101' });
+    assert.ok(t.accepted && t.roomNumber === '101', 'deneme ekranı açılıştan önce de çalışır');
+    assert.equal((await api('POST', '/api/v1/wifi/test', { userName: user, password: '102' })).accepted, false);
+    await api('PUT', '/api/v1/wifi', { enabled: true, allowedClients: ['999.1.1.1'], passwordMode: 'room', includeSharers: true, graceHours: 2 }, { expect: 422 });
+    await api('PUT', '/api/v1/wifi', { enabled: true, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2 });
+    const cfg = await api('GET', '/api/v1/wifi');
+    assert.ok(cfg.enabled && cfg.sharedSecret.length >= 16 && cfg.authPort === RADIUS_AUTH, 'ortak anahtar üretildi');
+    const secret = cfg.sharedSecret;
+    let ok = null;
+    for (let i = 0; i < 20 && !ok; i++) { ok = await radiusAuth(secret, user, { pass: '101' }); if (!ok) await new Promise(r => setTimeout(r, 500)); }
+    assert.ok(ok, 'RADIUS sunucusu yanıt verdi'); assert.equal(ok.code, 2, 'doğru kimlik + oda: kabul');
+    assert.ok(ok.get(27).readUInt32BE(0) >= 900, 'Session-Timeout var');
+    const cls = ok.get(25).toString(); assert.ok(cls.startsWith('PMS:'), 'Class özniteliği');
+    assert.equal((await radiusAuth(secret, user, { pass: '102', mac: 'AA:00:00:00:00:01' })).code, 3, 'yanlış oda: red');
+    assert.equal((await radiusAuth(secret, tckn(99999), { pass: '101', mac: 'AA:00:00:00:00:02' })).code, 3, 'konaklamayan kişi: red');
+    assert.equal((await radiusAuth(secret, user, { chapPass: '101', withMA: false })).code, 2, 'CHAP ile kabul');
+    assert.equal(await radiusAuth('yanlis-ortak-anahtar-123456', user, { pass: '101', mac: 'AA:00:00:00:00:03' }), null, 'yanlış ortak anahtar: yanıt yok');
+    for (let i = 0; i < 5; i++) assert.equal((await radiusAuth(secret, user, { pass: '999', mac: 'AA:00:00:00:00:09' })).code, 3);
+    const locked = await radiusAuth(secret, user, { pass: '101', mac: 'AA:00:00:00:00:09' });
+    assert.equal(locked.code, 3, '5 hatalı denemeden sonra cihaz 10 dk kilitli');
+    assert.match(locked.get(18).toString(), /Çok fazla hatalı deneme/);
+    const sid = 'E2E-' + randomUUID().slice(0, 8);
+    const base = [attr(1, user), attr(44, sid), attr(31, 'AA-BB-CC-00-11-22'), attr(8, ip4('10.5.50.23')), attr(4, ip4('127.0.0.1')), attr(25, cls)];
+    assert.equal((await radiusAcct(secret, [attr(40, u32(1)), ...base])).code, 5, 'Accounting-Start yanıtlandı');
+    assert.ok((await api('GET', '/api/v1/wifi')).activeSessions.some(s => s.mac === 'AA:BB:CC:00:11:22' && s.framedIp === '10.5.50.23' && s.roomNumber === '101'), 'açık oturum görünür');
+    assert.equal((await radiusAcct(secret, [attr(40, u32(2)), ...base, attr(42, u32(1048576)), attr(43, u32(5242880)), attr(49, u32(1))])).code, 5);
+    const today = new Date().toISOString().slice(0, 10);
+    const rep = await api('GET', `/api/v1/reports/wifi-sessions?from=${addDays(today, -1)}&to=${addDays(today, 1)}`);
+    const row = rep.rows.find(r => r.mac === 'AA:BB:CC:00:11:22');
+    assert.ok(row && row.room === '101' && row.stoppedAt && Number(row.downloadMb) === 5 && Number(row.uploadMb) === 1 && row.ip === '10.5.50.23', 'oturum raporu: ' + JSON.stringify(row));
+    assert.ok((await api('GET', '/api/v1/wifi')).attempts.some(a => a.accepted && a.roomNumber === '101'), 'giriş denemeleri listelenir');
+    await api('PUT', '/api/v1/wifi', { enabled: false, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2 });
   });
 
   await step('KBS bildirim formu: oda no ve misafir alanları dolu, toplu manuel işaretleme', async () => {

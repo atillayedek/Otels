@@ -119,3 +119,13 @@ Yönetim → Lisans: lisans durumu ve `.lisans` dosyasının yüklenmesi. Lisans
 - Linux için kurulum paketi
 
 Bağlantısı olmayan entegrasyonlar arayüzde gösterilmez.
+
+## Misafir Wi-Fi girişi (RADIUS)
+
+Yönetim → Wi-Fi Girişi. Misafir otelin Wi-Fi'sine bağlanınca hotspot cihazının giriş sayfasında **kullanıcı adı olarak T.C. kimlik numarasını** (yabancılar pasaport numarasını), **şifre olarak oda numarasını** (ayarla soyadı) yazar. Hotspot cihazı bu bilgiyi standart RADIUS protokolüyle (RFC 2865/2866) PMS sunucusuna sorar; PMS yalnız o odada **şu an konaklayan** misafir ise kabul eder. İzin, çıkış günü otelin çıkış saatine ayarlanan ek süre eklenene kadar geçerlidir (Session-Timeout); çıkış yapıldıktan sonra yeni giriş reddedilir.
+
+- Cihaz tarafı: RADIUS destekleyen her hotspot/captive portal cihazı (MikroTik, Ruckus, UniFi, Fortinet, Cisco vb.). Sunucu IP'si, UDP 1812 (doğrulama) / 1813 (oturum kaydı), ortak anahtar ekranda gösterilir; PAP ve CHAP desteklenir. Yanıtlara Message-Authenticator eklenir.
+- Güvenlik: yalnız yerel ağdan ve (tanımlıysa) izin verilen cihaz IP'lerinden gelen, ortak anahtarla doğrulanan istekler yanıtlanır. Aynı cihazdan 10 dakikada 5 hatalı denemeden sonra 10 dakika kilit. Kapalıyken port dinlenmez.
+- Kayıtlar: giriş denemeleri (180 gün, bakım temizliğinde silinir) ve cihazın gönderdiği oturum kayıtları (MAC, iç IP, başlangıç/bitiş, veri miktarı). Raporlar → Sistem → **Wi-Fi Oturumları**. Misafirin kişisel veri dökümünde Wi-Fi oturumları ayrı sayfadadır.
+- Ekrandaki **Misafir bilgilerini dene** ile resepsiyon, misafirin bilgileriyle girişin kabul edilip edilmeyeceğini cihaza gitmeden görür.
+- 5651 sayılı Kanun kapsamındaki iç IP dağıtım kaydı ve saklama yükümlülüğünün hotspot cihazı/servis sağlayıcıyla birlikte nasıl karşılanacağını hukuk danışmanınızla netleştirin; PMS oturum kayıtlarını otomatik silmez.

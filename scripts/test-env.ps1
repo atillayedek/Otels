@@ -46,7 +46,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Sunucu derlenemedi' }
 
 $env:HOTELPMS_DATA_ROOT = $data
 $env:HOTELPMS_PG_BIN = $PgBin
-& $server provision --start-postgres --db-port 54339 --https-port 18443 --http-port 18080 | Out-Host
+& $server provision --start-postgres --db-port 54339 --https-port 18443 --http-port 18080 --radius-port 18812 | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'Provision başarısız' }
 
 # Yalnız test (Debug) derlemesi: e2e testlerin kendi anahtarıyla imzaladığı lisanslar kabul edilir. Satış derlemesi bu değişkeni okumaz.

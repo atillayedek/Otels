@@ -341,6 +341,19 @@ public static class ReportEndpoints
         },
         new()
         {
+            Name = "wifi-sessions", Title = "Wi-Fi Oturumları", Category = "Sistem", Permission = "settings.manage", Params = [From, To],
+            Columns = [new("startedAt", "Başlangıç", "datetime"), new("stoppedAt", "Bitiş", "datetime"), new("room", "Oda", "text"), new("guest", "Misafir", "text"),
+                new("mac", "Cihaz (MAC)", "text"), new("ip", "İç IP", "text"), new("nas", "Hotspot cihazı", "text"), new("downloadMb", "İndirilen MB", "decimal"),
+                new("uploadMb", "Gönderilen MB", "decimal"), new("cause", "Bitiş nedeni", "text")],
+            Sql = """
+                SELECT s.started_at, s.stopped_at, s.room_number AS room, g.first_name || ' ' || g.last_name AS guest, s.mac, host(s.framed_ip) AS ip, host(s.nas_ip) AS nas,
+                       round(s.output_bytes / 1048576.0, 1) AS download_mb, round(s.input_bytes / 1048576.0, 1) AS upload_mb, s.terminate_cause AS cause
+                FROM pms.wifi_sessions s LEFT JOIN pms.guests g ON g.id = s.guest_id
+                WHERE s.started_at >= @from::date AND s.started_at < @to::date + 1 ORDER BY s.started_at DESC LIMIT 50000
+                """,
+        },
+        new()
+        {
             Name = "migration", Title = "Veri Aktarım Raporu", Category = "Sistem", Permission = "migration.manage", Params = [From, To],
             Columns = [new("jobNo", "No", "int"), new("createdAt", "Tarih", "datetime"), new("entity", "Veri", "text"), new("sourceType", "Kaynak Türü", "text"),
                 new("sourceLabel", "Kaynak", "text"), new("status", "Durum", "text"), new("totalRows", "Toplam", "int"), new("importedRows", "Aktarılan", "int"),

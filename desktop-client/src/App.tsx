@@ -58,6 +58,7 @@ const SetImport = lazy(() => import('./pages/settings/Import'));
 const SetAudit = lazy(() => import('./pages/settings/Audit'));
 const SetPrivacy = lazy(() => import('./pages/settings/Privacy'));
 const SetLicense = lazy(() => import('./pages/settings/License'));
+const SetWifi = lazy(() => import('./pages/settings/Wifi'));
 const LostFoundPage = lazy(() => import('./pages/LostFound'));
 const TracesPage = lazy(() => import('./pages/Traces'));
 
@@ -171,6 +172,7 @@ export function App() {
           <Route path="/settings/audit" element={<SetAudit />} />
           <Route path="/settings/privacy" element={<SetPrivacy />} />
           <Route path="/settings/license" element={<SetLicense />} />
+          <Route path="/settings/wifi" element={<SetWifi />} />
           <Route path="/lost-found" element={<LostFoundPage />} />
           <Route path="/traces" element={<TracesPage />} />
           <Route path="/settings/connection" element={<ConnectionSettingsPage />} />

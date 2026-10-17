@@ -8,7 +8,7 @@ namespace HotelPms.Server;
 
 /// <summary>
 /// Komut satırı: installer ve Server Manager tarafından kullanılır.
-///   provision [--install-services] [--firewall] [--start-postgres] [--https-port N] [--http-port N] [--db-port N]
+///   provision [--install-services] [--firewall] [--start-postgres] [--https-port N] [--http-port N] [--db-port N] [--radius-port N]
 ///   backup [--kind manual|pre_update]
 ///   unregister            (servisleri kaldırır, VERİYİ SİLMEZ)
 ///   renew-cert
@@ -37,6 +37,7 @@ public static class Cli
                         HttpsPort = IntArg("--https-port"),
                         HttpPort = IntArg("--http-port"),
                         DbPort = IntArg("--db-port"),
+                        RadiusPort = IntArg("--radius-port"),
                         ServerExePath = Environment.ProcessPath,
                     });
                     return 0;
@@ -79,7 +80,7 @@ public static class Cli
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("sc.exe", $"delete {svc}") { CreateNoWindow = true, UseShellExecute = false })!.WaitForExit();
                         Out($"Servis kaldırıldı: {svc}");
                     }
-                    foreach (var rule in new[] { "HotelPMS HTTPS", "HotelPMS HTTP (yonlendirme)", "HotelPMS Kesif" })
+                    foreach (var rule in new[] { "HotelPMS HTTPS", "HotelPMS HTTP (yonlendirme)", "HotelPMS Kesif", "HotelPMS WiFi RADIUS", "HotelPMS WiFi RADIUS kayit" })
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("netsh", $"advfirewall firewall delete rule name=\"{rule}\"") { CreateNoWindow = true, UseShellExecute = false })!.WaitForExit();
                     Out("Veri klasörü korunuyor: " + paths.DataRoot);
                     return 0;

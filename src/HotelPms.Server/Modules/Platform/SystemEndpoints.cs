@@ -153,6 +153,7 @@ public static class SystemEndpoints
                 "cleanup" => """
                     DELETE FROM pms.idempotency_keys WHERE created_at < now() - interval '30 days';
                     DELETE FROM pms.login_attempts WHERE at < now() - interval '90 days';
+                    DELETE FROM pms.wifi_auth_log WHERE at < now() - interval '180 days';
                     DELETE FROM pms.sessions WHERE (revoked_at IS NOT NULL OR expires_at < now()) AND created_at < now() - interval '90 days';
                     """,
                 _ => throw PmsException.Validation("Geçersiz bakım görevi (analyze, vacuum, cleanup)."),

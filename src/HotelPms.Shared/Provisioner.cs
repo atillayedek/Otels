@@ -18,6 +18,8 @@ public sealed record ProvisionOptions
     public int? HttpsPort { get; init; }
     public int? HttpPort { get; init; }
     public int? DbPort { get; init; }
+    /// <summary>RADIUS giriş portu; oturum kaydı portu bunun bir fazlasıdır (test ortamı için).</summary>
+    public int? RadiusPort { get; init; }
     public string? ServerExePath { get; init; }
 }
 
@@ -46,6 +48,7 @@ public sealed class Provisioner
         if (o.HttpsPort is { } hp) config.HttpsPort = hp;
         else if (firstConfig && !IsTcpPortFree(config.HttpsPort)) config.HttpsPort = 8443;
         if (o.HttpPort is { } hpp) config.HttpPort = hpp;
+        if (o.RadiusPort is { } rp) { config.RadiusAuthPort = rp; config.RadiusAcctPort = rp + 1; }
         else if (firstConfig && !IsTcpPortFree(config.HttpPort)) config.HttpPort = 8080;
         config.Save(_paths);
         _log($"Yapılandırma: HTTPS {config.HttpsPort}, HTTP {config.HttpPort}, DB 127.0.0.1:{config.DbPort}");
@@ -242,6 +245,8 @@ public sealed class Provisioner
             ("HotelPMS HTTPS", "TCP", config.HttpsPort),
             ("HotelPMS HTTP (yonlendirme)", "TCP", config.HttpPort),
             ("HotelPMS Kesif", "UDP", config.DiscoveryPort),
+            ("HotelPMS WiFi RADIUS", "UDP", config.RadiusAuthPort),
+            ("HotelPMS WiFi RADIUS kayit", "UDP", config.RadiusAcctPort),
         })
         {
             RunProcess("netsh", "advfirewall", "firewall", "delete", "rule", $"name={name}");
