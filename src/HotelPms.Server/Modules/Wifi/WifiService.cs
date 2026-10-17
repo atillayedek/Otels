@@ -6,7 +6,8 @@ using HotelPms.Server.Infrastructure;
 
 namespace HotelPms.Server.Modules.Wifi;
 
-public sealed record WifiConfig(bool Enabled, string? SharedSecret, string[] AllowedClients, string PasswordMode, bool IncludeSharers, int GraceHours);
+public sealed record WifiConfig(bool Enabled, string? SharedSecret, string[] AllowedClients, string PasswordMode, bool IncludeSharers, int GraceHours,
+    string? ApiKeyHash = null, string? ApiKeyHint = null, DateTime? ApiKeyCreatedAt = null, string? ProviderName = null);
 
 /// <summary>Doğrulama sonucu. Reason makine kodu; Message misafirin ekranında gösterilebilecek kısa metin.</summary>
 public sealed record WifiAuthResult(bool Accepted, string Reason, string Message, Guid? GuestId = null, Guid? ReservationId = null,
@@ -29,12 +30,74 @@ public sealed class WifiService(Db db, ILogger<WifiService> log)
     public async Task<WifiConfig> ConfigAsync(CancellationToken ct = default)
     {
         if (cached is { } c && DateTime.UtcNow - cachedAt < TimeSpan.FromSeconds(10)) return c;
-        var r = await db.QuerySingleOrDefaultAsync<(bool Enabled, string? Secret, string Clients, string Mode, bool Sharers, int Grace)>(
-            "SELECT enabled, shared_secret, array_to_string(allowed_clients, ','), password_mode, include_sharers, grace_hours FROM pms.wifi_config WHERE id = 1", ct: ct);
-        var row = r == default ? new WifiConfig(false, null, [], "room", true, 2)
-            : new WifiConfig(r.Enabled, r.Secret, r.Clients.Split(',', StringSplitOptions.RemoveEmptyEntries), r.Mode, r.Sharers, r.Grace);
+        var r = await db.QuerySingleOrDefaultAsync<CfgRow>("""
+            SELECT enabled, shared_secret, array_to_string(allowed_clients, ',') AS allowed_clients, password_mode, include_sharers, grace_hours,
+                   api_key_hash, api_key_hint, api_key_created_at, provider_name
+            FROM pms.wifi_config WHERE id = 1
+            """, ct: ct);
+        var row = r is null ? new WifiConfig(false, null, [], "room", true, 2)
+            : new WifiConfig(r.Enabled, r.SharedSecret, r.AllowedClients.Split(',', StringSplitOptions.RemoveEmptyEntries), r.PasswordMode, r.IncludeSharers, r.GraceHours,
+                r.ApiKeyHash, r.ApiKeyHint, r.ApiKeyCreatedAt, r.ProviderName);
         cached = row; cachedAt = DateTime.UtcNow;
         return row;
+    }
+
+    sealed class CfgRow
+    {
+        public bool Enabled { get; set; }
+        public string? SharedSecret { get; set; }
+        public string AllowedClients { get; set; } = "";
+        public string PasswordMode { get; set; } = "room";
+        public bool IncludeSharers { get; set; }
+        public int GraceHours { get; set; }
+        public string? ApiKeyHash { get; set; }
+        public string? ApiKeyHint { get; set; }
+        public DateTime? ApiKeyCreatedAt { get; set; }
+        public string? ProviderName { get; set; }
+    }
+
+    /// <summary>HTTP API anahtarı: "pmsw_" + 40 karakter. Yalnız SHA-256 özeti saklanır.</summary>
+    public static string NewApiKey() => "pmsw_" + Convert.ToHexString(RandomNumberGenerator.GetBytes(20)).ToLowerInvariant();
+    public static string HashKey(string key) => Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
+
+    public static bool ApiKeyMatches(WifiConfig cfg, string? presented) =>
+        cfg.ApiKeyHash is { } h && !string.IsNullOrEmpty(presented) && presented.Length < 200
+        && CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(HashKey(presented.Trim())), System.Text.Encoding.ASCII.GetBytes(h));
+
+    /// <summary>
+    /// Hotspot cihazının/firmasının bildirdiği oturumu kaydeder (RADIUS accounting veya HTTP API). Aynı cihaz + oturum kimliği tek satırdır;
+    /// misafir Class bilgisinden veya kimlik numarasıyla konaklayan misafirden bulunur.
+    /// </summary>
+    public async Task RecordSessionAsync(string nas, string sessionId, string? userName, Guid? guestId, Guid? reservationId, string? mac, string? framedIp,
+        long inputBytes, long outputBytes, bool stopped, string? cause, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct);
+        var user = NormalizeUser(userName);
+        if (guestId is null && user.Length >= 5)
+        {
+            var hit = await c.QueryFirstOrDefaultAsync<(Guid G, Guid R)?>(new CommandDefinition("""
+                SELECT g.id, r.id FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id
+                    OR g.id IN (SELECT rg.guest_id FROM pms.reservation_guests rg WHERE rg.reservation_id = r.id)
+                WHERE r.status = 'checked_in' AND upper(replace(g.identity_number, ' ', '')) = @user LIMIT 1
+                """, new { user }, cancellationToken: ct));
+            if (hit is { } h) { guestId = h.G; reservationId = h.R; }
+        }
+        await c.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO pms.wifi_sessions (nas_ip, acct_session_id, username_masked, guest_id, reservation_id, room_number, mac, framed_ip,
+                input_bytes, output_bytes, stopped_at, terminate_cause)
+            VALUES (@nas::inet, @sid, @user, @gid, @rid, (SELECT rm.number FROM pms.reservations r JOIN pms.rooms rm ON rm.id = r.room_id WHERE r.id = @rid),
+                @mac, @ip::inet, @inb, @outb, CASE WHEN @stop THEN now() END, @cause)
+            ON CONFLICT (nas_ip, acct_session_id) DO UPDATE SET updated_at = now(),
+                framed_ip = COALESCE(EXCLUDED.framed_ip, pms.wifi_sessions.framed_ip), mac = COALESCE(EXCLUDED.mac, pms.wifi_sessions.mac),
+                guest_id = COALESCE(pms.wifi_sessions.guest_id, EXCLUDED.guest_id), reservation_id = COALESCE(pms.wifi_sessions.reservation_id, EXCLUDED.reservation_id),
+                room_number = COALESCE(pms.wifi_sessions.room_number, EXCLUDED.room_number),
+                input_bytes = GREATEST(pms.wifi_sessions.input_bytes, EXCLUDED.input_bytes), output_bytes = GREATEST(pms.wifi_sessions.output_bytes, EXCLUDED.output_bytes),
+                stopped_at = COALESCE(pms.wifi_sessions.stopped_at, EXCLUDED.stopped_at), terminate_cause = COALESCE(EXCLUDED.terminate_cause, pms.wifi_sessions.terminate_cause)
+            """, new
+        {
+            nas, sid = sessionId.Length > 64 ? sessionId[..64] : sessionId, user = Validate.Mask(user.Length == 0 ? null : user), gid = guestId, rid = reservationId,
+            mac = Mac(mac), ip = framedIp, inb = Math.Max(0, inputBytes), outb = Math.Max(0, outputBytes), stop = stopped, cause,
+        }, cancellationToken: ct));
     }
 
     public static string NewSecret() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)).Replace('+', 'K').Replace('/', 'm').TrimEnd('=');

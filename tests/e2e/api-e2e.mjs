@@ -219,7 +219,7 @@ try {
     assert.ok(kbs.some(k => k.status === 'blocked_configuration'));
   });
 
-  await step('Wi-Fi girişi (RADIUS): kimlik no + oda no, PAP/CHAP, yanlış oda, yanlış anahtar, hatalı deneme sınırı, oturum kaydı', async () => {
+  await step('Wi-Fi entegrasyonu (RADIUS + HTTP API): kimlik no + oda no, PAP/CHAP, API anahtarı, yanlış oda, yanlış anahtar, hatalı deneme sınırı, oturum kaydı', async () => {
     const user = tckn(12345678);
     const t = await api('POST', '/api/v1/wifi/test', { userName: user, password: '101' });
     assert.ok(t.accepted && t.roomNumber === '101', 'deneme ekranı açılıştan önce de çalışır');
@@ -243,16 +243,37 @@ try {
     assert.equal(locked.code, 3, '5 hatalı denemeden sonra cihaz 10 dk kilitli');
     assert.match(locked.get(18).toString(), /Çok fazla hatalı deneme/);
     const sid = 'E2E-' + randomUUID().slice(0, 8);
-    const base = [attr(1, user), attr(44, sid), attr(31, 'AA-BB-CC-00-11-22'), attr(8, ip4('10.5.50.23')), attr(4, ip4('127.0.0.1')), attr(25, cls)];
-    assert.equal((await radiusAcct(secret, [attr(40, u32(1)), ...base])).code, 5, 'Accounting-Start yanıtlandı');
+    const acctAttrs = [attr(1, user), attr(44, sid), attr(31, 'AA-BB-CC-00-11-22'), attr(8, ip4('10.5.50.23')), attr(4, ip4('127.0.0.1')), attr(25, cls)];
+    assert.equal((await radiusAcct(secret, [attr(40, u32(1)), ...acctAttrs])).code, 5, 'Accounting-Start yanıtlandı');
     assert.ok((await api('GET', '/api/v1/wifi')).activeSessions.some(s => s.mac === 'AA:BB:CC:00:11:22' && s.framedIp === '10.5.50.23' && s.roomNumber === '101'), 'açık oturum görünür');
-    assert.equal((await radiusAcct(secret, [attr(40, u32(2)), ...base, attr(42, u32(1048576)), attr(43, u32(5242880)), attr(49, u32(1))])).code, 5);
+    assert.equal((await radiusAcct(secret, [attr(40, u32(2)), ...acctAttrs, attr(42, u32(1048576)), attr(43, u32(5242880)), attr(49, u32(1))])).code, 5);
     const today = new Date().toISOString().slice(0, 10);
     const rep = await api('GET', `/api/v1/reports/wifi-sessions?from=${addDays(today, -1)}&to=${addDays(today, 1)}`);
     const row = rep.rows.find(r => r.mac === 'AA:BB:CC:00:11:22');
     assert.ok(row && row.room === '101' && row.stoppedAt && Number(row.downloadMb) === 5 && Number(row.uploadMb) === 1 && row.ip === '10.5.50.23', 'oturum raporu: ' + JSON.stringify(row));
     assert.ok((await api('GET', '/api/v1/wifi')).attempts.some(a => a.accepted && a.roomNumber === '101'), 'giriş denemeleri listelenir');
+    // HTTP API (hotspot firması kendi giriş sayfasından çağırır)
+    const gw = async (path, body, apiKey) => { const r = await fetch(base + '/api/v1/wifi-gateway' + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-PMS-Api-Key': apiKey } : {}) }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => null) }; };
+    assert.equal((await gw('/verify', { userName: user, password: '101' })).status, 401, 'anahtarsız istek reddedilir');
+    const { apiKey } = await api('POST', '/api/v1/wifi/api-key', {});
+    assert.match(apiKey, /^pmsw_[0-9a-f]{40}$/);
+    const w = await api('GET', '/api/v1/wifi'); assert.ok(w.apiKeyHint.startsWith(apiKey.slice(0, 9)) && !JSON.stringify(w).includes(apiKey), 'anahtarın kendisi saklanmaz/gösterilmez');
+    assert.equal((await gw('/verify', { userName: user, password: '101' }, apiKey.slice(0, -1) + 'x')).status, 401, 'yanlış anahtar reddedilir');
+    const v = await gw('/verify', { userName: user, password: '101', mac: '11-22-33-44-55-66', ip: '10.5.50.99' }, apiKey);
+    assert.equal(v.status, 200); assert.ok(v.body.accepted && v.body.roomNumber === '101' && v.body.guestFirstName === 'Çağrı' && v.body.sessionSeconds >= 900 && v.body.validUntil, 'HTTP doğrulama: ' + JSON.stringify(v.body));
+    const bad = await gw('/verify', { userName: user, password: '303', mac: '11-22-33-44-55-67' }, apiKey);
+    assert.ok(bad.status === 200 && !bad.body.accepted && bad.body.reason === 'wrong_password');
+    assert.equal((await gw('/sessions', { sessionId: 'HTTP-1', event: 'begin' }, apiKey)).status, 422);
+    assert.equal((await gw('/sessions', { sessionId: 'HTTP-1', event: 'start', userName: user, mac: '11-22-33-44-55-66', ip: '10.5.50.99' }, apiKey)).status, 200);
+    assert.equal((await gw('/sessions', { sessionId: 'HTTP-1', event: 'stop', outputBytes: 2097152, inputBytes: 1048576, cause: 'Kullanıcı çıkış yaptı' }, apiKey)).status, 200);
+    const rep2 = await api('GET', `/api/v1/reports/wifi-sessions?from=${addDays(today, -1)}&to=${addDays(today, 1)}`);
+    const hr = rep2.rows.find(r => r.mac === '11:22:33:44:55:66');
+    assert.ok(hr && hr.room === '101' && hr.stoppedAt && Number(hr.downloadMb) === 2 && hr.ip === '10.5.50.99', 'HTTP ile bildirilen oturum: ' + JSON.stringify(hr));
+    await api('DELETE', '/api/v1/wifi/api-key');
+    assert.equal((await gw('/verify', { userName: user, password: '101' }, apiKey)).status, 401, 'iptal edilen anahtar çalışmaz');
     await api('PUT', '/api/v1/wifi', { enabled: false, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2 });
+    assert.equal((await gw('/verify', { userName: user, password: '101' }, apiKey)).status, 403, 'entegrasyon kapalıyken reddedilir');
   });
 
   await step('KBS bildirim formu: oda no ve misafir alanları dolu, toplu manuel işaretleme', async () => {

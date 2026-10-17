@@ -546,3 +546,5 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .support-mail { display: flex; align-items: center; gap: 10px; background: var(--primary-50); border: 1px solid var(--primary-100); border-radius: var(--radius); padding: 10px 12px; font-size: 15px; }
 .support-mail .mono { flex: 1; color: var(--primary); font-weight: 600; }
 .support-details { margin: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-size: 12.5px; white-space: pre-wrap; }
+.dt.wrap-cells td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.dt.wrap-cells td:first-child { width: 42%; }

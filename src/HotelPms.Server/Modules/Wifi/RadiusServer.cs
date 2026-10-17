@@ -148,9 +148,9 @@ public sealed class RadiusServer(WifiService wifi, Db db, ServerConfig config, I
     async Task RecordAccountingAsync(RadiusPacket p, string nas, CancellationToken ct)
     {
         var status = p.GetUInt(RadiusPacket.AttrAcctStatusType);
-        await using var c = await db.OpenAsync(ct);
         if (status is 7 or 8) // Accounting-On / Off: cihaz yeniden başladı; açık oturumlar kapanır
         {
+            await using var c = await db.OpenAsync(ct);
             await c.ExecuteAsync(new CommandDefinition(
                 "UPDATE pms.wifi_sessions SET stopped_at = now(), updated_at = now(), terminate_cause = 'NAS yeniden başladı' WHERE nas_ip = @nas::inet AND stopped_at IS NULL",
                 new { nas }, cancellationToken: ct));
@@ -165,36 +165,11 @@ public sealed class RadiusServer(WifiService wifi, Db db, ServerConfig config, I
             var parts = cls.Split(':');
             if (parts.Length == 3 && Guid.TryParse(parts[1], out var a) && Guid.TryParse(parts[2], out var b)) { rid = a; gid = b; }
         }
-        var user = WifiService.NormalizeUser(p.GetString(RadiusPacket.AttrUserName));
-        if (gid is null && user.Length >= 5)
-        {
-            // Class gelmediyse kimlik numarasıyla konaklayan misafir bulunur.
-            var hit = await c.QueryFirstOrDefaultAsync<(Guid G, Guid R)?>(new CommandDefinition("""
-                SELECT g.id, r.id FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id
-                    OR g.id IN (SELECT rg.guest_id FROM pms.reservation_guests rg WHERE rg.reservation_id = r.id)
-                WHERE r.status = 'checked_in' AND upper(replace(g.identity_number, ' ', '')) = @user LIMIT 1
-                """, new { user }, cancellationToken: ct));
-            if (hit is { } h) { gid = h.G; rid = h.R; }
-        }
         long Octets(byte low, byte giga) => (long)(p.GetUInt(giga) ?? 0) * 4294967296L + (p.GetUInt(low) ?? 0);
         var cause = p.GetUInt(RadiusPacket.AttrAcctTerminateCause) is { } tc ? TerminateCause(tc) : null;
-        await c.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO pms.wifi_sessions (nas_ip, acct_session_id, username_masked, guest_id, reservation_id, room_number, mac, framed_ip,
-                input_bytes, output_bytes, stopped_at, terminate_cause)
-            VALUES (@nas::inet, @sid, @user, @gid, @rid, (SELECT rm.number FROM pms.reservations r JOIN pms.rooms rm ON rm.id = r.room_id WHERE r.id = @rid),
-                @mac, @ip::inet, @inb, @outb, CASE WHEN @stop THEN now() END, @cause)
-            ON CONFLICT (nas_ip, acct_session_id) DO UPDATE SET updated_at = now(),
-                framed_ip = COALESCE(EXCLUDED.framed_ip, pms.wifi_sessions.framed_ip), mac = COALESCE(EXCLUDED.mac, pms.wifi_sessions.mac),
-                guest_id = COALESCE(pms.wifi_sessions.guest_id, EXCLUDED.guest_id), reservation_id = COALESCE(pms.wifi_sessions.reservation_id, EXCLUDED.reservation_id),
-                room_number = COALESCE(pms.wifi_sessions.room_number, EXCLUDED.room_number),
-                input_bytes = GREATEST(pms.wifi_sessions.input_bytes, EXCLUDED.input_bytes), output_bytes = GREATEST(pms.wifi_sessions.output_bytes, EXCLUDED.output_bytes),
-                stopped_at = COALESCE(pms.wifi_sessions.stopped_at, EXCLUDED.stopped_at), terminate_cause = COALESCE(EXCLUDED.terminate_cause, pms.wifi_sessions.terminate_cause)
-            """, new
-        {
-            nas, sid = sid.Length > 64 ? sid[..64] : sid, user = Validate.Mask(user), gid, rid, mac = WifiService.Mac(p.GetString(RadiusPacket.AttrCallingStationId)),
-            ip = p.GetIp(RadiusPacket.AttrFramedIp), inb = Octets(RadiusPacket.AttrAcctInputOctets, RadiusPacket.AttrAcctInputGigawords),
-            outb = Octets(RadiusPacket.AttrAcctOutputOctets, RadiusPacket.AttrAcctOutputGigawords), stop = status == 2, cause,
-        }, cancellationToken: ct));
+        await wifi.RecordSessionAsync(nas, sid, p.GetString(RadiusPacket.AttrUserName), gid, rid, p.GetString(RadiusPacket.AttrCallingStationId),
+            p.GetIp(RadiusPacket.AttrFramedIp), Octets(RadiusPacket.AttrAcctInputOctets, RadiusPacket.AttrAcctInputGigawords),
+            Octets(RadiusPacket.AttrAcctOutputOctets, RadiusPacket.AttrAcctOutputGigawords), status == 2, cause, ct);
     }
 
     static string TerminateCause(uint v) => v switch
@@ -203,7 +178,7 @@ public sealed class RadiusServer(WifiService wifi, Db db, ServerConfig config, I
         10 => "Cihaz isteği", 11 => "Cihaz yeniden başladı", _ => $"Kod {v}",
     };
 
-    static bool IsLocalNetwork(IPAddress a)
+    public static bool IsLocalNetwork(IPAddress a)
     {
         if (IPAddress.IsLoopback(a)) return true;
         if (a.AddressFamily != AddressFamily.InterNetwork) return false;
