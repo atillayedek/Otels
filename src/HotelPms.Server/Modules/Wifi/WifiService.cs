@@ -7,7 +7,12 @@ using HotelPms.Server.Infrastructure;
 namespace HotelPms.Server.Modules.Wifi;
 
 public sealed record WifiConfig(bool Enabled, string? SharedSecret, string[] AllowedClients, string PasswordMode, bool IncludeSharers, int GraceHours,
-    string? ApiKeyHash = null, string? ApiKeyHint = null, DateTime? ApiKeyCreatedAt = null, string? ProviderName = null);
+    string? ApiKeyHash = null, string? ApiKeyHint = null, DateTime? ApiKeyCreatedAt = null, string? ProviderName = null,
+    string? WebhookUrl = null, string? WebhookSecret = null, bool WebhookInsecureTls = false);
+
+/// <summary>Şu an konaklayan ve Wi-Fi'ye girebilecek kişi: kullanıcı adı (kimlik no), şifre (oda no veya soyadı) ve iznin bitişi.</summary>
+public sealed record WifiInHouse(Guid ReservationId, Guid GuestId, string ReservationNumber, string IdentityNumber, string FirstName, string RoomNumber,
+    string Password, DateTime ValidUntil);
 
 /// <summary>Doğrulama sonucu. Reason makine kodu; Message misafirin ekranında gösterilebilecek kısa metin.</summary>
 public sealed record WifiAuthResult(bool Accepted, string Reason, string Message, Guid? GuestId = null, Guid? ReservationId = null,
@@ -32,12 +37,12 @@ public sealed class WifiService(Db db, ILogger<WifiService> log)
         if (cached is { } c && DateTime.UtcNow - cachedAt < TimeSpan.FromSeconds(10)) return c;
         var r = await db.QuerySingleOrDefaultAsync<CfgRow>("""
             SELECT enabled, shared_secret, array_to_string(allowed_clients, ',') AS allowed_clients, password_mode, include_sharers, grace_hours,
-                   api_key_hash, api_key_hint, api_key_created_at, provider_name
+                   api_key_hash, api_key_hint, api_key_created_at, provider_name, webhook_url, webhook_secret, webhook_insecure_tls
             FROM pms.wifi_config WHERE id = 1
             """, ct: ct);
         var row = r is null ? new WifiConfig(false, null, [], "room", true, 2)
             : new WifiConfig(r.Enabled, r.SharedSecret, r.AllowedClients.Split(',', StringSplitOptions.RemoveEmptyEntries), r.PasswordMode, r.IncludeSharers, r.GraceHours,
-                r.ApiKeyHash, r.ApiKeyHint, r.ApiKeyCreatedAt, r.ProviderName);
+                r.ApiKeyHash, r.ApiKeyHint, r.ApiKeyCreatedAt, r.ProviderName, r.WebhookUrl, r.WebhookSecret, r.WebhookInsecureTls);
         cached = row; cachedAt = DateTime.UtcNow;
         return row;
     }
@@ -54,6 +59,40 @@ public sealed class WifiService(Db db, ILogger<WifiService> log)
         public string? ApiKeyHint { get; set; }
         public DateTime? ApiKeyCreatedAt { get; set; }
         public string? ProviderName { get; set; }
+        public string? WebhookUrl { get; set; }
+        public string? WebhookSecret { get; set; }
+        public bool WebhookInsecureTls { get; set; }
+    }
+
+    sealed record InHouseRow(Guid ReservationId, Guid GuestId, string ReservationNumber, string IdentityNumber, string FirstName, string LastName, string RoomNumber, DateOnly Departure);
+
+    /// <summary>Konaklayan, kimlik numarası girilmiş (ve ayara göre ek misafirleri de) kişilerin Wi-Fi giriş bilgileri.</summary>
+    public async Task<IReadOnlyList<WifiInHouse>> InHouseAsync(CancellationToken ct = default)
+    {
+        var cfg = await ConfigAsync(ct);
+        await using var c = await db.OpenAsync(ct);
+        var rows = await c.QueryAsync<InHouseRow>(new CommandDefinition("""
+            SELECT r.id AS reservation_id, g.id AS guest_id, r.reservation_number, upper(replace(g.identity_number, ' ', '')) AS identity_number,
+                   g.first_name, g.last_name, rm.number AS room_number, r.departure
+            FROM pms.reservations r
+            JOIN pms.rooms rm ON rm.id = r.room_id
+            JOIN pms.guests g ON g.id = r.guest_id
+                 OR (@sharers AND g.id IN (SELECT rg.guest_id FROM pms.reservation_guests rg WHERE rg.reservation_id = r.id))
+            WHERE r.status = 'checked_in' AND g.anonymized_at IS NULL AND COALESCE(btrim(g.identity_number), '') <> ''
+            ORDER BY rm.number
+            """, new { sharers = cfg.IncludeSharers }, cancellationToken: ct));
+        var end = await EndCalculatorAsync(c, cfg.GraceHours, ct);
+        return rows.Select(r => new WifiInHouse(r.ReservationId, r.GuestId, r.ReservationNumber, r.IdentityNumber, r.FirstName, r.RoomNumber,
+            cfg.PasswordMode == "last_name" ? r.LastName : r.RoomNumber, end(r.Departure))).ToList();
+    }
+
+    /// <summary>Çıkış günü otelin çıkış saatine (tesis saat dilimi) ek süre eklenmiş UTC zamanı hesaplayan işlev.</summary>
+    static async Task<Func<DateOnly, DateTime>> EndCalculatorAsync(Npgsql.NpgsqlConnection c, int graceHours, CancellationToken ct)
+    {
+        var (tzName, checkOut) = await c.QuerySingleAsync<(string, TimeSpan)>(new CommandDefinition("SELECT time_zone, check_out_time FROM pms.property LIMIT 1", cancellationToken: ct));
+        TimeZoneInfo tz;
+        try { tz = TimeZoneInfo.FindSystemTimeZoneById(tzName); } catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException) { tz = TimeZoneInfo.Local; }
+        return d => TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(d.ToDateTime(TimeOnly.FromTimeSpan(checkOut)).AddHours(graceHours), DateTimeKind.Unspecified), tz);
     }
 
     /// <summary>HTTP API anahtarı: "pmsw_" + 40 karakter. Yalnız SHA-256 özeti saklanır.</summary>
@@ -165,11 +204,7 @@ public sealed class WifiService(Db db, ILogger<WifiService> log)
     /// <summary>Çıkış günü otelin çıkış saatine (tesis saat dilimi) ek süre eklenerek kalan saniye; en az 15 dakika, en çok 30 gün.</summary>
     static async Task<int> SessionSecondsAsync(Npgsql.NpgsqlConnection c, DateOnly departure, int graceHours, CancellationToken ct)
     {
-        var (tzName, checkOut) = await c.QuerySingleAsync<(string, TimeSpan)>(new CommandDefinition("SELECT time_zone, check_out_time FROM pms.property LIMIT 1", cancellationToken: ct));
-        TimeZoneInfo tz;
-        try { tz = TimeZoneInfo.FindSystemTimeZoneById(tzName); } catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException) { tz = TimeZoneInfo.Local; }
-        var localEnd = departure.ToDateTime(TimeOnly.FromTimeSpan(checkOut)).AddHours(graceHours);
-        var endUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localEnd, DateTimeKind.Unspecified), tz);
+        var endUtc = (await EndCalculatorAsync(c, graceHours, ct))(departure);
         var secs = (endUtc - DateTime.UtcNow).TotalSeconds;
         return (int)Math.Clamp(secs, 15 * 60, 30 * 24 * 3600);
     }

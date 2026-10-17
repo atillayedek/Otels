@@ -108,6 +108,8 @@ try
     s.AddHostedService<DiscoveryResponder>();
     s.AddSingleton<RadiusServer>();
     s.AddHostedService(sp => sp.GetRequiredService<RadiusServer>());
+    s.AddSingleton<WifiPushService>();
+    s.AddHostedService(sp => sp.GetRequiredService<WifiPushService>());
     s.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = 210L * 1024 * 1024);
     s.AddExceptionHandler<PmsExceptionHandler>();
     s.AddProblemDetails();

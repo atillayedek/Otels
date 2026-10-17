@@ -5,7 +5,9 @@ using HotelPms.Shared;
 
 namespace HotelPms.Server.Modules.Wifi;
 
-public sealed record WifiSettingsRequest(bool Enabled, string[]? AllowedClients, string PasswordMode, bool IncludeSharers, int GraceHours, string? ProviderName = null);
+public sealed record WifiSettingsRequest(bool Enabled, string[]? AllowedClients, string PasswordMode, bool IncludeSharers, int GraceHours, string? ProviderName = null,
+    string? WebhookUrl = null, bool WebhookInsecureTls = false);
+public sealed record WifiPushLogDto(DateTime At, string Event, string? RoomNumber, string? UsernameMasked, int? StatusCode, string? Error);
 /// <summary>Hotspot firmasının HTTP API ile doğrulama isteği.</summary>
 public sealed record WifiVerifyRequest(string? UserName, string? Password, string? Mac, string? Ip);
 /// <summary>Hotspot firmasının HTTP API ile oturum bildirimi. Event: start | update | stop.</summary>
@@ -30,6 +32,8 @@ public static class WifiEndpoints
                 LEFT JOIN pms.reservations r ON r.id = a.reservation_id LEFT JOIN pms.rooms rm ON rm.id = r.room_id
                 ORDER BY a.id DESC LIMIT 50
                 """);
+            var pushLog = await db.QueryAsync<WifiPushLogDto>("SELECT at, event, room_number, username_masked, status_code, error FROM pms.wifi_push_log ORDER BY id DESC LIMIT 30");
+            var pushed = await db.ScalarAsync<int>("SELECT count(*)::int FROM pms.wifi_push_state");
             var sessions = await db.QueryAsync<WifiSessionDto>(SessionSelect + " WHERE s.stopped_at IS NULL AND s.updated_at > now() - interval '1 day' ORDER BY s.started_at DESC LIMIT 200");
             string? fp = null;
             try { if (File.Exists(paths.CaCertFile)) fp = new CertificateManager(paths, new SecretStore(paths)).CaFingerprintSha256(); }
@@ -38,6 +42,8 @@ public static class WifiEndpoints
             {
                 cfg.Enabled, cfg.SharedSecret, cfg.AllowedClients, cfg.PasswordMode, cfg.IncludeSharers, cfg.GraceHours, cfg.ProviderName,
                 cfg.ApiKeyHint, cfg.ApiKeyCreatedAt, HttpsPort = config.HttpsPort, CaFingerprint = fp,
+                cfg.WebhookUrl, cfg.WebhookSecret, cfg.WebhookInsecureTls, PushStatus = WifiPushService.Status, PushLastSuccessAt = WifiPushService.LastSuccessAt,
+                PushedCount = pushed, PushLog = pushLog,
                 AuthPort = config.RadiusAuthPort, AcctPort = config.RadiusAcctPort, Status = RadiusServer.Status, RadiusServer.LastRequestAt,
                 Addresses = CertificateManager.LocalAddresses().Select(a => a.ToString()).ToList(),
                 Attempts = attempts, ActiveSessions = sessions,
@@ -54,13 +60,21 @@ public static class WifiEndpoints
                 if (!IPAddress.TryParse(c, out var ip) || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
                     throw PmsException.Validation($"Geçersiz IPv4 adresi: {c}");
             var provider = Validate.Optional(req.ProviderName, 120);
+            var hook = Validate.Optional(req.WebhookUrl, 300);
+            if (hook is not null) hook = (await WifiPushService.ValidateLocalUrlAsync(hook)).ToString();
+            var oldHook = await tx.ScalarAsync<string?>("SELECT webhook_url FROM pms.wifi_config WHERE id = 1");
+            // Adres değişirse yeni sisteme tüm konaklayanlar baştan gönderilir.
+            if (hook != oldHook) await tx.ExecAsync("DELETE FROM pms.wifi_push_state");
             var before = await tx.OneAsync<string>("SELECT row_to_json(w)::text FROM (SELECT enabled, allowed_clients, password_mode, include_sharers, grace_hours, provider_name FROM pms.wifi_config WHERE id = 1) w");
             await tx.ExecAsync("""
                 UPDATE pms.wifi_config SET enabled = @Enabled, allowed_clients = @clients, password_mode = @PasswordMode, include_sharers = @IncludeSharers,
-                    grace_hours = @GraceHours, provider_name = @provider, shared_secret = COALESCE(shared_secret, @secret), updated_at = now(), updated_by = @uid
+                    grace_hours = @GraceHours, provider_name = @provider, shared_secret = COALESCE(shared_secret, @secret),
+                    webhook_url = @hook, webhook_insecure_tls = @WebhookInsecureTls, webhook_secret = CASE WHEN @hook IS NULL THEN webhook_secret ELSE COALESCE(webhook_secret, @hookSecret) END,
+                    updated_at = now(), updated_by = @uid
                 WHERE id = 1
-                """, new { req.Enabled, clients, req.PasswordMode, req.IncludeSharers, req.GraceHours, provider, secret = WifiService.NewSecret(), uid = tx.User.Id });
-            await tx.AuditAsync("wifi.update", "wifi", "config", before, new { req.Enabled, clients, req.PasswordMode, req.IncludeSharers, req.GraceHours, provider });
+                """, new { req.Enabled, clients, req.PasswordMode, req.IncludeSharers, req.GraceHours, provider, hook, req.WebhookInsecureTls,
+                    secret = WifiService.NewSecret(), hookSecret = WifiService.NewSecret(), uid = tx.User.Id });
+            await tx.AuditAsync("wifi.update", "wifi", "config", before, new { req.Enabled, clients, req.PasswordMode, req.IncludeSharers, req.GraceHours, provider, hook, req.WebhookInsecureTls });
             wifi.Invalidate();
             return new { ok = true };
         }, requireKey: false));
@@ -91,6 +105,21 @@ public static class WifiEndpoints
             return new { ok = true };
         }, requireKey: false));
 
+        // Otomatik gönderim: tüm konaklayanları baştan gönder (Wi-Fi sistemi sıfırlandıysa) ve imza anahtarını yenile.
+        g.MapPost("/push/resend", (CommandRunner cmd, WifiService wifi) => cmd.RunAsync("wifi.push_resend", new { }, async tx =>
+        {
+            await tx.ExecAsync("DELETE FROM pms.wifi_push_state");
+            await tx.AuditAsync("wifi.push_resend", "wifi", "config", null, null, "Konaklayanlar Wi-Fi sistemine yeniden gönderilecek");
+            return new { ok = true };
+        }, requireKey: false));
+        g.MapPost("/push/secret", (CommandRunner cmd, WifiService wifi) => cmd.RunAsync("wifi.push_secret", new { }, async tx =>
+        {
+            await tx.ExecAsync("UPDATE pms.wifi_config SET webhook_secret = @s, updated_at = now(), updated_by = @uid WHERE id = 1", new { s = WifiService.NewSecret(), uid = tx.User.Id });
+            await tx.AuditAsync("wifi.push_secret_rotate", "wifi", "config", null, null, "Otomatik gönderim imza anahtarı yenilendi");
+            wifi.Invalidate();
+            return new { ok = true };
+        }, requireKey: false));
+
         // ---- Hotspot firmasının çağırdığı HTTP API (oturum gerekmez; X-PMS-Api-Key başlığı ve yerel ağ şartı)
         var gw = app.MapGroup("/api/v1/wifi-gateway").WithTags("WifiGateway").AllowAnonymousPms();
 
@@ -105,6 +134,13 @@ public static class WifiEndpoints
                 r.Accepted, r.Reason, r.Message, GuestFirstName = r.GuestName?.Split(' ')[0], r.RoomNumber,
                 ValidUntil = r.Accepted ? DateTime.UtcNow.AddSeconds(r.SessionTimeoutSeconds) : (DateTime?)null, SessionSeconds = r.Accepted ? r.SessionTimeoutSeconds : 0,
             };
+        });
+
+        // Anlık liste: Wi-Fi sistemi kendi kullanıcı listesini PMS ile eşitlemek isterse (ör. açılışta veya periyodik).
+        gw.MapGet("/in-house", async (HttpContext http, WifiService wifi, CancellationToken ct) =>
+        {
+            await GatewayCallerAsync(http, wifi, ct);
+            return (await wifi.InHouseAsync(ct)).Select(x => new { userName = x.IdentityNumber, password = x.Password, roomNumber = x.RoomNumber, guestFirstName = x.FirstName, validUntil = x.ValidUntil });
         });
 
         gw.MapPost("/sessions", async (WifiSessionReport req, HttpContext http, WifiService wifi, CancellationToken ct) =>

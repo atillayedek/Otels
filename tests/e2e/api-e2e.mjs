@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash, createHmac, createSign, randomBytes, randomUUID } from 'node:crypto';
 import dgram from 'node:dgram';
+import http from 'node:http';
 import net from 'node:net';
 import assert from 'node:assert/strict';
 
@@ -270,9 +271,33 @@ try {
     const rep2 = await api('GET', `/api/v1/reports/wifi-sessions?from=${addDays(today, -1)}&to=${addDays(today, 1)}`);
     const hr = rep2.rows.find(r => r.mac === '11:22:33:44:55:66');
     assert.ok(hr && hr.room === '101' && hr.stoppedAt && Number(hr.downloadMb) === 2 && hr.ip === '10.5.50.99', 'HTTP ile bildirilen oturum: ' + JSON.stringify(hr));
+    // Otomatik gönderim: konaklayanlar Wi-Fi firmasının yerel ağdaki adresine imzalı olarak bildirilir.
+    const hooks = [];
+    const hookSrv = http.createServer((req, res) => { let b = ''; req.on('data', d => b += d); req.on('end', () => { hooks.push({ h: req.headers, body: b }); res.writeHead(200); res.end('{}'); }); });
+    await new Promise(r => hookSrv.listen(0, '127.0.0.1', r));
+    const hookUrl = `http://127.0.0.1:${hookSrv.address().port}/pms`;
+    const wcfg = { enabled: true, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2 };
+    await api('PUT', '/api/v1/wifi', { ...wcfg, webhookUrl: 'https://8.8.8.8/pms' }, { expect: 422 });
+    await api('PUT', '/api/v1/wifi', { ...wcfg, webhookUrl: hookUrl });
+    const hookSecret = (await api('GET', '/api/v1/wifi')).webhookSecret;
+    assert.ok(hookSecret && hookSecret.length >= 16, 'imza anahtarı üretildi');
+    const waitHook = async (pred, label) => { for (let i = 0; i < 40; i++) { const h = hooks.find(pred); if (h) return h; await new Promise(r => setTimeout(r, 250)); } throw new Error('gönderim gelmedi: ' + label); };
+    const parsed = h => JSON.parse(h.body);
+    const ci = await waitHook(h => h.h['x-pms-event'] === 'checkin' && parsed(h).userName === user, 'checkin');
+    assert.equal(ci.h['x-pms-signature'], 'sha256=' + createHmac('sha256', hookSecret).update(ci.body).digest('hex'), 'HMAC imzası doğru');
+    const cb = parsed(ci); assert.ok(cb.roomNumber === '101' && cb.password === '101' && cb.guestFirstName === 'Çağrı' && cb.validUntil, 'giriş bildirimi: ' + ci.body);
+    await api('PUT', '/api/v1/wifi', { ...wcfg, passwordMode: 'last_name', webhookUrl: hookUrl });
+    const up = await waitHook(h => h.h['x-pms-event'] === 'update' && parsed(h).userName === user, 'update');
+    assert.equal(parsed(up).password, 'Işıkoğlu', 'şifre türü değişince güncelleme gönderilir');
+    await api('PUT', '/api/v1/wifi', { ...wcfg, webhookUrl: hookUrl });
+    const list = (await (await fetch(base + '/api/v1/wifi-gateway/in-house', { headers: { 'X-PMS-Api-Key': apiKey } })).json());
+    assert.ok(list.some(x => x.userName === user && x.roomNumber === '101' && x.password === '101'), 'anlık konaklayan listesi');
+    const wst = await api('GET', '/api/v1/wifi'); assert.ok(wst.pushedCount >= 1 && wst.pushLog.some(l => l.event === 'checkin' && l.statusCode === 200), 'gönderim günlüğü');
+    state.hook = { hooks, srv: hookSrv, url: hookUrl, parsed, user };
     await api('DELETE', '/api/v1/wifi/api-key');
     assert.equal((await gw('/verify', { userName: user, password: '101' }, apiKey)).status, 401, 'iptal edilen anahtar çalışmaz');
-    await api('PUT', '/api/v1/wifi', { enabled: false, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2 });
+    // Adres korunur (bildirili durum silinmez); çıkış adımında entegrasyon yeniden açılınca "checkout" gönderilmesi denetlenir.
+    await api('PUT', '/api/v1/wifi', { enabled: false, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2, webhookUrl: hookUrl });
     assert.equal((await gw('/verify', { userName: user, password: '101' }, apiKey)).status, 403, 'entegrasyon kapalıyken reddedilir');
   });
 
@@ -392,6 +417,14 @@ try {
     assert.equal(rooms.find(x => x.number === '101').hkStatus, 'dirty');
     r = await api('GET', `/api/v1/reservations/${state.res}`);
     assert.equal(r.status, 'checked_out'); assert.equal(r.departure, state.bd); assert.equal(r.balance, '0.00');
+    // Wi-Fi otomatik gönderim: çıkış yapan misafir Wi-Fi sistemine "checkout" olarak bildirilir.
+    const hk = state.hook; hk.hooks.length = 0;
+    await api('PUT', '/api/v1/wifi', { enabled: true, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2, webhookUrl: hk.url });
+    let co = null;
+    for (let i = 0; i < 40 && !co; i++) { co = hk.hooks.find(h => h.h['x-pms-event'] === 'checkout' && hk.parsed(h).userName === hk.user); if (!co) await new Promise(res => setTimeout(res, 250)); }
+    assert.ok(co && hk.parsed(co).roomNumber === '101', 'çıkışta Wi-Fi sistemine checkout gönderildi');
+    await api('PUT', '/api/v1/wifi', { enabled: false, allowedClients: [], passwordMode: 'room', includeSharers: true, graceHours: 2 });
+    hk.srv.close();
   });
 
   await step('Kasa kapanışı: TL ve döviz ayrı sayılır', async () => {

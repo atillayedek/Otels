@@ -11,6 +11,8 @@ public sealed record HealthCheck(string Name, string Status, string Message);
 public sealed class HealthState
 {
     public volatile bool DatabaseReady;
+    /// <summary>Geri yükleme gibi veritabanı değişimlerinde artar; o sırada başlamış bir denetimin eski sonucu yok sayılır.</summary>
+    public int Generation;
     public volatile bool DiskCritical;
     public volatile bool DiskWarning;
     public string? StartupError { get; set; }
@@ -50,6 +52,7 @@ public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, Serv
         }
         else
         {
+            var generation = Volatile.Read(ref state.Generation);
             try
             {
                 await using var c = await db.OpenAsync(ct);
@@ -67,8 +70,12 @@ public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, Serv
             }
             catch (Exception ex) when (ex is Npgsql.NpgsqlException or TimeoutException or InvalidOperationException)
             {
-                if (state.DatabaseReady) log.LogError(ex, "Veritabanına erişilemiyor");
-                state.DatabaseReady = false;
+                // Denetim sürerken veritabanı geri yüklendiyse bu hata eski veritabanına aittir; hazır durumu değiştirilmez.
+                if (generation == Volatile.Read(ref state.Generation))
+                {
+                    if (state.DatabaseReady) log.LogError(ex, "Veritabanına erişilemiyor");
+                    state.DatabaseReady = false;
+                }
                 checks.Add(new("database", "unavailable", "Veritabanına bağlanılamıyor."));
             }
         }

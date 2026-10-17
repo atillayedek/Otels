@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Copy, Eye, EyeOff, FileText, KeyRound, Plug, Printer, RefreshCw, Save, ShieldCheck, Wifi } from 'lucide-react';
+import { Ban, Copy, Eye, EyeOff, FileText, KeyRound, Plug, Printer, RefreshCw, Save, Send, ShieldCheck, Wifi } from 'lucide-react';
 import { api, del, get, post } from '../../lib/api';
 import { fmtDateTime } from '../../lib/format';
 import { PageHead, useAction } from '../../components/common';
@@ -10,9 +10,12 @@ import { DocFooter, DocHeader } from '../../components/PrintDoc';
 
 interface WifiAttempt { at: string; nasIp?: string; mac?: string; usernameMasked?: string; accepted: boolean; reason: string; guestName?: string; roomNumber?: string }
 interface WifiSession { startedAt: string; stoppedAt?: string; updatedAt: string; guestName?: string; roomNumber?: string; mac?: string; framedIp?: string; nasIp: string; inputBytes: number; outputBytes: number }
+interface WifiPushLog { at: string; event: string; roomNumber?: string; usernameMasked?: string; statusCode?: number; error?: string }
+const EVENT: Record<string, string> = { checkin: 'Giriş', update: 'Değişiklik', checkout: 'Çıkış' };
 interface WifiState {
   enabled: boolean; sharedSecret?: string; allowedClients: string[]; passwordMode: 'room' | 'last_name'; includeSharers: boolean; graceHours: number;
   providerName?: string; apiKeyHint?: string; apiKeyCreatedAt?: string; httpsPort: number; caFingerprint?: string;
+  webhookUrl?: string; webhookSecret?: string; webhookInsecureTls: boolean; pushStatus: string; pushLastSuccessAt?: string; pushedCount: number; pushLog: WifiPushLog[];
   authPort: number; acctPort: number; status: string; lastRequestAt?: string; addresses: string[]; attempts: WifiAttempt[]; activeSessions: WifiSession[];
 }
 
@@ -44,6 +47,9 @@ function WifiForm({ s }: { s: WifiState }) {
   const [grace, setGrace] = useState(String(s.graceHours));
   const [clients, setClients] = useState(s.allowedClients.join('\n'));
   const [provider, setProvider] = useState(s.providerName ?? '');
+  const [hook, setHook] = useState(s.webhookUrl ?? '');
+  const [insecure, setInsecure] = useState(s.webhookInsecureTls);
+  const [showHookSecret, setShowHookSecret] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
@@ -55,6 +61,7 @@ function WifiForm({ s }: { s: WifiState }) {
   const save = useAction(async () => {
     await api('PUT', '/api/v1/wifi', {
       enabled, passwordMode: mode, includeSharers: sharers, graceHours: Number(grace), providerName: provider.trim() || null,
+      webhookUrl: hook.trim() || null, webhookInsecureTls: insecure,
       allowedClients: clients.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean),
     });
     await refresh();
@@ -63,6 +70,8 @@ function WifiForm({ s }: { s: WifiState }) {
   const rotate = useAction(async (key: string) => { await post('/api/v1/wifi/secret', {}, key); await refresh(); }, { success: 'Yeni RADIUS ortak anahtarı oluşturuldu. Wi-Fi firmasına iletin.' });
   const createKey = useAction(async (key: string) => { const r = await post<{ apiKey: string }>('/api/v1/wifi/api-key', {}, key); setNewKey(r.apiKey); await refresh(); });
   const revokeKey = useAction(async () => { await del('/api/v1/wifi/api-key'); await refresh(); }, { success: 'API anahtarı iptal edildi.' });
+  const resend = useAction(async (key: string) => { await post('/api/v1/wifi/push/resend', {}, key); await refresh(); }, { success: 'Tüm konaklayanlar birkaç saniye içinde yeniden gönderilecek.' });
+  const rotateHook = useAction(async (key: string) => { await post('/api/v1/wifi/push/secret', {}, key); await refresh(); }, { success: 'Yeni imza anahtarı oluşturuldu. Wi-Fi firmasına iletin.' });
   const test = useAction(async () => setResult(await post('/api/v1/wifi/test', { userName: tUser, password: tPass })));
   const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); toast.info('Kopyalandı.'); } catch { toast.error('Panoya kopyalanamadı.'); } };
   const server = s.addresses[0] ?? 'SUNUCU_IP';
@@ -151,6 +160,39 @@ function WifiForm({ s }: { s: WifiState }) {
         </div></div>
       </div>
 
+      <div className="card" style={{ marginBottom: 14 }}><div className="card-head"><h3><Send size={16} /> Bağlantı yöntemi 3 · Otomatik gönderim (elle giriş gerekmez)</h3></div><div className="card-body stack">
+        <div className="muted" style={{ fontSize: 12.5 }}>
+          Misafir odaya giriş yapınca, odası veya çıkış tarihi değişince ve çıkış yapınca kimlik no + oda numarası Wi-Fi firmasının otel ağındaki adresine
+          otomatik gönderilir; Wi-Fi sistemine kimse elle bilgi girmez. Gönderilemezse 30 saniyede bir yeniden denenir. Kimlik numarası içerdiği için yalnız
+          otelin yerel ağındaki bir adres kabul edilir (internete gönderilmez).
+        </div>
+        <div className="form-grid">
+          <Field label="Wi-Fi firmasının alıcı adresi" className="span-3" hint="Firmanın verdiği adres, ör. http://192.168.1.5:8080/pms-events. Boş bırakılırsa otomatik gönderim kapalıdır.">
+            <input className="input mono" value={hook} onChange={e => setHook(e.target.value)} placeholder="http://192.168.1.5:8080/pms-events" maxLength={300} /></Field>
+          <Field label="Sertifika" className="span-1"><label className="check" style={{ height: 32 }}><input type="checkbox" checked={insecure} onChange={e => setInsecure(e.target.checked)} /> Kendinden imzalı sertifikayı kabul et</label></Field>
+        </div>
+        <div><button className="btn primary" disabled={save.busy || grace === ''} onClick={() => void save.run()}><Save /> Kaydet</button></div>
+        {s.webhookUrl && <>
+          <table className="dt wrap-cells"><tbody>
+            <tr><td>Durum</td><td>{s.pushStatus}{s.pushLastSuccessAt ? ` · son başarılı gönderim ${fmtDateTime(s.pushLastSuccessAt)}` : ''}</td></tr>
+            <tr><td>Wi-Fi sistemine bildirili kişi</td><td>{s.pushedCount}</td></tr>
+            <tr><td>İmza anahtarı (HMAC-SHA256)</td><td className="mono">{showHookSecret ? s.webhookSecret : '••••••••••••••••'}{' '}
+              <button className="btn sm ghost" onClick={() => setShowHookSecret(v => !v)} aria-label="Göster/gizle">{showHookSecret ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+              {s.webhookSecret && <button className="btn sm ghost" onClick={() => void copy(s.webhookSecret!)} aria-label="Kopyala"><Copy size={14} /></button>}</td></tr>
+          </tbody></table>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn sm" disabled={resend.busy} onClick={() => void resend.run()}><RefreshCw /> Tümünü yeniden gönder</button>
+            <button className="btn sm" disabled={rotateHook.busy} onClick={async () => { if (await confirm({ title: 'İmza anahtarını yenile', message: 'Wi-Fi firması yeni anahtarı girene kadar gönderimleri doğrulayamaz.', confirmText: 'Yenile', danger: true })) void rotateHook.run(); }}><KeyRound /> İmza anahtarını yenile</button>
+          </div>
+          {s.pushLog.length > 0 && (
+            <div className="table-wrap" style={{ maxHeight: 260 }}><table className="dt">
+              <thead><tr><th>Zaman</th><th>Olay</th><th>Oda</th><th>Kullanıcı adı</th><th>Sonuç</th></tr></thead>
+              <tbody>{s.pushLog.map((l, i) => <tr key={i}><td>{fmtDateTime(l.at)}</td><td>{EVENT[l.event] ?? l.event}</td><td>{l.roomNumber}</td><td className="mono">{l.usernameMasked}</td>
+                <td>{l.error ? <Badge color="red">{l.error}</Badge> : <Badge color="green">Gönderildi</Badge>}</td></tr>)}</tbody>
+            </table></div>)}
+        </>}
+      </div></div>
+
       <div className="card" style={{ marginBottom: 14 }}><div className="card-head"><h3>Açık oturumlar ({s.activeSessions.length})</h3></div><div className="card-body">
         {s.activeSessions.length === 0 ? <Empty title="Açık oturum yok" text="Wi-Fi firmasının sistemi oturum bildirdiğinde burada görünür." /> : (
           <div className="table-wrap" style={{ maxHeight: 320 }}><table className="dt">
@@ -220,7 +262,19 @@ function IntegrationDoc({ s, apiBase, server }: { s: WifiState; apiBase: string;
 { "sessionId": "abc-123", "event": "update", "inputBytes": 1048576, "outputBytes": 5242880 }
 { "sessionId": "abc-123", "event": "stop", "inputBytes": 2097152, "outputBytes": 9437184, "cause": "Kullanıcı çıkış yaptı" }
 → 200 { "ok": true }`}</pre>
+        <pre className="mono" style={pre}>{`GET ${apiBase}/in-house          (anlık konaklayan listesi, eşitleme için)
+→ 200 [ { "userName": "12345678901", "password": "101", "roomNumber": "101", "guestFirstName": "Ali", "validUntil": "2026-10-20T09:00:00Z" } ]`}</pre>
         <div>Hata yanıtları: 401 anahtar eksik/geçersiz · 403 entegrasyon kapalı, yerel ağ dışı veya izinsiz IP · 422 geçersiz alan. Gövde: {'{ "code": "...", "message": "..." }'}</div>
+
+        <h4 style={{ margin: '4mm 0 1mm' }}>Yöntem 3 · Otomatik gönderim (PMS → Wi-Fi sistemi)</h4>
+        <div>Misafir odaya giriş yapınca, odası/şifresi/çıkış tarihi değişince ve çıkış yapınca PMS, firmanın otel ağındaki adresine
+          {s.webhookUrl ? <> (<span className="mono">{s.webhookUrl}</span>)</> : ' (firmanın bildireceği adres)'} JSON gönderir. Başlıklar: <span className="mono">X-PMS-Event</span> (checkin | update | checkout),
+          <span className="mono"> X-PMS-Delivery</span> (benzersiz kimlik), <span className="mono">X-PMS-Signature: sha256=&lt;HMAC-SHA256(imza anahtarı, gövde) onaltılık&gt;</span>.
+          2xx dışı yanıt veya erişilemezse 30 saniyede bir yeniden gönderilir; aynı olay birden fazla gelebilir (deliveryId ile ayırt edin).</div>
+        <pre className="mono" style={pre}>{`{ "event": "checkin", "deliveryId": "6f1c…", "sentAt": "2026-10-17T09:30:00Z", "userName": "12345678901", "password": "101",
+  "roomNumber": "101", "guestFirstName": "Ali", "validUntil": "2026-10-20T09:00:00Z", "reservationNumber": "R1011",
+  "previousUserName": null, "previousRoomNumber": null }
+update: oda veya şifre değişince previousRoomNumber eski odayı içerir · checkout: kullanıcı silinmeli / kapatılmalı`}</pre>
       </div>
       <DocFooter note="Ortak anahtar ve API anahtarı gizlidir; yetkisiz kişilerle paylaşmayın. Anahtarlar PMS'te Yönetim → Wi-Fi Entegrasyonu ekranından yenilenebilir." />
     </div>

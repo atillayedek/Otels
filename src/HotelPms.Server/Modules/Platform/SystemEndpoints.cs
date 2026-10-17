@@ -133,11 +133,12 @@ public static class SystemEndpoints
             if (req.Confirmation != "GERI YUKLE") throw PmsException.Validation("Onay metni hatalı. 'GERI YUKLE' yazın.");
             if (!File.Exists(req.FilePath)) throw PmsException.Validation("Yedek dosyası bulunamadı.");
             var old = await svc.RestoreAsync(req.FilePath, null,
-                onBeforeSwap: () => { health.DatabaseReady = false; hub.Disconnect(_ => true); return Task.CompletedTask; },
+                onBeforeSwap: () => { Interlocked.Increment(ref health.Generation); health.DatabaseReady = false; hub.Disconnect(_ => true); return Task.CompletedTask; },
                 onAfterSwap: async () =>
                 {
                     await migrations.Create().ApplyAsync(null, http.RequestAborted);
                     sessions.InvalidateCache();
+                    Interlocked.Increment(ref health.Generation);
                     health.DatabaseReady = true;
                 }, http.RequestAborted);
             lf.CreateLogger("Restore").LogWarning("Yedek geri yüklendi {File}", Path.GetFileName(req.FilePath));
@@ -154,6 +155,7 @@ public static class SystemEndpoints
                     DELETE FROM pms.idempotency_keys WHERE created_at < now() - interval '30 days';
                     DELETE FROM pms.login_attempts WHERE at < now() - interval '90 days';
                     DELETE FROM pms.wifi_auth_log WHERE at < now() - interval '180 days';
+                    DELETE FROM pms.wifi_push_log WHERE at < now() - interval '180 days';
                     DELETE FROM pms.sessions WHERE (revoked_at IS NOT NULL OR expires_at < now()) AND created_at < now() - interval '90 days';
                     """,
                 _ => throw PmsException.Validation("Geçersiz bakım görevi (analyze, vacuum, cleanup)."),
