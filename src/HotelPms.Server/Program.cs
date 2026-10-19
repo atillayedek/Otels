@@ -73,11 +73,12 @@ try
         var certs = new CertificateManager(paths, secrets);
         if (!certs.HasServerCertificate) certs.EnsureCertificates();
         else certs.EnsureCertificates(); // IP adresi değiştiyse sertifika yenilenir.
-        var cert = certs.LoadServerCertificate();
+        ServerCertificateHolder.Current = certs.LoadServerCertificate();
         k.ListenAnyIP(config.HttpsPort, o =>
         {
             o.Protocols = HttpProtocols.Http1AndHttp2;
-            o.UseHttps(cert);
+            // Sertifika her bağlantıda güncel tutucudan alınır; IP değişince sağlık denetimi yeniler, yeniden başlatma gerekmez.
+            o.UseHttps(h => h.ServerCertificateSelector = (_, _) => ServerCertificateHolder.Current);
         });
         if (config.HttpPort > 0) k.ListenAnyIP(config.HttpPort);
     });

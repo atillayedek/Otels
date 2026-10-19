@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Loader2, RefreshCw, Settings2 } from 'lucide-react';
 import { useSession } from './lib/session';
-import { api, ApiError } from './lib/api';
+import { api, ApiError, onApiError } from './lib/api';
+import { relocateServer } from './lib/relocate';
 import { Layout } from './components/Layout';
 import { Spinner } from './components/ui';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
@@ -79,11 +80,23 @@ export function App() {
       const s = await api<{ setupRequired: boolean }>('GET', '/api/v1/setup/status');
       setStage(s.setupRequired ? 'setup' : 'ready');
     } catch (e) {
+      // Sunucu IP'si değişmiş olabilir: ağda aynı sunucuyu (aynı sertifika) bulursa adresi güncelleyip yeniden bağlanır.
+      if (e instanceof ApiError && e.isNetwork && await relocateServer(client.activeServer)) { await reloadClient(); return; }
       setMessage(e instanceof ApiError ? e.message : 'Sunucuya bağlanılamadı.');
       setStage('unreachable');
     }
-  }, [client]);
+  }, [client, reloadClient]);
   useEffect(() => { void probe(); }, [probe]);
+  // Çalışırken bağlantı koparsa da (en fazla dakikada bir) sunucunun yeni adresi aranır.
+  useEffect(() => {
+    let last = 0;
+    return onApiError(e => {
+      const active = client?.activeServer;
+      if (!e.isNetwork || !active || Date.now() - last < 60_000) return;
+      last = Date.now();
+      void relocateServer(active).then(moved => { if (moved) void reloadClient(); });
+    });
+  }, [client, reloadClient]);
 
   if (!client || stage === 'loading') return <div className="auth-wrap"><div className="auth-panel" style={{ gridColumn: '1 / -1' }}><Spinner label="Sunucuya bağlanılıyor…" /></div></div>;
   if (stage === 'no-server') return <FirstConnectPage onConnected={() => void reloadClient()} />;

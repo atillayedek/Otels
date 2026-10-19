@@ -28,7 +28,7 @@ public sealed class HealthState
 }
 
 /// <summary>Sunucu, veritabanı, disk, bellek, yedek, realtime, yazıcı ve entegrasyon alt sistemlerini periyodik denetler.</summary>
-public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, ServerConfig config, RealtimeHub hub,
+public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, ServerConfig config, RealtimeHub hub, SecretStore secrets,
     ILogger<HealthMonitor> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -95,6 +95,26 @@ public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, Serv
         }
         catch (IOException ex) { checks.Add(new("disk", "error", "Disk bilgisi okunamadı: " + ex.Message)); }
 
+        // Sunucu IP'si değiştiyse (ör. modem DHCP ile yeni adres verdi) sertifika çalışırken yenilenir; kök sertifika (CA) aynı kalır.
+        if (ServerCertificateHolder.Current is not null)
+        {
+            try
+            {
+                var certs = new CertificateManager(paths, secrets);
+                if (!certs.ServerCertificateUpToDate())
+                {
+                    certs.EnsureCertificates();
+                    ServerCertificateHolder.Current = certs.LoadServerCertificate();
+                    log.LogWarning("Sunucu IP adresi değişti; HTTPS sertifikası yeni adreslerle yenilendi: {Addresses}",
+                        string.Join(", ", CertificateManager.LocalAddresses()));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or System.Security.Cryptography.CryptographicException or UnauthorizedAccessException)
+            {
+                log.LogWarning(ex, "Sunucu sertifikası yenilenemedi");
+            }
+        }
+
         // Bellek
         var proc = Process.GetCurrentProcess();
         checks.Add(new("memory", "healthy", $"Sunucu işlemi: {proc.WorkingSet64 / 1024 / 1024:N0} MB"));
@@ -138,4 +158,11 @@ public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, Serv
         }
         catch (IOException) { }
     }
+}
+
+/// <summary>HTTPS'te kullanılan güncel sunucu sertifikası (Kestrel her bağlantıda buradan okur).</summary>
+public static class ServerCertificateHolder
+{
+    static volatile System.Security.Cryptography.X509Certificates.X509Certificate2? current;
+    public static System.Security.Cryptography.X509Certificates.X509Certificate2? Current { get => current; set => current = value; }
 }

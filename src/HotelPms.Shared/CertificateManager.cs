@@ -24,6 +24,9 @@ public sealed class CertificateManager
 
     public bool HasServerCertificate => File.Exists(_paths.ServerPfxFile) && File.Exists(_paths.CaCertFile);
 
+    /// <summary>Sunucu sertifikası bilgisayarın şu anki IP adreslerini ve adını kapsıyor ve 30 günden uzun geçerli mi.</summary>
+    public bool ServerCertificateUpToDate() => File.Exists(_paths.ServerPfxFile) && ServerCertCoversCurrentAddresses(_secrets.Get(SecretStore.CertPassword));
+
     public X509Certificate2 LoadServerCertificate()
     {
         var pwd = _secrets.Get(SecretStore.CertPassword);
