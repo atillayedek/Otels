@@ -37,7 +37,10 @@ public sealed partial class LicenseService(Db db)
         return p;
     }
 
-    public void Invalidate() => cached = null;
+    DateTime noCacheUntil;
+
+    /// <summary>Lisans veya vergi no değişince çağrılır (işlem kesinleşmeden); birkaç saniye boyunca durum önbelleğe alınmaz.</summary>
+    public void Invalidate() { cached = null; noCacheUntil = DateTime.UtcNow.AddSeconds(5); }
 
     public async Task<LicenseStatus> StatusAsync(CancellationToken ct = default)
     {
@@ -48,7 +51,7 @@ public sealed partial class LicenseService(Db db)
             "SELECT business_date, tax_number, (SELECT count(*)::int FROM pms.rooms WHERE is_active) FROM pms.property LIMIT 1");
         var today = DateOnly.FromDateTime(DateTime.Today);
         var s = Evaluate(row.TrialStartedAt, row.Content, taxNumber, rooms, today);
-        cached = s; cachedAt = DateTime.UtcNow;
+        if (DateTime.UtcNow >= noCacheUntil) { cached = s; cachedAt = DateTime.UtcNow; }
         return s;
     }
 

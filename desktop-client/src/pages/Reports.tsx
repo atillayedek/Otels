@@ -55,6 +55,12 @@ export default function ReportsPage() {
     return [...m.entries()];
   }, [defs.data]);
 
+  // Polis (KBS) toplu konaklayan Excel'i: KBS'nin kendi şablonu doldurulur; KBS ekranında "Toplu Konaklayan Ekle" ile yüklenir.
+  const exportPolice = async () => {
+    const path = await save({ defaultPath: `KBS-Toplu-Konaklayan-${params.arrival || bd}.xlsx`, filters: [{ name: 'Excel', extensions: ['xlsx'] }] });
+    if (!path) return;
+    try { await download(`/api/v1/reports/kbs-guests/police-xlsx${qs({ arrival: params.arrival || null })}`, path); toast.ok('Polis Excel dosyası kaydedildi. KBS ekranında "Toplu Konaklayan Ekle" ile yükleyin.', path); } catch (e) { toast.error(e); }
+  };
   const exportAs = async (format: 'xlsx' | 'csv') => {
     const path = await save({ defaultPath: `${name}-${bd}.${format}`, filters: [{ name: format.toUpperCase(), extensions: [format] }] });
     if (!path) return;
@@ -90,9 +96,16 @@ export default function ReportsPage() {
                 <button className="btn primary" disabled={missing.length > 0} onClick={() => setRunKey(k => k + 1)}><Play /> Çalıştır</button>
                 <span className="spacer" />
                 <button className="btn" disabled={!result.data} onClick={() => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 50); }}><Printer /> Yazdır</button>
+                {name === 'kbs-guests' && <button className="btn primary" onClick={() => void exportPolice()}><FileSpreadsheet /> Polis Excel'i indir</button>}
                 <button className="btn" onClick={() => void exportAs('xlsx')}><FileSpreadsheet /> Excel</button>
                 <button className="btn" onClick={() => void exportAs('csv')}>CSV</button>
               </div></div>
+              {name === 'kbs-guests' && (
+                <div className="info-box" style={{ fontSize: 13 }}>
+                  <b>Polis Excel'i indir</b> düğmesi, Emniyet KBS'nin <b>Toplu Konaklayan Ekle</b> şablonunu bu listedeki kişilerle doldurur; dosyayı KBS ekranından yükleyin, tek tek girmeniz gerekmez.
+                  Tarih boşsa şu an konaklayanların hepsi, tarih seçilirse o gün giriş yapanlar yazılır. <b>Eksik bilgi</b> sütununda yazanlar dosyada boş kalır; misafir kartından tamamlayın.
+                  KKTC uyruklu misafirlerin uyruğu (kod 2) dosyada elle seçilmelidir.
+                </div>)}
               {missing.length > 0 ? <div className="card"><Empty icon={<FileText />} title={`${missing.map(m => m.label).join(', ')} seçin`} text="Rapor, seçiminizden sonra hazırlanır." /></div>
                 : result.isFetching ? <Spinner label="Rapor hazırlanıyor…" /> : result.error ? <ErrorBox error={result.error} /> : result.data && (
                 <ReportTable r={result.data} />

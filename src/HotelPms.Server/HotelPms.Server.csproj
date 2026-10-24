@@ -27,6 +27,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Database\Migrations\*.sql" />
+    <!-- KBS "Toplu Konaklayan Ekle" şablonu (Emniyet KBS örnek dosyası); polis listesi bu şablonun üzerine doldurulur. -->
+    <EmbeddedResource Include="Resources\KbsTopluKonaklayan.xlsx" LogicalName="KbsTopluKonaklayan.xlsx" />
   </ItemGroup>
 
   <ItemGroup>

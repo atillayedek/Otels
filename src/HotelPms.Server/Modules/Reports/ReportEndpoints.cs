@@ -292,6 +292,7 @@ public static class ReportEndpoints
                 GROUP BY 1, 2 ORDER BY room_revenue DESC
                 """,
         },
+        KbsExcel.Definition,
         new()
         {
             Name = "guest-history", Title = "Misafir Konaklama Geçmişi", Category = "Misafir", Permission = "report.view", Params = [From, To],
@@ -622,6 +623,8 @@ public static class ReportEndpoints
 
         g.MapGet("/", (RequestContext ctx) => Definitions.Where(d => ctx.RequireUser().Has(d.Permission))
             .Select(d => new ReportInfo(d.Name, d.Title, d.Category, d.Params, d.Columns)).ToList());
+
+        KbsExcel.Map(g);
 
         g.MapGet("/{name}", async (string name, HttpRequest req, Db db, RequestContext ctx) => await RunAsync(Find(name, ctx), req.Query, db));
 

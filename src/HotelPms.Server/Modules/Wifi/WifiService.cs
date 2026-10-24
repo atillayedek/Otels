@@ -30,7 +30,13 @@ public sealed class WifiService(Db db, ILogger<WifiService> log)
     WifiConfig? cached;
     DateTime cachedAt;
 
-    public void Invalidate() => cached = null;
+    DateTime noCacheUntil;
+
+    /// <summary>
+    /// Ayar değişince çağrılır. Çağrı veritabanı işlemi kesinleşmeden yapıldığından, birkaç saniye boyunca okunan ayar önbelleğe alınmaz;
+    /// böylece arada başka bir servisin okuduğu eski ayar 10 saniye boyunca önbellekte kalmaz.
+    /// </summary>
+    public void Invalidate() { cached = null; noCacheUntil = DateTime.UtcNow.AddSeconds(5); }
 
     public async Task<WifiConfig> ConfigAsync(CancellationToken ct = default)
     {
@@ -43,7 +49,7 @@ public sealed class WifiService(Db db, ILogger<WifiService> log)
         var row = r is null ? new WifiConfig(false, null, [], "room", true, 2)
             : new WifiConfig(r.Enabled, r.SharedSecret, r.AllowedClients.Split(',', StringSplitOptions.RemoveEmptyEntries), r.PasswordMode, r.IncludeSharers, r.GraceHours,
                 r.ApiKeyHash, r.ApiKeyHint, r.ApiKeyCreatedAt, r.ProviderName, r.WebhookUrl, r.WebhookSecret, r.WebhookInsecureTls);
-        cached = row; cachedAt = DateTime.UtcNow;
+        if (DateTime.UtcNow >= noCacheUntil) { cached = row; cachedAt = DateTime.UtcNow; }
         return row;
     }
 

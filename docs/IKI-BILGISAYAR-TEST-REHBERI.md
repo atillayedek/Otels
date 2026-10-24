@@ -55,6 +55,7 @@ Her maddenin yanındaki kutuyu deneyince işaretleyin. Beklenen sonuç tutmazsa 
 - [ ] **KVKK formu** ve **Onay belgesi** yazdırma.
 - [ ] **Misafir kartı**: hitap, ikinci telefon, plaka, **resepsiyon uyarısı** girin → rezervasyonu açınca sarı uyarı görünür.
 - [ ] **Raporlar**: bir raporu ekranda görüntüleyin, **Excel** ve **CSV** olarak kaydedin, yazdırın (logolu).
+- [ ] **Raporlar → Misafir → Polis Konaklama Listesi (KBS Excel)** → **Polis Excel'i indir**. Dosyayı KBS ekranında "Toplu Konaklayan Ekle" ile yükleyin; "Eksik bilgi" sütunundakileri önce misafir kartından tamamlayın.
 - [ ] **Gece denetimi**: eksik işlemler listelenir; kapanış yapılınca iş günü bir gün ilerler (iki bilgisayarda da).
 - [ ] **Çıkış (check-out)**: bakiye varken engellenir; tahsilattan sonra çıkış.
 

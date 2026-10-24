@@ -6,6 +6,21 @@ import { readFileSync } from 'node:fs';
 import { createHash, createHmac, createSign, randomBytes, randomUUID } from 'node:crypto';
 import dgram from 'node:dgram';
 import http from 'node:http';
+import { inflateRawSync } from 'node:zlib';
+
+/** Asgari ZIP okuyucu (xlsx içini denetlemek için): dosya adı → içerik. */
+function readZip(buf) {
+  let eocd = buf.length - 22; while (eocd >= 0 && buf.readUInt32LE(eocd) !== 0x06054b50) eocd--;
+  const count = buf.readUInt16LE(eocd + 10); let off = buf.readUInt32LE(eocd + 16); const files = {};
+  for (let i = 0; i < count; i++) {
+    const method = buf.readUInt16LE(off + 10), size = buf.readUInt32LE(off + 20), nameLen = buf.readUInt16LE(off + 28), extra = buf.readUInt16LE(off + 30), comment = buf.readUInt16LE(off + 32);
+    const local = buf.readUInt32LE(off + 42); const name = buf.toString('utf8', off + 46, off + 46 + nameLen);
+    const data = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const raw = buf.subarray(data, data + size); files[name] = method === 8 ? inflateRawSync(raw) : raw;
+    off += 46 + nameLen + extra + comment;
+  }
+  return files;
+}
 import net from 'node:net';
 import assert from 'node:assert/strict';
 
@@ -316,6 +331,34 @@ try {
     const f2 = await api('GET', `/api/v1/kbs/reservations/${state.res}/form`);
     assert.ok(f2.guests.every(x => x.reportStatus === 'reported_manually' && x.manualReference === 'KBS-REF-1'));
     await api('POST', `/api/v1/kbs/reservations/${state.res}/manual`, { reference: 'KBS-REF-2', reason: 'tekrar' }, { key: randomUUID(), expect: 409 });
+  });
+
+  await step('Polis (KBS) toplu konaklayan Excel: şablon doldurulur, örnek satırlar silinir, uyruk KBS koduna çevrilir', async () => {
+    const rep = await api('GET', '/api/v1/reports/kbs-guests');
+    const row = rep.rows.find(r => r.tckn === tckn(12345678));
+    assert.ok(row && row.room === '101' && row.kbsCountry === 1 && row.firstName === 'Çağrı', 'rapor satırı: ' + JSON.stringify(row));
+    assert.match(row.missing ?? '', /doğum tarihi/, 'eksik bilgi gösterilir');
+    const res = await api('GET', '/api/v1/reports/kbs-guests/police-xlsx', undefined, { raw: true });
+    assert.equal(res.status, 200); assert.match(res.headers.get('content-disposition') ?? '', /KBS-Toplu-Konaklayan/);
+    const z = readZip(Buffer.from(await res.arrayBuffer()));
+    const wbXml = z['xl/workbook.xml'].toString('utf8');
+    assert.ok(wbXml.includes('Örnek Liste') && wbXml.includes('Ülke Kodları'), 'şablonun iki sayfası korunur');
+    const noPrefix = s => s.replace(/<(\/?)x:/g, '<$1'); // Excel kitaplığı "x:" ad alanı önekiyle yazabilir
+    const shared = [...noPrefix(z['xl/sharedStrings.xml']?.toString('utf8') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m => [...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(x => x[1]).join(''));
+    const sheet = noPrefix(z['xl/worksheets/sheet1.xml'].toString('utf8'));
+    const cell = ref => { const m = sheet.match(new RegExp(`<c r="${ref}"([^>]*?)(?:/>|>([\\s\\S]*?)</c>)`)); if (!m || !m[2]) return null;
+      const v = (m[2].match(/<v>([^<]*)<\/v>/) ?? [])[1]; const is = (m[2].match(/<t[^>]*>([^<]*)<\/t>/) ?? [])[1];
+      return /t="s"/.test(m[1]) ? shared[Number(v)] : is ?? v; };
+    const rowNo = [2, 3, 4, 5, 6].find(n => cell(`A${n}`) === tckn(12345678));
+    assert.ok(rowNo, 'misafir satırı bulundu');
+    assert.ok(!/<c r="A\d+"[^>]*t="s"/.test(sheet.match(new RegExp(`<c r="A${rowNo}"[^>]*>`))[0]), 'TC sayı olarak yazılır');
+    assert.deepEqual([cell(`B${rowNo}`), cell(`C${rowNo}`), cell(`D${rowNo}`), cell(`G${rowNo}`), cell(`H${rowNo}`), cell(`I${rowNo}`), cell(`J${rowNo}`)],
+      ['0', 'ÇAĞRI', 'IŞIKOĞLU', '532 111 22 33', '34ABC123', '101', '1'], 'KBS sütunları');
+    const dataCells = [...sheet.matchAll(/<c r="([A-J])(\d+)"/g)].filter(m => Number(m[2]) >= 2).map(m => cell(m[1] + m[2]));
+    assert.ok(!dataCells.some(v => v === 'TEST' || v === 'ÖRNEK' || v === '1234567891' || v === '11111111111'), 'şablondaki örnek satırlar silinir');
+    const tpl = readZip(readFileSync(new URL('../../src/HotelPms.Server/Resources/KbsTopluKonaklayan.xlsx', import.meta.url)));
+    for (const part of ['xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet2.xml'])
+      assert.ok(z[part].equals(tpl[part]), `${part} şablonla birebir aynı`);
   });
 
   await step('Dolu odaya ikinci check-in engellenir', async () => {
