@@ -47,8 +47,9 @@ public sealed partial class LicenseService(Db db)
         if (cached is { } c && DateTime.UtcNow - cachedAt < TimeSpan.FromSeconds(30)) return c;
         await using var conn = await db.OpenAsync(ct);
         var row = await conn.QuerySingleAsync<(DateTime TrialStartedAt, string? Content)>("SELECT trial_started_at, content FROM pms.license_state WHERE id = 1");
-        var (bd, taxNumber, rooms) = await conn.QuerySingleAsync<(DateOnly, string?, int)>(
-            "SELECT business_date, tax_number, (SELECT count(*)::int FROM pms.rooms WHERE is_active) FROM pms.property LIMIT 1");
+        // İlk kurulumdan önce tesis kaydı yoktur (vergi no boş, oda sayısı 0); durum yine hesaplanır.
+        var taxNumber = await conn.QueryFirstOrDefaultAsync<string?>("SELECT tax_number FROM pms.property LIMIT 1");
+        var rooms = await conn.ExecuteScalarAsync<int>("SELECT count(*)::int FROM pms.rooms WHERE is_active");
         var today = DateOnly.FromDateTime(DateTime.Today);
         var s = Evaluate(row.TrialStartedAt, row.Content, taxNumber, rooms, today);
         if (DateTime.UtcNow >= noCacheUntil) { cached = s; cachedAt = DateTime.UtcNow; }

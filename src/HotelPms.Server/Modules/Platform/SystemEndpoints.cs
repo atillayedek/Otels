@@ -101,7 +101,8 @@ public static class SystemEndpoints
                 catch (NpgsqlException) { }
             }
             LicenseStatus? lic = null;
-            if (h.DatabaseReady) try { lic = await license.StatusAsync(); } catch (NpgsqlException) { }
+            // Lisans bilgisi alınamasa da yönetim ekranı (kurulum kodu, hizmet durumu) çalışmaya devam eder.
+            if (h.DatabaseReady) try { lic = await license.StatusAsync(); } catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException or TimeoutException) { }
             var proc = Process.GetCurrentProcess();
             UpdateCpu(proc);
             var setupCode = File.Exists(paths.SetupTokenFile) ? File.ReadAllText(paths.SetupTokenFile).Trim() : null;

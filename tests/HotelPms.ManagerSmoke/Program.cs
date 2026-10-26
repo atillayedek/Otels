@@ -10,6 +10,21 @@ async Task Step(string name, Func<Task> body)
 
 using var c = new ManageClient();
 Console.WriteLine($"Veri kökü: {c.Paths.DataRoot} · port {c.Config.HttpsPort}");
+
+// --pre-setup: yeni kurulmuş, ilk kurulumu yapılmamış sunucu. Yönetici durumu ve ilk kurulum kodunu gösterebilmelidir.
+if (args.Contains("--pre-setup"))
+{
+    await Step("Kurulumdan önce: durum ve ilk kurulum kodu", async () =>
+    {
+        var s = await c.StatusAsync();
+        if (s.Status != "running") throw new Exception("Durum: " + s.Status);
+        if (string.IsNullOrWhiteSpace(s.SetupCode)) throw new Exception("ilk kurulum kodu gösterilmiyor");
+        if (string.IsNullOrWhiteSpace(s.License)) throw new Exception("lisans durumu yok");
+        Console.WriteLine($"   kurulum kodu var · lisans: {s.License}");
+    });
+    Console.WriteLine(failed == 0 ? "Sunucu Yöneticisi (kurulumdan önce): tüm adımlar geçti" : $"Sunucu Yöneticisi (kurulumdan önce): {failed} adım başarısız");
+    return failed == 0 ? 0 : 1;
+}
 ManageStatus? st = null;
 await Step("Durum (Yenile düğmesi)", async () =>
 {
