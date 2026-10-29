@@ -5,7 +5,7 @@ import { ArrowRightLeft, Ban, CreditCard, FilePlus2, Lock, Percent, Plus, Printe
 import { get, post, qs } from '../lib/api';
 import type { ExchangeRatesView, Folio, FolioDetail, FolioLine, Reservation } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney, fmtQty, fmtRate, isZero, LINE_LABEL, parseRate } from '../lib/format';
-import { useAgencies, useCompanies, usePaymentMethods, useTransactionCodes } from '../lib/queries';
+import { defaultPaymentMethodId, useAgencies, useCompanies, usePaymentMethods, useTransactionCodes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useAction } from './common';
 import { DocFooter, DocHeader } from './PrintDoc';
@@ -128,7 +128,9 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   const [v, setV] = useState<Record<string, string>>({ quantity: '1', kind: 'discount', payerKind: 'guest', invoiceDate: new Date().toISOString().slice(0, 10) });
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV(s => ({ ...s, [k]: e.target.value }));
   const setVal = (k: string) => (x: string) => setV(s => ({ ...s, [k]: x }));
-  const method = methods.data?.find(m => m.id === v.methodId);
+  // Ödeme tipi seçilmemişse Nakit varsayılır (seçim listesinde "Seçin" yok).
+  const methodId = v.methodId || defaultPaymentMethodId(methods.data?.filter(m => dlg.kind === 'payment' || !['city_ledger', 'company', 'agency'].includes(m.kind)));
+  const method = methods.data?.find(m => m.id === methodId);
   const code = codes.data?.find(c => c.id === v.codeId);
   const others = folios.filter(x => x.id !== folio?.id && x.status === 'open');
   // Dövizli işlem: tutar sunucuda kurla hesaplanır; burada yalnız bilgi amaçlı yaklaşık karşılık gösterilir.
@@ -145,8 +147,8 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
     const id = folio?.id;
     switch (dlg.kind) {
       case 'charge': await post(`/api/v1/folios/${id}/charges`, { transactionCodeId: v.codeId, description: v.description || null, quantity: v.quantity, unitPrice: v.unitPrice, reference: v.reference || null }, key); break;
-      case 'payment': await post(`/api/v1/folios/${id}/payments`, { paymentMethodId: v.methodId, ...money, description: v.description || null, reference: v.reference || null, companyId: v.companyId || null, agencyId: v.agencyId || null, isDeposit: v.isDeposit === '1' }, key); break;
-      case 'refund': await post(`/api/v1/folios/${id}/refunds`, { paymentMethodId: v.methodId, ...money, reason: v.reason, reference: v.reference || null }, key); break;
+      case 'payment': await post(`/api/v1/folios/${id}/payments`, { paymentMethodId: methodId, ...money, description: v.description || null, reference: v.reference || null, companyId: v.companyId || null, agencyId: v.agencyId || null, isDeposit: v.isDeposit === '1' }, key); break;
+      case 'refund': await post(`/api/v1/folios/${id}/refunds`, { paymentMethodId: methodId, ...money, reason: v.reason, reference: v.reference || null }, key); break;
       case 'discount': await post(`/api/v1/folios/${id}/discounts`, { kind: v.kind, amount: v.amount, reason: v.reason, relatedLineId: dlg.line?.id ?? null }, key); break;
       case 'void': await post(`/api/v1/folio-lines/${dlg.line.id}/void`, { reason: v.reason }, key); break;
       case 'transfer': await post(`/api/v1/folio-lines/${dlg.line.id}/transfer`, { targetFolioId: v.target, amount: v.amount || null, reason: v.reason }, key); break;
@@ -162,8 +164,8 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
   const needsShift = (dlg.kind === 'payment' || dlg.kind === 'refund') && !toAccount && cashier.isFetched && !cashier.data;
   const ok = {
     charge: !!v.codeId && !!v.unitPrice && Number(v.quantity) > 0,
-    payment: !!v.methodId && (tCur ? !!v.tendered && !!appliedRate && !toAccount : !!v.amount) && (!method?.requiresReference || !!v.reference) && (!toAccount || !!v.companyId || !!v.agencyId) && !needsShift,
-    refund: !!v.methodId && (tCur ? !!v.tendered && !!appliedRate : !!v.amount) && !!v.reason?.trim() && !needsShift,
+    payment: !!methodId && (tCur ? !!v.tendered && !!appliedRate && !toAccount : !!v.amount) && (!method?.requiresReference || !!v.reference) && (!toAccount || !!v.companyId || !!v.agencyId) && !needsShift,
+    refund: !!methodId && (tCur ? !!v.tendered && !!appliedRate : !!v.amount) && !!v.reason?.trim() && !needsShift,
     discount: !!v.amount && !!v.reason?.trim(),
     void: !!v.reason?.trim(),
     transfer: !!v.target && !!v.reason?.trim(),
@@ -197,8 +199,8 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
         </>}
         {(dlg.kind === 'payment' || dlg.kind === 'refund') && <>
           <Field label="Ödeme tipi" required className="span-2">
-            <select className="input" value={v.methodId ?? ''} onChange={set('methodId')} autoFocus>
-              <option value="">Seçin</option>{methods.data?.filter(m => m.isActive && (dlg.kind === 'payment' || !['city_ledger', 'company', 'agency'].includes(m.kind))).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            <select className="input" value={methodId} onChange={set('methodId')} autoFocus>
+              {methods.data?.filter(m => m.isActive && (dlg.kind === 'payment' || !['city_ledger', 'company', 'agency'].includes(m.kind))).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </Field>
           {(fx.data?.currencies.length ?? 0) > 0 && !toAccount && (

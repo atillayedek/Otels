@@ -49,12 +49,12 @@ export default function HkTasksPage() {
   );
 }
 
-function TaskModal({ task, onClose }: { task?: HkTask; onClose: () => void }) {
+export function TaskModal({ task, onClose, roomId }: { task?: HkTask; onClose: () => void; roomId?: string }) {
   const qc = useQueryClient();
   const rooms = useRooms();
   const staff = useStaff();
   const { can } = useSession();
-  const [f, setF] = useState({ roomId: task?.roomId ?? '', taskType: task?.taskType ?? 'stayover_clean', status: task?.status ?? 'open', assignedUserId: task?.assignedUserId ?? '', notes: task?.notes ?? '' });
+  const [f, setF] = useState({ roomId: task?.roomId ?? roomId ?? '', taskType: task?.taskType ?? 'stayover_clean', status: task?.status ?? 'open', assignedUserId: task?.assignedUserId ?? '', notes: task?.notes ?? '' });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(s => ({ ...s, [k]: e.target.value }));
   const save = useAction(async () => {
     if (task) await api('PUT', `/api/v1/housekeeping/tasks/${task.id}`, { status: f.status, assignedUserId: f.assignedUserId || null, notes: f.notes || null, version: task.version });

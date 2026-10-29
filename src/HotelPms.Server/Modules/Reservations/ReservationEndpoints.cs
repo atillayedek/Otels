@@ -66,6 +66,7 @@ public static class ReservationEndpoints
             var status = await tx.ScalarAsync<string?>("SELECT status FROM pms.reservations WHERE id = @id FOR UPDATE", new { id }) ?? throw PmsException.NotFound("Rezervasyon");
             if (status is "cancelled" or "no_show" or "checked_out") throw PmsException.Validation("Bu rezervasyona misafir eklenemez.");
             await tx.ExecAsync("INSERT INTO pms.reservation_guests (reservation_id, guest_id) VALUES (@id, @GuestId) ON CONFLICT DO NOTHING", new { id, req.GuestId });
+            await ReservationService.SyncOccupancyAsync(tx, id);
             if (status == "checked_in")
             {
                 var reg = new IntegrationRegistry();
@@ -82,6 +83,7 @@ public static class ReservationEndpoints
         {
             var n = await tx.ExecAsync("DELETE FROM pms.reservation_guests WHERE reservation_id = @id AND guest_id = @guestId AND NOT is_primary", new { id, guestId });
             if (n == 0) throw PmsException.Validation("Ana misafir kaldırılamaz.");
+            await ReservationService.SyncOccupancyAsync(tx, id);
             await tx.AuditAsync("reservation.remove_guest", "reservation", id, new { guestId });
             tx.Publish("reservations", id);
             return new { id };

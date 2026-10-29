@@ -11,7 +11,7 @@ public sealed record SaveRoomTypeRequest(string Code, string Name, string? Descr
     decimal DefaultRate, int SortOrder, bool IsActive, int? Version);
 
 public sealed record RoomDto(Guid Id, Guid RoomTypeId, string RoomTypeCode, string Number, string? Floor, string? Description,
-    string? Features, string HkStatus, bool IsDnd, string? HkNote, int SortOrder, bool IsActive, int Version);
+    string? Features, string HkStatus, bool IsDnd, string? HkNote, int SortOrder, bool IsActive, int Version, Guid? GroupId = null);
 public sealed record SaveRoomRequest(Guid RoomTypeId, string Number, string? Floor, string? Description, string? Features,
     int SortOrder, bool IsActive, int? Version);
 
@@ -20,9 +20,15 @@ public sealed record RoomStatusDto(Guid Id, string Number, string? Floor, Guid R
     Guid? InHouseReservationId, string? InHouseGuest, DateOnly? InHouseDeparture, bool IsVip,
     Guid? ArrivalReservationId, string? ArrivalGuest, bool DepartureToday, int OpenTasks, int OpenTickets,
     DateTime? InHouseCheckedInAt, string? InHouseAccount, string? InHouseNote, int? InHousePax, decimal? InHouseBalance, string? InHouseCurrency,
-    TimeOnly? ArrivalEta, string? ArrivalAccount, string? ArrivalNote, DateOnly? ArrivalDeparture);
+    TimeOnly? ArrivalEta, string? ArrivalAccount, string? ArrivalNote, DateOnly? ArrivalDeparture,
+    Guid? GroupId, string? GroupName, string? GroupColor, string? InHouseGuests);
 
 public sealed record HousekeepingUpdateRequest(string HkStatus, bool IsDnd, string? HkNote, int Version);
+/// <summary>Toplu oda işlemi: boş bırakılan alan değişmez. Not için SetNote=true (boş metin notu siler), grup için SetGroup=true (boş grup kaldırır).</summary>
+public sealed record BulkHousekeepingRequest(Guid[] RoomIds, string? HkStatus, bool? IsDnd, bool SetNote, string? HkNote, bool SetGroup, Guid? GroupId);
+
+public sealed record RoomGroupDto(Guid Id, string Name, string Color, int SortOrder, int RoomCount, int Version);
+public sealed record SaveRoomGroupRequest(string Name, string Color, int SortOrder, int? Version);
 
 public sealed record RoomBlockDto(Guid Id, Guid RoomId, string RoomNumber, string Kind, DateOnly DateFrom, DateOnly DateTo, string Reason,
     Guid? TicketId, bool IsActive, DateTime CreatedAt, string? CreatedBy);
@@ -37,7 +43,7 @@ public static class RoomEndpoints
         """;
     const string RoomSelect = """
         SELECT r.id, r.room_type_id, t.code AS room_type_code, r.number, r.floor, r.description, r.features, r.hk_status, r.is_dnd,
-               r.hk_note, r.sort_order, r.is_active, r.version
+               r.hk_note, r.sort_order, r.is_active, r.version, r.group_id
         FROM pms.rooms r JOIN pms.room_types t ON t.id = r.room_type_id
         """;
 
@@ -131,6 +137,80 @@ public static class RoomEndpoints
             }, requireKey: false);
         }).RequirePermission("housekeeping.update");
 
+        rooms.MapPost("/bulk-housekeeping", (BulkHousekeepingRequest req, CommandRunner cmd, RequestContext ctx) =>
+        {
+            if (req.HkStatus == "inspected") ctx.Require("housekeeping.inspect");
+            if (req.SetGroup) ctx.Require("room.manage");
+            return cmd.RunAsync("room.bulk_housekeeping", req, async tx =>
+            {
+                var ids = (req.RoomIds ?? []).Distinct().ToArray();
+                if (ids.Length == 0) throw PmsException.Validation("Oda seçin.");
+                if (ids.Length > 2000) throw PmsException.Validation("Tek seferde en fazla 2000 oda seçilebilir.");
+                if (req.HkStatus is not null and not ("clean" or "dirty" or "inspected" or "cleaning")) throw PmsException.Validation("Geçersiz temizlik durumu.");
+                if (req.HkStatus is null && req.IsDnd is null && !req.SetNote && !req.SetGroup) throw PmsException.Validation("Uygulanacak işlemi seçin.");
+                var note = req.SetNote ? Validate.Optional(req.HkNote, 300) : null;
+                if (req.SetGroup && req.GroupId is { } gid && !await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.room_groups WHERE id = @gid)", new { gid }))
+                    throw PmsException.NotFound("Oda grubu");
+                var touchesHk = req.HkStatus is not null || req.IsDnd is not null || req.SetNote;
+                var n = await tx.ExecAsync("""
+                    UPDATE pms.rooms SET
+                        hk_status = COALESCE(@hk, hk_status), is_dnd = COALESCE(@dnd, is_dnd),
+                        hk_note = CASE WHEN @setNote THEN @note ELSE hk_note END,
+                        group_id = CASE WHEN @setGroup THEN @gid ELSE group_id END,
+                        hk_updated_at = CASE WHEN @touchesHk THEN now() ELSE hk_updated_at END,
+                        hk_updated_by = CASE WHEN @touchesHk THEN @uid ELSE hk_updated_by END,
+                        version = version + 1
+                    WHERE id = ANY(@ids) AND is_active
+                    """, new { ids, hk = req.HkStatus, dnd = req.IsDnd, setNote = req.SetNote, note, setGroup = req.SetGroup, gid = req.GroupId, touchesHk, uid = tx.User.Id });
+                if (req.HkStatus is "clean" or "inspected")
+                    await tx.ExecAsync("""
+                        UPDATE pms.hk_tasks SET status = 'done', completed_at = now(), completed_by = @uid, version = version + 1
+                        WHERE room_id = ANY(@ids) AND status IN ('open','in_progress') AND task_type IN ('departure_clean','stayover_clean','deep_clean')
+                        """, new { ids, uid = tx.User.Id });
+                await tx.AuditAsync("room.bulk_housekeeping", "room", null, null, new { count = n, ids, req.HkStatus, req.IsDnd, req.SetNote, note, req.SetGroup, req.GroupId });
+                tx.Publish("rooms");
+                return new { updated = n };
+            }, requireKey: false);
+        }).RequirePermission("housekeeping.update");
+
+        var groups = app.MapGroup("/api/v1/room-groups").WithTags("Rooms");
+        const string groupSelect = """
+            SELECT g.id, g.name, g.color, g.sort_order, (SELECT count(*)::int FROM pms.rooms r WHERE r.group_id = g.id AND r.is_active) AS room_count, g.version
+            FROM pms.room_groups g
+            """;
+        groups.MapGet("/", (Db db) => db.QueryAsync<RoomGroupDto>(groupSelect + " ORDER BY g.sort_order, g.name"));
+        groups.MapPost("/", (SaveRoomGroupRequest req, CommandRunner cmd) => cmd.RunAsync("room_group.create", req, async tx =>
+        {
+            var (name, color) = GroupParams(req);
+            if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.room_groups WHERE lower(name) = lower(@name))", new { name }))
+                throw PmsException.Conflict($"{name} adlı grup zaten var.");
+            var id = await tx.ScalarAsync<Guid>("INSERT INTO pms.room_groups (name, color, sort_order) VALUES (@name, @color, @sort) RETURNING id",
+                new { name, color, sort = req.SortOrder });
+            await tx.AuditAsync("room_group.create", "room_group", id, null, req);
+            tx.Publish("rooms");
+            return new { id };
+        }, requireKey: false)).RequirePermission("room.manage");
+        groups.MapPut("/{id:guid}", (Guid id, SaveRoomGroupRequest req, CommandRunner cmd) => cmd.RunAsync("room_group.update", new { id, req }, async tx =>
+        {
+            var (name, color) = GroupParams(req);
+            if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.room_groups WHERE lower(name) = lower(@name) AND id <> @id)", new { name, id }))
+                throw PmsException.Conflict($"{name} adlı grup zaten var.");
+            await tx.ExecVersionedAsync("""
+                UPDATE pms.room_groups SET name = @name, color = @color, sort_order = @sort, version = version + 1 WHERE id = @id AND version = @version
+                """, new { id, name, color, sort = req.SortOrder, version = req.Version ?? -1 });
+            await tx.AuditAsync("room_group.update", "room_group", id, null, req);
+            tx.Publish("rooms");
+            return new { id };
+        }, requireKey: false)).RequirePermission("room.manage");
+        groups.MapDelete("/{id:guid}", (Guid id, CommandRunner cmd) => cmd.RunAsync("room_group.delete", new { id }, async tx =>
+        {
+            // Odalar silinmez; yalnız grup bağı kalkar (ON DELETE SET NULL).
+            if (await tx.ExecAsync("DELETE FROM pms.room_groups WHERE id = @id", new { id }) == 0) throw PmsException.NotFound("Oda grubu");
+            await tx.AuditAsync("room_group.delete", "room_group", id);
+            tx.Publish("rooms");
+            return new { id };
+        }, requireKey: false)).RequirePermission("room.manage");
+
         var blocks = app.MapGroup("/api/v1/room-blocks").WithTags("Rooms");
         blocks.MapGet("/", (Db db, DateOnly? from, DateOnly? to) => db.QueryAsync<RoomBlockDto>("""
             SELECT b.id, b.room_id, r.number AS room_number, b.kind, b.date_from, b.date_to, b.reason, b.ticket_id, b.is_active, b.created_at, u.username AS created_by
@@ -194,6 +274,14 @@ public static class RoomEndpoints
             Validate.Optional(r.Features), r.SortOrder, r.IsActive);
     }
 
+    static (string Name, string Color) GroupParams(SaveRoomGroupRequest r)
+    {
+        var name = Validate.Required(r.Name, "Grup adı", 40);
+        var color = (r.Color ?? "").Trim();
+        if (!global::System.Text.RegularExpressions.Regex.IsMatch(color, "^#[0-9a-fA-F]{6}$")) throw PmsException.Validation("Renk #RRGGBB biçiminde olmalıdır.");
+        return (name, color.ToLowerInvariant());
+    }
+
     sealed record RtP(string code, string name, string? description, int maxAdults, int maxChildren, decimal defaultRate, int sortOrder, bool isActive);
     sealed record RmP(Guid roomTypeId, string number, string? floor, string? description, string? features, int sortOrder, bool isActive);
 
@@ -213,9 +301,15 @@ public static class RoomEndpoints
                CASE WHEN ih.id IS NOT NULL THEN COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = ih.id), 0) END AS in_house_balance,
                ih.currency::text AS in_house_currency,
                ar.eta AS arrival_eta, COALESCE(arc.name, ara.name) AS arrival_account,
-               NULLIF(btrim(concat_ws(' · ', ar.notes, ar.special_requests)), '') AS arrival_note, ar.departure AS arrival_departure
+               NULLIF(btrim(concat_ws(' · ', ar.notes, ar.special_requests)), '') AS arrival_note, ar.departure AS arrival_departure,
+               r.group_id, rgp.name AS group_name, rgp.color AS group_color,
+               -- Odada kayıtlı herkes (ana + ek misafirler, bugünkü geliş dahil): rack aramasında ikinci kişinin adıyla da oda bulunur.
+               (SELECT string_agg(DISTINCT gg.first_name || ' ' || gg.last_name, ' · ')
+                  FROM pms.reservation_guests xg JOIN pms.guests gg ON gg.id = xg.guest_id
+                 WHERE xg.reservation_id IN (ih.id, ar.id)) AS in_house_guests
         FROM pms.rooms r
         JOIN pms.room_types t ON t.id = r.room_type_id
+        LEFT JOIN pms.room_groups rgp ON rgp.id = r.group_id
         LEFT JOIN pms.reservations ih ON ih.room_id = r.id AND ih.status = 'checked_in'
         LEFT JOIN pms.guests ihg ON ihg.id = ih.guest_id
         LEFT JOIN pms.companies ihc ON ihc.id = ih.company_id

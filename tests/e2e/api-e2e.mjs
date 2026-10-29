@@ -361,6 +361,87 @@ try {
       assert.ok(z[part].equals(tpl[part]), `${part} şablonla birebir aynı`);
   });
 
+  await step('Resepsiyon: ad/soyad ayrı arama, ek misafir adıyla oda araması, kişi sayısına göre fiyat, oda grupları, toplu oda işlemi, polis listesi', async () => {
+    const k = () => ({ key: randomUUID() });
+    // Ad ve soyad ayrı kutulardan aranır (küçük harf, Türkçe karakter)
+    let l = await api('GET', '/api/v1/guests?firstName=' + encodeURIComponent('çağ'));
+    assert.ok(l.items.some(g => g.id === state.guest), 'ada göre arama');
+    l = await api('GET', '/api/v1/guests?lastName=' + encodeURIComponent('ışık'));
+    assert.ok(l.items.some(g => g.id === state.guest), 'soyada göre arama');
+    l = await api('GET', '/api/v1/guests?firstName=' + encodeURIComponent('ışık'));
+    assert.ok(!l.items.some(g => g.id === state.guest), 'soyad, ad kutusunda eşleşmez');
+    l = await api('GET', `/api/v1/guests?firstName=${encodeURIComponent('çağ')}&lastName=${encodeURIComponent('yok')}`);
+    assert.equal(l.total, 0, 'ad ve soyad birlikte uymalı');
+
+    const tt = (await api('POST', '/api/v1/room-types', { code: 'FAM', name: 'Aile', maxAdults: 4, maxChildren: 1, defaultRate: '2000.00', sortOrder: 9, isActive: true })).id;
+    const room = (await api('POST', '/api/v1/rooms', { roomTypeId: tt, number: '301', floor: '3', sortOrder: 301, isActive: true })).id;
+    const main = (await api('POST', '/api/v1/guests', { firstName: 'Kişi', lastName: 'Fiyatı', nationality: 'TR', isVip: false, kvkkConsent: true, marketingConsent: false }, k())).id;
+    const occupancy = { single: '1000.00', double: '1600.00', triple: '2100.00', quad: null };
+    const id = (await api('POST', '/api/v1/reservations', { guestId: main, roomTypeId: tt, roomId: room, arrival: state.bd, departure: addDays(state.bd, 2), adults: 1, children: 0,
+      status: 'confirmed', depositRequired: '0', occupancy }, k())).id;
+    let r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.equal(r.nightlyRate, '1000.00', 'tek kişilik fiyat'); assert.equal(r.totalRate, '2000.00'); assert.equal(r.rateDbl, '1600.00');
+    // Ek misafir eklenince yetişkin sayısı ve fiyat çift kişiliğe geçer
+    const second = (await api('POST', '/api/v1/guests', { firstName: 'Zeynep', lastName: 'Ekmisafir', nationality: 'TR', isVip: false, kvkkConsent: true, marketingConsent: false }, k())).id;
+    await api('POST', `/api/v1/reservations/${id}/guests`, { guestId: second });
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.equal(r.adults, 2); assert.equal(r.nightlyRate, '1600.00', 'çift kişilik fiyat'); assert.equal(r.totalRate, '3200.00');
+    // Rack: odadaki ikinci kişinin adıyla da oda bulunur
+    const st = (await api('GET', '/api/v1/rooms/status')).find(x => x.number === '301');
+    assert.match(st.inHouseGuests ?? '', /Zeynep Ekmisafir/); assert.match(st.inHouseGuests, /Kişi Fiyatı/);
+    // Ek misafir çıkınca tek kişilik fiyata döner
+    await api('DELETE', `/api/v1/reservations/${id}/guests/${second}`);
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.equal(r.adults, 1); assert.equal(r.nightlyRate, '1000.00');
+    // Düzenlemede yetişkin 3: üç kişilik fiyat; elle girilen gecelik fiyat tabloya üstün gelir
+    const body = { guestId: main, roomTypeId: tt, roomId: room, arrival: state.bd, departure: addDays(state.bd, 2), adults: 3, children: 0, status: 'confirmed', depositRequired: '0', occupancy };
+    await api('PUT', `/api/v1/reservations/${id}`, { ...body, version: r.version }, k());
+    r = await api('GET', `/api/v1/reservations/${id}`); assert.equal(r.nightlyRate, '2100.00', 'üç kişilik fiyat');
+    await api('PUT', `/api/v1/reservations/${id}`, { ...body, version: r.version, nightlyRate: '1900.00' }, k());
+    r = await api('GET', `/api/v1/reservations/${id}`); assert.equal(r.nightlyRate, '1900.00', 'elle fiyat');
+    // Fiyat değiştirme yetkisi olmayan resepsiyon kişi fiyat tablosunu değiştiremez
+    const adminToken = token; token = '';
+    await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
+    await api('PUT', `/api/v1/reservations/${id}`, { ...body, version: r.version, occupancy: { ...occupancy, single: '1.00' } }, { ...k(), expect: 403 });
+    token = adminToken;
+
+    // Oda grupları ve toplu oda işlemi (tek kayıtta, sürüm beklemeden)
+    const g1 = (await api('POST', '/api/v1/room-groups', { name: 'Grup 1', color: '#2563EB', sortOrder: 1 })).id;
+    await api('POST', '/api/v1/room-groups', { name: 'grup 1', color: '#16a34a', sortOrder: 2 }, { expect: 409 });
+    await api('POST', '/api/v1/room-groups', { name: 'Grup X', color: 'mavi', sortOrder: 2 }, { expect: 422 });
+    await api('POST', '/api/v1/rooms/bulk-housekeeping', { roomIds: [room, state.room102], hkStatus: 'dirty', isDnd: true, setNote: true, hkNote: 'Perde değişecek', setGroup: true, groupId: g1 });
+    let rs = await api('GET', '/api/v1/rooms/status');
+    for (const n of ['301', '102']) {
+      const x = rs.find(y => y.number === n);
+      assert.deepEqual([x.hkStatus, x.isDnd, x.hkNote, x.groupName, x.groupColor], ['dirty', true, 'Perde değişecek', 'Grup 1', '#2563eb'], `toplu işlem oda ${n}`);
+    }
+    assert.equal((await api('GET', '/api/v1/room-groups')).find(x => x.id === g1).roomCount, 2);
+    await api('POST', '/api/v1/rooms/bulk-housekeeping', { roomIds: [room, state.room102], hkStatus: 'clean', isDnd: false, setNote: true, hkNote: null, setGroup: false });
+    rs = await api('GET', '/api/v1/rooms/status');
+    const r102 = rs.find(y => y.number === '102');
+    assert.deepEqual([r102.hkStatus, r102.isDnd, r102.hkNote ?? null, r102.groupName], ['clean', false, null, 'Grup 1'], 'grup korunur, not silinir');
+    await api('POST', '/api/v1/rooms/bulk-housekeeping', { roomIds: [], hkStatus: 'clean', setNote: false, setGroup: false }, { expect: 422 });
+    await api('POST', '/api/v1/rooms/bulk-housekeeping', { roomIds: [room], setNote: false, setGroup: false }, { expect: 422 });
+    await api('DELETE', `/api/v1/room-groups/${g1}`);
+    assert.equal((await api('GET', '/api/v1/rooms/status')).find(y => y.number === '102').groupId ?? null, null, 'grup silinince oda gruptan çıkar');
+
+    // Polis listesi: KBS Excel'inden ayrı, yatay, araç plakası yok, ek misafirler dahil
+    const defs = await api('GET', '/api/v1/reports');
+    const pl = defs.find(d => d.name === 'police-list');
+    assert.ok(pl && pl.landscape, 'polis listesi yatay');
+    assert.ok(!pl.columns.some(c => /plaka/i.test(c.header)), 'polis listesinde plaka yok');
+    assert.ok(defs.some(d => d.name === 'kbs-guests'), 'KBS Excel raporu ayrı');
+    const rep = await api('GET', '/api/v1/reports/police-list');
+    assert.ok(rep.rows.some(x => x.lastName === 'Işıkoğlu'), 'konaklayan misafir listede');
+
+    // Temizlik: rezervasyon iptal, deneme odası ve tipi pasif
+    await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${id}`)).version }, k());
+    const rm = (await api('GET', '/api/v1/rooms')).find(x => x.id === room);
+    await api('PUT', `/api/v1/rooms/${room}`, { roomTypeId: tt, number: '301', floor: '3', sortOrder: 301, isActive: false, version: rm.version });
+    const t = (await api('GET', '/api/v1/room-types')).find(x => x.id === tt);
+    await api('PUT', `/api/v1/room-types/${tt}`, { code: 'FAM', name: 'Aile', maxAdults: 4, maxChildren: 1, defaultRate: '2000.00', sortOrder: 9, isActive: false, version: t.version });
+  });
+
   await step('Dolu odaya ikinci check-in engellenir', async () => {
     const id = (await api('POST', '/api/v1/reservations', { guestId: state.guest, roomTypeId: state.std, arrival: state.bd, departure: addDays(state.bd, 1), adults: 1, children: 0, status: 'confirmed', depositRequired: '0' }, { key: randomUUID() })).id;
     const r = await api('GET', `/api/v1/reservations/${id}`);

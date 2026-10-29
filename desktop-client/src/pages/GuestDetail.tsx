@@ -11,10 +11,18 @@ import { PageHead, useAction } from '../components/common';
 import { Badge, Empty, ErrorBox, Field, Modal, Spinner, Tabs, useToast } from '../components/ui';
 import { draftToBody, GuestFields, guestToDraft, type GuestDraft } from '../components/GuestFields';
 import { DocumentsPanel } from '../components/Documents';
+import { useWinSelf, useWindows } from '../components/Windows';
 
 export default function GuestDetailPage() {
   const { id } = useParams();
+  return <GuestView id={id!} />;
+}
+
+/** Misafir kartı; sayfa olarak veya Oda Rack üzerinde pencere olarak açılır. */
+export function GuestView({ id }: { id: string }) {
   const nav = useNavigate();
+  const win = useWinSelf();
+  const windows = useWindows();
   const qc = useQueryClient();
   const { can } = useSession();
   const [tab, setTab] = useState<'card' | 'stays' | 'folios' | 'docs'>('card');
@@ -24,6 +32,7 @@ export default function GuestDetailPage() {
   const toast = useToast();
   const p = useQuery({ queryKey: ['guest', id], queryFn: () => get<GuestProfile>(`/api/v1/guests/${id}`) });
   useEffect(() => { if (p.data) setDraft(guestToDraft(p.data.guest)); }, [p.data]);
+  useEffect(() => { if (p.data && win) win.setTitle(`Misafir kartı · ${p.data.guest.firstName} ${p.data.guest.lastName}`); }, [p.data, win]);
 
   const save = useAction(async () => {
     await api('PUT', `/api/v1/guests/${id}`, draftToBody(draft!, p.data!.guest.version));
@@ -31,8 +40,8 @@ export default function GuestDetailPage() {
     await qc.invalidateQueries({ queryKey: ['guests'] });
   }, { success: 'Misafir kartı kaydedildi.' });
 
-  if (p.isLoading || !draft) return <div className="page"><Spinner /></div>;
   if (p.error) return <div className="page"><ErrorBox error={p.error} /></div>;
+  if (p.isLoading || !draft) return <div className="page"><Spinner /></div>;
   const g = p.data!.guest;
   const anonymized = !!g.anonymizedAt;
   const exportData = async () => {
@@ -49,7 +58,7 @@ export default function GuestDetailPage() {
         {anonymized && <Badge color="gray">KVKK: {fmtDateTime(g.anonymizedAt!)} tarihinde anonimleştirildi</Badge>}
         <span>Kayıt {fmtDateTime(g.createdAt)} · Toplam gelir {fmtMoney(p.data!.totalRevenue)}</span>
       </>} actions={<>
-        <button className="btn ghost" onClick={() => nav(-1)}><ArrowLeft /> Geri</button>
+        {!win && <button className="btn ghost" onClick={() => nav(-1)}><ArrowLeft /> Geri</button>}
         {can('guest.privacy') && !anonymized && <button className="btn" onClick={() => void exportData()} title="İlgili kişi başvurusu için tüm kişisel verilerin Excel dökümü"><FileDown /> Kişisel veri dökümü</button>}
         {can('guest.privacy') && !anonymized && <button className="btn danger" onClick={() => setAnon(true)} title="KVKK silme talebi: kimlik ve iletişim bilgilerini kalıcı olarak sil"><Eraser /> Anonimleştir</button>}
         {can('guest.blacklist') && !anonymized && <button className="btn" onClick={() => setBlack(true)}>{g.isBlacklisted ? <ShieldCheck /> : <Ban />} {g.isBlacklisted ? 'Kara listeden çıkar' : 'Kara listeye al'}</button>}
@@ -62,7 +71,7 @@ export default function GuestDetailPage() {
         {tab === 'stays' && (p.data!.stays.length === 0 ? <Empty title="Konaklama kaydı yok" /> : (
           <table className="dt"><thead><tr><th>Rez. No</th><th>Giriş</th><th>Çıkış</th><th>Oda</th><th style={{ textAlign: 'right' }}>Gecelik</th><th>Durum</th></tr></thead>
             <tbody>{p.data!.stays.map(s => (
-              <tr key={s.id} className="clickable" onClick={() => nav(`/reservations/${s.id}`)}>
+              <tr key={s.id} className="clickable" onClick={() => (windows ? windows.open({ kind: 'reservation', id: s.id }) : nav(`/reservations/${s.id}`))}>
                 <td className="mono">{s.reservationNumber}</td><td>{fmtDate(s.arrival)}</td><td>{fmtDate(s.departure)}</td><td>{s.roomNumber ?? s.roomTypeCode}</td>
                 <td className="num">{fmtMoney(s.nightlyRate, s.currency)}</td><td><Badge color={STATUS_BADGE[s.status]}>{STATUS_LABEL[s.status]}</Badge></td>
               </tr>))}</tbody></table>

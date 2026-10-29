@@ -85,7 +85,7 @@ export function ReservationTraces({ reservationId, arrival, departure, open }: {
           <Field label="Bölüm"><select className="input" value={f.department} onChange={e => setF(s => ({ ...s, department: e.target.value }))}>
             {Object.entries(DEPARTMENT).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
           <Field label="Hatırlatma" className="grow"><input className="input" style={{ minWidth: 320 }} value={f.message} maxLength={500} placeholder="Ör. Doğum günü pastası 20:00, havalimanı transferi 07:00"
-            onChange={e => setF(s => ({ ...s, message: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && f.message.trim()) void add.run(); }} /></Field>
+            onChange={e => setF(s => ({ ...s, message: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter' && f.message.trim()) { e.preventDefault(); void add.run(); } }} /></Field>
           <button className="btn primary" disabled={!f.message.trim() || add.busy} onClick={() => void add.run()}><Plus /> Ekle</button>
         </div>
       )}

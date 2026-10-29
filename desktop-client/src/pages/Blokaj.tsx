@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, ClipboardList, Crown, FileText, LogIn, Unlink } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardList, Crown, FileText, LogIn, Palette, Unlink } from 'lucide-react';
 import { api, get, newKey, qs } from '../lib/api';
 import type { AvailabilityDay, Rack, RackBar, Reservation } from '../lib/types';
 import { addDays, BLOCK_LABEL, fmtDate, fmtDay, nightsBetween, STATUS_LABEL } from '../lib/format';
@@ -9,8 +9,11 @@ import { useSession } from '../lib/session';
 import { PageHead } from '../components/common';
 import { Empty, ErrorBox, Spinner, useContextMenu, useToast } from '../components/ui';
 import { CheckInModal, MoveModal } from '../components/ReservationActions';
+import { useWindows } from '../components/Windows';
+import { AppearanceModal } from '../components/AppearanceSettings';
+import { colorFor, mix, useAppearance, type BlokajColorBy } from '../lib/appearance';
 
-const DAY_W = 46;
+const DAY_WIDTH = { s: 30, m: 46, l: 70 } as const;
 const ROOM_W = 150;
 const ROW_H = 30;
 
@@ -27,6 +30,23 @@ export default function BlokajPage() {
   const [dropRoom, setDropRoom] = useState<string | null>(null);
   const [move, setMove] = useState<{ res: Reservation; roomId: string } | null>(null);
   const [checkIn, setCheckIn] = useState<Reservation | null>(null);
+  const [colors, setColors] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('');
+  const windows = useWindows();
+  const { a: look, set: setLook } = useAppearance();
+  const DAY_W = DAY_WIDTH[look.blokajWidth];
+  const openRes = (id: string) => (windows ? windows.open({ kind: 'reservation', id }) : nav(`/reservations/${id}`));
+  /** Çubuk rengi: duruma, firmaya/acenteye, bakiyeye veya oda tipine göre (Görünüm ayarından renkler değişir). */
+  const barStyle = (b: RackBar): React.CSSProperties => {
+    const by: BlokajColorBy = look.blokajBy;
+    if (by === 'status') return { background: `var(--bk-${b.status}-soft)`, borderColor: `var(--bk-${b.status})`, color: `var(--bk-${b.status}-text)` };
+    const c = by === 'account' ? colorFor(b.companyName ?? b.agencyName ?? 'Bireysel')
+      : by === 'roomType' ? colorFor(b.roomTypeId)
+        : Number(b.balance) > 0 ? '#dc2626' : Number(b.balance) < 0 ? '#2563eb' : '#16a34a';
+    return { background: mix(c, '#ffffff', 0.8), borderColor: c, color: mix(c, '#000000', 0.45) };
+  };
+  const barText = (b: RackBar) => look.blokajLabel === 'guestAccount' && (b.companyName || b.agencyName) ? `${b.guestName} · ${b.companyName ?? b.agencyName}`
+    : look.blokajLabel === 'guestPax' ? `${b.guestName} · ${b.adults}+${b.children}` : b.guestName;
 
   const to = addDays(from, days);
   const rack = useQuery({ queryKey: ['rack', from, days], queryFn: () => get<Rack>(`/api/v1/rack${qs({ from, days })}`) });
@@ -45,11 +65,12 @@ export default function BlokajPage() {
     if (!r) return [];
     const byType = new Map<string, { code: string; rooms: Rack['rooms'] }>();
     for (const room of r.rooms) {
+      if (typeFilter && room.roomTypeId !== typeFilter) continue;
       if (!byType.has(room.roomTypeId)) byType.set(room.roomTypeId, { code: room.roomTypeCode, rooms: [] });
       byType.get(room.roomTypeId)!.rooms.push(room);
     }
     return [...byType.entries()].map(([id, g]) => ({ id, ...g }));
-  }, [rack.data]);
+  }, [rack.data, typeFilter]);
 
   const pos = (a: string, b: string) => {
     const start = Math.max(0, nightsBetween(from, a));
@@ -83,7 +104,7 @@ export default function BlokajPage() {
   };
 
   const barMenu = (e: React.MouseEvent, b: RackBar) => menu.open(e, [
-    { label: 'Rezervasyonu aç', icon: <FileText size={14} />, onClick: () => nav(`/reservations/${b.reservationId}`) },
+    { label: 'Rezervasyonu aç', icon: <FileText size={14} />, onClick: () => openRes(b.reservationId) },
     ...(b.status !== 'checked_in' && b.roomId && b.arrival <= bd && can('checkin.execute')
       ? [{ label: 'Giriş yap (check-in)', icon: <LogIn size={14} />, onClick: async () => { try { setCheckIn(await load(b.reservationId)); } catch (err) { toast.error(err); } } }] : []),
     ...(b.status !== 'checked_in' && b.roomId && can('reservation.edit') ? [{ label: 'Oda atamasını kaldır', icon: <Unlink size={14} />, onClick: () => void unassign(b) }] : []),
@@ -99,9 +120,29 @@ export default function BlokajPage() {
         <input type="date" className="input" style={{ width: 150 }} value={from} onChange={e => e.target.value && setFrom(e.target.value)} />
         <button className="btn icon" title="İleri" onClick={() => setFrom(addDays(from, 7))}><ChevronRight /></button>
         <button className="btn" onClick={() => setFrom(addDays(bd, -2))}>Bugün</button>
-        <select className="input" style={{ width: 110 }} value={days} onChange={e => setDays(Number(e.target.value))}>{[14, 21, 31, 45, 62].map(n => <option key={n} value={n}>{n} gün</option>)}</select>
+        <select className="input" style={{ width: 110 }} value={days} onChange={e => setDays(Number(e.target.value))}>{[7, 14, 21, 31, 45, 62, 90].map(n => <option key={n} value={n}>{n} gün</option>)}</select>
+        <button className="btn" onClick={() => setColors(true)} title="Blokaj renkleri"><Palette /> Renkler</button>
         {can('reservation.create') && <button className="btn primary" onClick={() => nav('/reservations/new')}><ClipboardList /> Yeni rezervasyon</button>}
       </>} />
+
+      <div className="row wrap blk-opts">
+        <label className="row muted">Renklendir
+          <select className="input" value={look.blokajBy} onChange={e => setLook({ blokajBy: e.target.value as BlokajColorBy })}>
+            <option value="status">Duruma göre</option><option value="account">Firma / acenteye göre</option><option value="balance">Bakiyeye göre</option><option value="roomType">Oda tipine göre</option>
+          </select></label>
+        <label className="row muted">Çubuk yazısı
+          <select className="input" value={look.blokajLabel} onChange={e => setLook({ blokajLabel: e.target.value as typeof look.blokajLabel })}>
+            <option value="guest">Misafir</option><option value="guestAccount">Misafir + firma</option><option value="guestPax">Misafir + kişi sayısı</option>
+          </select></label>
+        <label className="row muted">Gün genişliği
+          <select className="input" value={look.blokajWidth} onChange={e => setLook({ blokajWidth: e.target.value as typeof look.blokajWidth })}>
+            <option value="s">Dar</option><option value="m">Normal</option><option value="l">Geniş</option>
+          </select></label>
+        {r && <label className="row muted">Oda tipi
+          <select className="input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+            <option value="">Tümü</option>{[...new Map(r.rooms.map(x => [x.roomTypeId, x.roomTypeCode])).entries()].map(([id, code]) => <option key={id} value={id}>{code}</option>)}
+          </select></label>}
+      </div>
 
       {rack.isLoading ? <Spinner /> : rack.error ? <ErrorBox error={rack.error} /> : !r || r.rooms.length === 0 ? (
         <Empty title="Henüz oda tanımlanmamış" text="Blokaj çizelgesi için Yönetim → Oda ve Oda Tipleri ekranından oda ekleyin." />
@@ -140,7 +181,7 @@ export default function BlokajPage() {
                         <div className="tl-room"><span className={`hkmark hk-${room.hkStatus}`} />{room.number}{room.isDnd && <span className="muted" style={{ fontSize: 10 }}>DND</span>}</div>
                         {dates.map(d => (
                           <div key={d} className={`tl-cell ${fmtDay(d).weekend ? 'weekend' : ''} ${d === bd ? 'today' : ''}`}
-                            onDoubleClick={() => can('reservation.create') && d >= bd && nav(`/reservations/new?room=${room.id}&type=${room.roomTypeId}&arrival=${d}`)} />
+                            onDoubleClick={() => { if (!can('reservation.create') || d < bd) return; const params = { room: room.id, type: room.roomTypeId, arrival: d }; if (windows) windows.open({ kind: 'new-reservation', params }); else nav(`/reservations/new?room=${room.id}&type=${room.roomTypeId}&arrival=${d}`); }} />
                         ))}
                         {blocks.map(b => {
                           const p = pos(b.dateFrom, b.dateTo);
@@ -152,11 +193,11 @@ export default function BlokajPage() {
                           const movable = b.status !== 'checked_out' && (can('reservation.edit') || can('room.change'));
                           return (
                             <div key={b.reservationId} className={`tl-bar ${b.status} ${drag?.reservationId === b.reservationId ? 'dragging' : ''}`}
-                              style={{ left: ROOM_W + p.left + 1, width: p.width, borderTopLeftRadius: p.cutLeft ? 0 : undefined }}
+                              style={{ ...barStyle(b), left: ROOM_W + p.left + 1, width: p.width, borderTopLeftRadius: p.cutLeft ? 0 : undefined }}
                               draggable={movable} onDragStart={() => setDrag(b)} onDragEnd={() => { setDrag(null); setDropRoom(null); }}
-                              onClick={e => barMenu(e, b)} onContextMenu={e => barMenu(e, b)} onDoubleClick={() => nav(`/reservations/${b.reservationId}`)}
+                              onClick={e => barMenu(e, b)} onContextMenu={e => barMenu(e, b)} onDoubleClick={() => openRes(b.reservationId)}
                               title={`${b.guestName} · ${b.reservationNumber}\n${fmtDate(b.arrival)} → ${fmtDate(b.departure)} · ${STATUS_LABEL[b.status]}\n${b.adults}+${b.children} kişi${b.companyName ? ` · ${b.companyName}` : ''}${b.agencyName ? ` · ${b.agencyName}` : ''}`}>
-                              {b.isVip && <Crown size={12} />}{b.guestName}
+                              {b.isVip && <Crown size={12} />}{barText(b)}
                             </div>
                           );
                         })}
@@ -174,8 +215,8 @@ export default function BlokajPage() {
               {r.unassigned.length === 0 ? <span className="muted">Bu tarih aralığında odası atanmamış rezervasyon yok.</span> : (
                 <div className="row wrap">
                   {r.unassigned.map(b => (
-                    <div key={b.reservationId} className={`tl-bar ${b.status}`} style={{ position: 'static', width: 'auto' }} draggable={can('reservation.edit')}
-                      onDragStart={() => setDrag(b)} onDragEnd={() => { setDrag(null); setDropRoom(null); }} onDoubleClick={() => nav(`/reservations/${b.reservationId}`)}
+                    <div key={b.reservationId} className={`tl-bar ${b.status}`} style={{ ...barStyle(b), position: 'static', width: 'auto' }} draggable={can('reservation.edit')}
+                      onDragStart={() => setDrag(b)} onDragEnd={() => { setDrag(null); setDropRoom(null); }} onDoubleClick={() => openRes(b.reservationId)}
                       onClick={e => barMenu(e, b)}>
                       {b.guestName} · {fmtDate(b.arrival)}–{fmtDate(b.departure)} · {r.rooms.find(x => x.roomTypeId === b.roomTypeId)?.roomTypeCode ?? ''}
                     </div>
@@ -185,10 +226,14 @@ export default function BlokajPage() {
             </div>
           </div>
           <div className="legend" style={{ marginTop: 8 }}>
-            <span><i style={{ background: '#e0ebff', border: '1px solid #2563eb' }} />Onaylı</span>
-            <span><i style={{ background: '#fef9c3', border: '1px solid #ca8a04' }} />Opsiyon</span>
-            <span><i style={{ background: '#ede9fe', border: '1px solid #7c3aed' }} />Konaklıyor</span>
-            <span><i style={{ background: '#e2e8f0', border: '1px solid #64748b' }} />Çıkış yaptı</span>
+            {look.blokajBy === 'status' ? (['confirmed', 'tentative', 'checked_in', 'checked_out'] as const).map(k => (
+              <span key={k}><i style={{ background: `var(--bk-${k}-soft)`, border: `1px solid var(--bk-${k})` }} />{STATUS_LABEL[k]}</span>
+            )) : look.blokajBy === 'balance' ? <>
+              <span><i style={{ background: '#fde2e2', border: '1px solid #dc2626' }} />Borçlu</span>
+              <span><i style={{ background: '#dcfce7', border: '1px solid #16a34a' }} />Bakiye sıfır</span>
+              <span><i style={{ background: '#dbeafe', border: '1px solid #2563eb' }} />Alacaklı</span>
+            </> : <span>Her {look.blokajBy === 'account' ? 'firma / acente' : 'oda tipi'} kendi rengiyle gösterilir.</span>}
+            <span><i className="blk-legend-block" />Oda blokajı</span>
             <span>Boş hücreye çift tıklayarak o oda ve tarih için rezervasyon açabilirsiniz.</span>
           </div>
         </>
@@ -196,6 +241,7 @@ export default function BlokajPage() {
       {menu.node}
       {move && <MoveModal reservation={move.res} initialRoomId={move.roomId} onClose={() => setMove(null)} />}
       {checkIn && <CheckInModal reservation={checkIn} onClose={() => setCheckIn(null)} />}
+      {colors && <AppearanceModal onClose={() => setColors(false)} />}
     </div>
   );
 }

@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Crown, Save, Search, UserPlus, X } from 'lucide-react';
+import { Save, X } from 'lucide-react';
 import { api, ApiError, get, newKey, qs } from '../lib/api';
-import type { ExchangeRatesView, GuestListItem, Paged, RatePreview, Reservation } from '../lib/types';
+import type { ExchangeRatesView, RatePreview, Reservation } from '../lib/types';
 import { addDays, fmtDate, fmtMoney, fmtQty, fmtRate, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
 import { useAgencies, useChannels, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { ErrorBox, Field, Modal, MoneyInput, useConfirm } from '../components/ui';
 import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../components/GuestFields';
+import { GuestSearch } from '../components/GuestSearch';
+import { useWinSelf, useWindows } from '../components/Windows';
 
 type Mode = 'new' | 'walkin' | 'edit';
 
@@ -17,44 +19,18 @@ interface Draft {
   roomTypeId: string; roomId: string; arrival: string; departure: string; adults: number; children: number; ratePlanId: string; nightlyRate: string; overrideRate: boolean; rateCurrency: string;
   channel: string; channelRef: string;
   mealPlan: string; companyId: string; agencyId: string; source: string; status: string; optionUntil: string; eta: string; etd: string; notes: string; specialRequests: string; depositRequired: string;
+  /** Kişi sayısına göre fiyat (Tek/Çift/Üç/Dört): açıksa yetişkin sayısına göre gecelik fiyat otomatik seçilir. */
+  useOcc: boolean; sgl: string; dbl: string; trp: string; quad: string;
 }
 
-function GuestPicker({ guestId, guestName, onPick, onNew }: { guestId: string; guestName: string; onPick: (g: GuestListItem) => void; onNew: () => void }) {
-  const [q, setQ] = useState('');
-  const [term, setTerm] = useState('');
-  useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 250); return () => clearTimeout(t); }, [q]);
-  const res = useQuery({ queryKey: ['guests', 'pick', term], queryFn: () => get<Paged<GuestListItem>>(`/api/v1/guests${qs({ q: term, pageSize: 8 })}`), enabled: term.length >= 2 });
-  if (guestId) return null;
-  return (
-    <div className="stack">
-      <div className="row">
-        <Search size={15} className="muted" />
-        <input className="input" style={{ flex: 1 }} placeholder="Misafir ara: ad soyad, kimlik no, telefon (en az 2 karakter)" value={q} onChange={e => setQ(e.target.value)} autoFocus />
-        <button className="btn" onClick={onNew}><UserPlus /> Yeni misafir</button>
-      </div>
-      {guestName && <div className="muted">Seçili: {guestName}</div>}
-      {term.length >= 2 && (
-        <div className="table-wrap" style={{ maxHeight: 240 }}>
-          <table className="dt">
-            <thead><tr><th>Ad soyad</th><th>Uyruk</th><th>Kimlik</th><th>Telefon</th><th>Konaklama</th></tr></thead>
-            <tbody>
-              {res.data?.items.map(g => (
-                <tr key={g.id} className="clickable" onClick={() => onPick(g)}>
-                  <td>{g.isVip && <Crown size={12} color="var(--warning)" />} {g.firstName} {g.lastName}{g.isBlacklisted && <span className="badge red" style={{ marginLeft: 6 }}>Kara liste</span>}</td>
-                  <td>{g.nationality}</td><td className="mono">{g.identityNumber}</td><td>{g.phone}</td><td>{g.stayCount}{g.lastStay ? ` · son ${fmtDate(g.lastStay)}` : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {res.data && res.data.items.length === 0 && <div className="empty">Eşleşen misafir yok. <button className="btn sm" onClick={onNew}>Yeni misafir oluştur</button></div>}
-        </div>
-      )}
-    </div>
-  );
-}
+/** Yetişkin sayısına karşılık gelen kişi fiyatı (4 ve üstü dört kişilik). */
+const occRate = (d: Pick<Draft, 'sgl' | 'dbl' | 'trp' | 'quad'>, adults: number) => (adults <= 1 ? d.sgl : adults === 2 ? d.dbl : adults === 3 ? d.trp : d.quad);
+const OCC_LABEL = (adults: number) => (adults <= 1 ? 'tek kişilik' : adults === 2 ? 'çift kişilik' : adults === 3 ? 'üç kişilik' : 'dört kişilik');
 
-export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; initial?: Reservation; onSaved: (id: string) => void }) {
+export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mode; initial?: Reservation; onSaved: (id: string) => void; params?: Record<string, string> }) {
   const [sp] = useSearchParams();
+  // Pencerede açılınca ilk değerler (oda, tip, tarih) adres yerine pencere parametrelerinden gelir.
+  const param = (k: string) => params?.[k] ?? sp.get(k);
   const { property, can } = useSession();
   const qc = useQueryClient();
   const bd = property?.businessDate ?? '';
@@ -73,10 +49,13 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
     ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.rateCurrency ? initial.fxNightlyRate ?? '' : initial.nightlyRate, overrideRate: false, rateCurrency: initial.rateCurrency ?? '', channel: initial.channel ?? '', channelRef: initial.channelRef ?? '', mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
     source: initial.source, status: initial.status, optionUntil: initial.optionUntil ?? '', eta: initial.eta?.slice(0, 5) ?? '', etd: initial.etd?.slice(0, 5) ?? '', notes: initial.notes ?? '',
     specialRequests: initial.specialRequests ?? '', depositRequired: initial.depositRequired,
+    useOcc: [initial.rateSgl, initial.rateDbl, initial.rateTrp, initial.rateQuad].some(v => v != null),
+    sgl: initial.rateSgl ?? '', dbl: initial.rateDbl ?? '', trp: initial.rateTrp ?? '', quad: initial.rateQuad ?? '',
   } : {
-    roomTypeId: sp.get('type') ?? '', roomId: sp.get('room') ?? '', arrival: mode === 'walkin' ? bd : (sp.get('arrival') ?? bd), departure: addDays(mode === 'walkin' ? bd : (sp.get('arrival') ?? bd), 1),
+    roomTypeId: param('type') ?? '', roomId: param('room') ?? '', arrival: mode === 'walkin' ? bd : (param('arrival') ?? bd), departure: addDays(mode === 'walkin' ? bd : (param('arrival') ?? bd), 1),
     adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, rateCurrency: '', channel: '', channelRef: '', mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
     status: 'confirmed', optionUntil: '', eta: '', etd: '', notes: '', specialRequests: '', depositRequired: '0.00',
+    useOcc: false, sgl: '', dbl: '', trp: '', quad: '',
   });
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD(s => ({ ...s, [k]: v }));
   const nights = d.arrival && d.departure ? nightsBetween(d.arrival, d.departure) : 0;
@@ -104,6 +83,10 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   // Döviz seçildi ama plan bu dövizde değilse fiyat elle girilmelidir.
   const needsManual = foreign && (plan?.currency ?? '') !== d.rateCurrency;
 
+  // Kişi sayısı fiyatı: yetişkin sayısı değişince gecelik fiyat buna göre seçilir; "elle belirle" işaretliyse elle girilen fiyat geçerlidir.
+  const occ = d.useOcc ? occRate(d, d.adults) : '';
+  const hadOcc = !!initial && [initial.rateSgl, initial.rateDbl, initial.rateTrp, initial.rateQuad].some(v => v != null);
+
   const rooms = useMemo(() => (status.data ?? []).filter(r => r.roomTypeId === d.roomTypeId && !r.blockKind && (mode !== 'walkin' || r.foStatus === 'vacant' || r.id === d.roomId)), [status.data, d.roomTypeId, d.roomId, mode]);
 
   const save = useAction(async (key: string) => {
@@ -112,10 +95,12 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
       guestId: guest?.id ?? null, newGuest: guest ? null : newGuest ? draftToBody(newGuest) : null,
       companyId: n(d.companyId), agencyId: n(d.agencyId), groupId: initial?.groupId ?? null, roomTypeId: d.roomTypeId, roomId: n(d.roomId),
       arrival: d.arrival, departure: d.departure, adults: d.adults, children: d.children, ratePlanId: n(d.ratePlanId),
-      nightlyRate: (d.overrideRate || needsManual) && d.nightlyRate ? d.nightlyRate : null, rateCurrency: d.rateCurrency || null, channel: d.channel || null, channelRef: d.channel && d.channelRef.trim() ? d.channelRef.trim() : null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
+      nightlyRate: (d.overrideRate || (needsManual && !occ)) && d.nightlyRate ? d.nightlyRate : null, rateCurrency: d.rateCurrency || null, channel: d.channel || null, channelRef: d.channel && d.channelRef.trim() ? d.channelRef.trim() : null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
       source: d.source, market: initial?.market ?? null, segment: initial?.segment ?? null, eta: d.eta ? `${d.eta}:00` : null, etd: d.etd ? `${d.etd}:00` : null,
       notes: n(d.notes), specialRequests: n(d.specialRequests), depositRequired: d.depositRequired || '0', optionUntil: d.status === 'tentative' ? n(d.optionUntil) : null,
       version: initial?.version ?? null,
+      // Tablo kapatılırsa boş gönderilir (kayıtlı tablo silinir); hiç kullanılmadıysa gönderilmez.
+      occupancy: d.useOcc ? { single: n(d.sgl), double: n(d.dbl), triple: n(d.trp), quad: n(d.quad) } : hadOcc ? { single: null, double: null, triple: null, quad: null } : null,
     };
     const send = async (b: typeof body & { allowOverbook?: boolean }, k: string): Promise<string> => {
       if (mode === 'walkin') return (await api<{ id: string }>('POST', '/api/v1/reservations/walk-in', { reservation: b, roomId: d.roomId }, { key: k })).id;
@@ -136,7 +121,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
   }, { success: mode === 'walkin' ? 'Walk-in giriş tamamlandı.' : mode === 'edit' ? 'Rezervasyon güncellendi.' : 'Rezervasyon oluşturuldu.' });
 
   const guestOk = !!guest || (!!newGuest && newGuest.firstName.trim() && newGuest.lastName.trim());
-  const valid = guestOk && d.roomTypeId && nights >= 1 && d.adults >= 1 && (mode !== 'walkin' || d.roomId) && (!(d.overrideRate || needsManual) || !!d.nightlyRate);
+  const valid = guestOk && d.roomTypeId && nights >= 1 && d.adults >= 1 && (mode !== 'walkin' || d.roomId) && (!(d.overrideRate || needsManual) || !!d.nightlyRate || (!d.overrideRate && !!occ));
 
   return (
     <div className="split">
@@ -152,7 +137,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
                 <GuestFields value={newGuest} onChange={setNewGuest} compact />
                 {mode === 'walkin' && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Girişte kimlik bilgisi zorunludur.</div>}
               </>
-              : <GuestPicker guestId="" guestName="" onPick={g => setGuest({ id: g.id, name: `${g.firstName} ${g.lastName}`, blacklisted: g.isBlacklisted })} onNew={() => setNewGuest(emptyGuest())} />}
+              : <GuestSearch onPick={g => setGuest({ id: g.id, name: `${g.firstName} ${g.lastName}`, blacklisted: g.isBlacklisted })} onNew={seed => setNewGuest({ ...emptyGuest(), ...seed })} />}
           </div>
         </div>
 
@@ -217,7 +202,7 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
             {preview.data && !d.overrideRate && !needsManual && Number(preview.data.discountPct) > 0 && (
               <div className="info-box">Misafir kartındaki %{fmtQty(preview.data.discountPct)} konaklama indirimi gecelik fiyatlara uygulandı.</div>
             )}
-            {preview.data && !d.overrideRate && !needsManual && (
+            {preview.data && !d.overrideRate && !needsManual && !occ && (
               <div className="table-wrap" style={{ maxHeight: 220 }}>
                 <table className="dt">
                   <thead><tr><th>Gece</th><th style={{ textAlign: 'right' }}>Fiyat</th></tr></thead>
@@ -227,8 +212,24 @@ export function ReservationEditor({ mode, initial, onSaved }: { mode: Mode; init
               </div>
             )}
             <ErrorBox error={preview.error} />
-            {can('rate.override') && !needsManual && <label className="check"><input type="checkbox" checked={d.overrideRate} onChange={e => set('overrideRate', e.target.checked)} /> Gecelik fiyatı elle belirle</label>}
-            {(d.overrideRate || needsManual) && <Field label={`Gecelik fiyat (${priceCur})`} required hint={needsManual && !can('rate.override') ? 'Dövizli elle fiyat için fiyat aşımı yetkisi gerekir; aynı dövizde fiyat planı seçebilirsiniz.' : undefined}>
+            {can('rate.override') && <div className="occ-box">
+              <label className="check"><input type="checkbox" checked={d.useOcc} onChange={e => set('useOcc', e.target.checked)} /> Kişi sayısına göre fiyat (tek / çift / üç / dört kişilik)</label>
+              {d.useOcc && <>
+                <div className="occ-grid">
+                  <Field label="Tek (Sng)"><MoneyInput value={d.sgl} onChange={v => set('sgl', v)} /></Field>
+                  <Field label="Çift (Dbl)"><MoneyInput value={d.dbl} onChange={v => set('dbl', v)} /></Field>
+                  <Field label="Üç (Trp)"><MoneyInput value={d.trp} onChange={v => set('trp', v)} /></Field>
+                  <Field label="Dört (Quad)"><MoneyInput value={d.quad} onChange={v => set('quad', v)} /></Field>
+                </div>
+                <div className={occ && !d.overrideRate ? 'info-box' : 'muted'} style={{ fontSize: 12 }}>
+                  {d.overrideRate ? 'Gecelik fiyat elle belirlendi; kişi tablosu bu kayıtta kullanılmaz.'
+                    : occ ? <>{d.adults} yetişkin: <b>{OCC_LABEL(d.adults)}</b> fiyat uygulanır · <b>{fmtMoney(occ, priceCur)}</b> / gece. Kişi sayısı değişirse (ek misafir eklenince de) fiyat kendiliğinden ayarlanır.</>
+                    : <>{OCC_LABEL(d.adults)} fiyat boş; fiyat planı uygulanır.</>}
+                </div>
+              </>}
+            </div>}
+            {can('rate.override') && (!needsManual || d.useOcc) && <label className="check"><input type="checkbox" checked={d.overrideRate} onChange={e => set('overrideRate', e.target.checked)} /> Gecelik fiyatı elle belirle</label>}
+            {(d.overrideRate || (needsManual && !occ)) && <Field label={`Gecelik fiyat (${priceCur})`} required hint={needsManual && !can('rate.override') ? 'Dövizli elle fiyat için fiyat aşımı yetkisi gerekir; aynı dövizde fiyat planı seçebilirsiniz.' : undefined}>
               <MoneyInput value={d.nightlyRate} onChange={v => set('nightlyRate', v)} /></Field>}
             {foreign && fxRate && d.nightlyRate && (d.overrideRate || needsManual) && <div className="muted" style={{ fontSize: 12 }}>≈ {fmtMoney((Number(d.nightlyRate) * Number(fxRate)).toFixed(2), property?.currency)} / gece (bugünkü kurla)</div>}
             {mode === 'edit' && initial && !d.overrideRate && <div className="muted" style={{ fontSize: 12 }}>Kayıtlı gecelik fiyat: {initial.rateCurrency ? `${fmtMoney(initial.fxNightlyRate, initial.rateCurrency)} (≈ ${fmtMoney(initial.nightlyRate, initial.currency)})` : fmtMoney(initial.nightlyRate, initial.currency)}. Tarih veya plan değişirse fiyatlar yeniden hesaplanır.</div>}
@@ -260,6 +261,23 @@ export function WalkInPage() {
     <div className="page">
       <PageHead title="Walk-in" sub={`Rezervasyonsuz gelen misafir · giriş tarihi ${fmtDate(property?.businessDate)}`} />
       <ReservationEditor mode="walkin" onSaved={id => nav(`/reservations/${id}?kbs=1`)} />
+    </div>
+  );
+}
+
+/** Yeni rezervasyon / walk-in penceresi (Oda Rack üzerinde açılır). Kaydedince bu pencere kapanır, konaklama penceresi açılır. */
+export function ReservationNewWindow({ mode, params }: { mode: 'new' | 'walkin'; params?: Record<string, string> }) {
+  const win = useWinSelf();
+  const windows = useWindows();
+  const nav = useNavigate();
+  const { property } = useSession();
+  return (
+    <div className="page">
+      {mode === 'walkin' && <div className="muted" style={{ marginBottom: 10 }}>Rezervasyonsuz gelen misafir · giriş tarihi {fmtDate(property?.businessDate)}</div>}
+      <ReservationEditor mode={mode} params={params} onSaved={id => {
+        if (windows) { win?.close(); windows.open({ kind: 'reservation', id, kbs: mode === 'walkin' }); }
+        else nav(`/reservations/${id}${mode === 'walkin' ? '?kbs=1' : ''}`);
+      }} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, CheckCircle2, Inbox, Loader2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, Inbox, Loader2, X } from 'lucide-react';
 import { errorText } from '../lib/api';
 import { fmtMoney, parseMoney } from '../lib/format';
 
@@ -145,33 +145,60 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
 }
 
 /* ---------------------------------------------------------------- Sağ tık menüsü */
-export interface MenuItem { label: string; icon?: ReactNode; onClick?: () => void; disabled?: boolean; danger?: boolean; separator?: boolean }
+export interface MenuItem { label: string; icon?: ReactNode; onClick?: () => void; disabled?: boolean; danger?: boolean; separator?: boolean; children?: MenuItem[]; checked?: boolean; hint?: string }
+
+const ITEM_H = 31;
+const menuHeight = (items: MenuItem[]) => items.reduce((h, i) => h + (i.separator ? 9 : ITEM_H), 12);
+
+function CtxList({ items, close, flip, className, style }: { items: MenuItem[]; close: () => void; flip: boolean; className?: string; style?: React.CSSProperties }) {
+  const [sub, setSub] = useState<{ idx: number; up: boolean } | null>(null);
+  return (
+    <div className={`ctx ${className ?? ''}`} style={style} onClick={e => e.stopPropagation()} onContextMenu={e => e.preventDefault()}>
+      {items.map((i, idx) => i.separator ? <div className="sep" key={idx} /> : (
+        <div key={idx} className="ctx-item" onMouseEnter={e => {
+          if (!i.children?.length || i.disabled) { setSub(null); return; }
+          const r = e.currentTarget.getBoundingClientRect();
+          setSub({ idx, up: r.top + menuHeight(i.children) > window.innerHeight - 8 });
+        }}>
+          <button disabled={i.disabled} className={`${i.danger ? 'danger' : ''} ${i.children ? 'has-sub' : ''}`} title={i.hint}
+            onClick={() => { if (i.children) return; close(); i.onClick?.(); }}>
+            {i.checked !== undefined ? <span className="ctx-check">{i.checked ? <CheckCircle2 size={14} /> : null}</span> : i.icon}
+            <span className="ctx-label">{i.label}</span>
+            {i.children && <ChevronRight size={14} className="ctx-arrow" />}
+          </button>
+          {sub?.idx === idx && i.children && (
+            <CtxList items={i.children} close={close} flip={flip} className={`sub ${flip ? 'left' : ''} ${sub.up ? 'up' : ''}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function useContextMenu() {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
     window.addEventListener('click', close);
     window.addEventListener('scroll', close, true);
-    window.addEventListener('keydown', close);
-    return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); window.removeEventListener('keydown', close); };
+    window.addEventListener('keydown', key);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); window.removeEventListener('keydown', key); window.removeEventListener('resize', close); };
   }, [menu]);
   const open = (e: React.MouseEvent, items: MenuItem[]) => {
     e.preventDefault();
     e.stopPropagation();
-    const x = Math.min(e.clientX, window.innerWidth - 240);
-    const y = Math.min(e.clientY, window.innerHeight - items.length * 34 - 20);
+    const x = Math.min(e.clientX, window.innerWidth - 250);
+    const y = Math.max(6, Math.min(e.clientY, window.innerHeight - menuHeight(items) - 10));
     setMenu({ x, y, items });
   };
   const node = menu && createPortal(
-    <div className="ctx" style={{ left: menu.x, top: menu.y }} onClick={e => e.stopPropagation()}>
-      {menu.items.map((i, idx) => i.separator ? <div className="sep" key={idx} /> : (
-        <button key={idx} disabled={i.disabled} className={i.danger ? 'danger' : ''} onClick={() => { setMenu(null); i.onClick?.(); }}>{i.icon}{i.label}</button>
-      ))}
-    </div>,
+    <CtxList items={menu.items} close={() => setMenu(null)} flip={menu.x > window.innerWidth - 520} style={{ left: menu.x, top: menu.y }} />,
     document.body,
   );
-  return { open, node };
+  return { open, node, close: () => setMenu(null) };
 }
 
 /* ---------------------------------------------------------------- Tablo */

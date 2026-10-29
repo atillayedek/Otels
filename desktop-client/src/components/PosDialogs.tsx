@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BedDouble, Gift, Plus, Search } from 'lucide-react';
 import { get, post, put } from '../lib/api';
 import type { ExchangeRatesView, InHouseRoom, PosCheck, PosCheckDetail } from '../lib/types';
 import { fmtMoney, parseDecimal } from '../lib/format';
-import { usePaymentMethods } from '../lib/queries';
+import { defaultPaymentMethodId, usePaymentMethods } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useAction } from './common';
 import { Badge, Empty, ErrorBox, Field, Modal, MoneyInput, Spinner, Tabs } from './ui';
@@ -97,7 +97,10 @@ export function SettleModal({ detail, pending, onClose, onDone }: { detail: PosC
   const fx = useQuery({ queryKey: ['exchangeRates'], queryFn: () => get<ExchangeRatesView>('/api/v1/exchange-rates') });
   const rooms = useQuery({ queryKey: ['pos', 'inhouse'], queryFn: () => get<InHouseRoom[]>('/api/v1/pos/in-house'), enabled: mode === 'room' });
   const usable = (methods.data ?? []).filter(m => m.isActive && !['city_ledger', 'company', 'agency'].includes(m.kind));
+  const cashId = defaultPaymentMethodId(usable);
   const [rows, setRows] = useState<PayRow[]>([{ methodId: '', currency: base, amount: c.total, reference: '' }]);
+  // Ödeme tipi listesi yüklenince boş satırlara Nakit yazılır ("Seçin" adımı yok; değiştirilebilir).
+  useEffect(() => { if (cashId) setRows(rs => rs.map(r => (r.methodId ? r : { ...r, methodId: cashId }))); }, [cashId]);
   const [room, setRoom] = useState('');
   const [rq, setRq] = useState('');
   const [received, setReceived] = useState('');
@@ -135,7 +138,7 @@ export function SettleModal({ detail, pending, onClose, onDone }: { detail: PosC
         {mode === 'payment' && (zero ? <div className="info-box">Tutar sıfır; ikram olarak kapatın.</div> : <>
           {rows.map((r, i) => (
             <div key={i} className="form-grid">
-              <Field label="Ödeme tipi" className="span-2"><select className="input" value={r.methodId} onChange={e => setRow(i, { methodId: e.target.value })} autoFocus={i === 0}><option value="">Seçin</option>{usable.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
+              <Field label="Ödeme tipi" className="span-2"><select className="input" value={r.methodId} onChange={e => setRow(i, { methodId: e.target.value })} autoFocus={i === 0}>{usable.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field>
               <Field label="Para birimi"><select className="input" value={r.currency} onChange={e => setRow(i, { currency: e.target.value, amount: '' })}>
                 <option value={base}>{base}</option>{fx.data?.currencies.filter(x => x !== base).map(x => <option key={x} value={x}>{x}</option>)}</select></Field>
               <Field label="Tutar" hint={r.currency !== base ? (rateOf(r.currency) ? `≈ ${fmtMoney(inBase(r).toFixed(2), base)}` : 'Kur girilmemiş') : undefined}>
@@ -146,7 +149,7 @@ export function SettleModal({ detail, pending, onClose, onDone }: { detail: PosC
               {rows.length > 1 && <div style={{ alignSelf: 'end' }}><button className="btn sm ghost" onClick={() => setRows(rs => rs.filter((_, j) => j !== i))}>Satırı kaldır</button></div>}
             </div>
           ))}
-          {rows.length < 10 && <div><button className="btn sm" onClick={() => setRows(rs => [...rs, { methodId: '', currency: base, amount: remaining > 0 ? remaining.toFixed(2) : '', reference: '' }])}><Plus /> Bölünmüş ödeme</button></div>}
+          {rows.length < 10 && <div><button className="btn sm" onClick={() => setRows(rs => [...rs, { methodId: cashId, currency: base, amount: remaining > 0 ? remaining.toFixed(2) : '', reference: '' }])}><Plus /> Bölünmüş ödeme</button></div>}
           {cashRow && <div className="form-grid"><Field label="Alınan nakit (para üstü için)" className="span-2"><MoneyInput value={received} onChange={setReceived} /></Field>
             {change > 0 && <div className="span-2" style={{ alignSelf: 'end' }}>Para üstü: <b>{fmtMoney(change.toFixed(2), base)}</b></div>}</div>}
         </>)}

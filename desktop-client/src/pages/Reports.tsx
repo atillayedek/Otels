@@ -95,7 +95,13 @@ export default function ReportsPage() {
                 ))}
                 <button className="btn primary" disabled={missing.length > 0} onClick={() => setRunKey(k => k + 1)}><Play /> Çalıştır</button>
                 <span className="spacer" />
-                <button className="btn" disabled={!result.data} onClick={() => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 50); }}><Printer /> Yazdır</button>
+                <button className="btn" disabled={!result.data} onClick={() => {
+                  setPrinting(true);
+                  // Yatay raporlar (ör. polis listesi) A4 yatay basılır; sayfa yönü yalnız bu yazdırma için değişir.
+                  const page = def.landscape ? Object.assign(document.createElement('style'), { textContent: '@page { size: A4 landscape; margin: 0; }' }) : null;
+                  if (page) document.head.appendChild(page);
+                  setTimeout(() => { window.print(); page?.remove(); setPrinting(false); }, 50);
+                }}><Printer /> Yazdır{def.landscape ? ' (yatay)' : ''}</button>
                 {name === 'kbs-guests' && <button className="btn primary" onClick={() => void exportPolice()}><FileSpreadsheet /> Polis Excel'i indir</button>}
                 <button className="btn" onClick={() => void exportAs('xlsx')}><FileSpreadsheet /> Excel</button>
                 <button className="btn" onClick={() => void exportAs('csv')}>CSV</button>
@@ -106,6 +112,10 @@ export default function ReportsPage() {
                   Tarih boşsa şu an konaklayanların hepsi, tarih seçilirse o gün giriş yapanlar yazılır. <b>Eksik bilgi</b> sütununda yazanlar dosyada boş kalır; misafir kartından tamamlayın.
                   KKTC uyruklu misafirlerin uyruğu (kod 2) dosyada elle seçilmelidir.
                 </div>)}
+              {name === 'police-list' && (
+                <div className="info-box" style={{ fontSize: 13 }}>
+                  Polis listesi ana ve ek misafirlerin hepsini kimlik ve aile bilgileriyle yatay A4 olarak basar. Emniyet'e (KBS) yüklenecek Excel dosyası ayrı rapordur: <b>KBS Toplu Konaklayan Excel'i</b>.
+                </div>)}
               {missing.length > 0 ? <div className="card"><Empty icon={<FileText />} title={`${missing.map(m => m.label).join(', ')} seçin`} text="Rapor, seçiminizden sonra hazırlanır." /></div>
                 : result.isFetching ? <Spinner label="Rapor hazırlanıyor…" /> : result.error ? <ErrorBox error={result.error} /> : result.data && (
                 <ReportTable r={result.data} />
@@ -115,7 +125,7 @@ export default function ReportsPage() {
         </div>
       </div>
       {printing && result.data && createPortal(
-        <div className={`doc folio-doc report-doc ${result.data.columns.length > 7 ? 'dense' : ''}`}>
+        <div className={`doc folio-doc report-doc ${result.data.columns.length > 7 ? 'dense' : ''} ${def?.landscape ? 'landscape' : ''}`}>
           <DocHeader kind={def?.category ?? 'Rapor'} no={result.data.title} lines={[
             ...Object.entries(params).filter(([, v]) => v).map(([k, v]) => {
               const p = def?.params.find(x => x.key === k);

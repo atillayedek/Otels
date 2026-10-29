@@ -24,7 +24,8 @@ public static class ReservationService
                r.special_requests, r.deposit_required, r.option_until, r.checked_in_at, r.checked_out_at, r.cancelled_at, r.cancel_reason,
                r.created_at, cu.username AS created_by,
                COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance,
-               r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate, r.channel, r.channel_ref, g.alert_note AS guest_alert_note
+               r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate, r.channel, r.channel_ref, g.alert_note AS guest_alert_note,
+               r.rate_sgl, r.rate_dbl, r.rate_trp, r.rate_quad
         FROM pms.reservations r
         JOIN pms.guests g ON g.id = r.guest_id
         JOIN pms.room_types t ON t.id = r.room_type_id
@@ -220,16 +221,18 @@ public static class ReservationService
         if (req.RoomId is { } roomId) await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, null, false);
 
         var ch = await ChannelAsync(tx, req.Channel, req.ChannelRef, null);
+        var occ = Occupancy(tx, req.Occupancy, null);
+        req = WithOccupancyRate(req, occ);
         var rates = await ResolveRatesAsync(tx, req, guestId);
         var (nights, nightly) = (rates.Nights, rates.Nightly);
         var number = "R" + await tx.ScalarAsync<long>("SELECT nextval('pms.reservation_number_seq')");
         var id = await tx.ScalarAsync<Guid>("""
             INSERT INTO pms.reservations (reservation_number, status, guest_id, company_id, agency_id, group_id, room_type_id, room_id, arrival, departure,
                 adults, children, rate_plan_id, nightly_rate, currency, meal_plan, source, market, segment, is_walk_in, eta, etd, notes, special_requests,
-                deposit_required, option_until, created_by, rate_currency, fx_nightly_rate, channel, channel_ref)
+                deposit_required, option_until, created_by, rate_currency, fx_nightly_rate, channel, channel_ref, rate_sgl, rate_dbl, rate_trp, rate_quad)
             VALUES (@number, @status, @guestId, @CompanyId, @AgencyId, @GroupId, @RoomTypeId, @RoomId, @Arrival, @Departure,
                 @Adults, @Children, @RatePlanId, @nightly, @currency, @meal, @source, @market, @segment, @walkIn, @Eta, @Etd, @notes, @special,
-                @DepositRequired, @OptionUntil, @uid, @fxCur, @fxNightly, @channel, @channelRef)
+                @DepositRequired, @OptionUntil, @uid, @fxCur, @fxNightly, @channel, @channelRef, @sgl, @dbl, @trp, @quad)
             RETURNING id
             """, new
         {
@@ -239,6 +242,7 @@ public static class ReservationService
             notes = Validate.Optional(req.Notes, 4000), special = Validate.Optional(req.SpecialRequests, 2000),
             DepositRequired = Validate.Money(req.DepositRequired, "Depozito", allowZero: true), req.OptionUntil, uid = tx.User.Id,
             fxCur = rates.FxCurrency, fxNightly = rates.FxNightly, channel = ch.Channel, channelRef = ch.Ref,
+            sgl = occ?.Single, dbl = occ?.Double, trp = occ?.Triple, quad = occ?.Quad,
         });
         await WriteRatesAsync(tx, id, nights, rates.FxNights);
         await tx.ExecAsync("INSERT INTO pms.reservation_guests (reservation_id, guest_id, is_primary) VALUES (@id, @guestId, true)", new { id, guestId });
@@ -282,6 +286,10 @@ public static class ReservationService
         }
 
         var ch = await ChannelAsync(tx, req.Channel, req.ChannelRef, id);
+        var occ = Occupancy(tx, req.Occupancy, r);
+        // Kayıtlı kişi sayısı tablosundan gelen fiyat kullanıcının yeni fiyat girişi sayılmaz (tarih değişikliğinde fiyat aşımı yetkisi aranmaz).
+        var occTrusted = req.NightlyRate is null && occ is not null && occ == new OccupancyRates(r.RateSgl, r.RateDbl, r.RateTrp, r.RateQuad);
+        req = WithOccupancyRate(req, occ);
         var newCur = await NormalizeCurrencyAsync(tx, req.RateCurrency);
         var currentManual = r.RateCurrency is null ? r.NightlyRate : r.FxNightlyRate;
         var rateChanged = datesChanged || req.RatePlanId != r.RatePlanId || newCur != r.RateCurrency || (req.NightlyRate is { } nr && nr != currentManual);
@@ -290,7 +298,7 @@ public static class ReservationService
         decimal? fxNightly = r.FxNightlyRate;
         if (rateChanged)
         {
-            var rates = await ResolveRatesAsync(tx, req, req.GuestId ?? r.GuestId);
+            var rates = await ResolveRatesAsync(tx, req, req.GuestId ?? r.GuestId, occTrusted);
             (nightly, fxCur, fxNightly) = (rates.Nightly, rates.FxCurrency, rates.FxNightly);
             // Postalanmış gecelerin fiyatı geçmişe dönük değişmez.
             var posted = await tx.ListAsync<DateOnly>("SELECT business_date FROM pms.room_charge_postings WHERE reservation_id = @id", new { id });
@@ -308,6 +316,7 @@ public static class ReservationService
                 rate_plan_id = @RatePlanId, nightly_rate = @nightly, rate_currency = @fxCur, fx_nightly_rate = @fxNightly,
                 meal_plan = @meal, source = @source, market = @market, segment = @segment, channel = @channel, channel_ref = @channelRef,
                 eta = @Eta, etd = @Etd, notes = @notes, special_requests = @special, deposit_required = @DepositRequired, option_until = @OptionUntil,
+                rate_sgl = @sgl, rate_dbl = @dbl, rate_trp = @trp, rate_quad = @quad,
                 updated_at = now(), version = version + 1
             WHERE id = @id AND version = @version
             """, new
@@ -317,7 +326,7 @@ public static class ReservationService
             source = r.IsWalkIn ? "walk_in" : Source(req.Source), market = Validate.Optional(req.Market, 50), segment = Validate.Optional(req.Segment, 50),
             req.Eta, req.Etd, notes = Validate.Optional(req.Notes, 4000), special = Validate.Optional(req.SpecialRequests, 2000),
             DepositRequired = Validate.Money(req.DepositRequired, "Depozito", allowZero: true), req.OptionUntil, fxCur, fxNightly,
-            channel = ch.Channel, channelRef = ch.Ref,
+            channel = ch.Channel, channelRef = ch.Ref, sgl = occ?.Single, dbl = occ?.Double, trp = occ?.Triple, quad = occ?.Quad,
         });
         if (req.GuestId is { } ng && ng != r.GuestId)
         {
@@ -658,6 +667,66 @@ public static class ReservationService
         if (g == default) throw PmsException.NotFound("Misafir");
         if (g.IsBlacklisted && !tx.User.Has("guest.blacklist"))
             throw PmsException.Conflict($"{g.Name} kara listede. Rezervasyon için yetkili onayı gerekir.", "blacklisted");
+    }
+
+    // ------------------------------------------------------------------ Kişi sayısına göre fiyat
+    /// <summary>
+    /// İstekteki kişi sayısı fiyat tablosunu doğrular. Tablo elle fiyattır: kayıtlı tablodan farklıysa fiyat aşımı yetkisi gerekir.
+    /// İstek tabloyu göndermiyorsa (ör. eski istemci) kayıtlı tablo korunur.
+    /// </summary>
+    static OccupancyRates? Occupancy(Tx tx, OccupancyRates? requested, ReservationDto? current)
+    {
+        var stored = current is null ? null : new OccupancyRates(current.RateSgl, current.RateDbl, current.RateTrp, current.RateQuad);
+        if (requested is null) return stored is { IsEmpty: false } ? stored : null;
+        if (requested.IsEmpty) return null;
+        foreach (var v in new[] { requested.Single, requested.Double, requested.Triple, requested.Quad })
+            if (v is { } x) Validate.Money(x, "Kişi sayısına göre fiyat", allowZero: true);
+        if (requested != stored) tx.Ctx.Require("rate.override");
+        return requested;
+    }
+
+    /// <summary>Gecelik fiyat elle verilmemişse yetişkin sayısına karşılık gelen tablo fiyatı elle fiyat olarak uygulanır.</summary>
+    static SaveReservationRequest WithOccupancyRate(SaveReservationRequest req, OccupancyRates? occ) =>
+        req.NightlyRate is null && occ?.For(req.Adults) is { } rate ? req with { NightlyRate = rate } : req;
+
+    /// <summary>
+    /// Odadaki kişi sayısı değişince (ek misafir eklendi/çıkarıldı) yetişkin sayısını günceller ve kişi sayısı fiyat tablosu
+    /// doluysa gecelik fiyatı buna göre ayarlar. Postalanmış (geçmiş) gecelerin fiyatı değişmez.
+    /// </summary>
+    public static async Task SyncOccupancyAsync(Tx tx, Guid id)
+    {
+        var r = await GetForUpdateAsync(tx, id);
+        if (r.Status is not ("tentative" or "confirmed" or "checked_in")) return;
+        var people = await tx.ScalarAsync<int>("SELECT count(*)::int FROM pms.reservation_guests WHERE reservation_id = @id", new { id });
+        var adults = r.Adults;
+        if (people > r.Adults + r.Children) adults = people - r.Children;
+        else if (people < r.Adults && !new OccupancyRates(r.RateSgl, r.RateDbl, r.RateTrp, r.RateQuad).IsEmpty) adults = Math.Max(1, people);
+        var maxAdults = await tx.ScalarAsync<int>("SELECT max_adults FROM pms.room_types WHERE id = @t", new { t = r.RoomTypeId });
+        adults = Math.Clamp(adults, 1, Math.Max(1, maxAdults));
+        if (adults == r.Adults) return;
+        var occ = new OccupancyRates(r.RateSgl, r.RateDbl, r.RateTrp, r.RateQuad);
+        var rate = occ.For(adults);
+        decimal nightly = r.NightlyRate;
+        decimal? fxNightly = r.FxNightlyRate;
+        if (rate is { } newRate)
+        {
+            var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+            decimal baseRate = newRate;
+            decimal? fx = null;
+            if (r.RateCurrency is { } cur)
+            {
+                fx = newRate;
+                baseRate = decimal.Round(newRate * await ExchangeRateEndpoints.RateAsync(tx, cur, bd), 2, MidpointRounding.AwayFromZero);
+            }
+            await tx.ExecAsync("""
+                UPDATE pms.reservation_rates SET rate = @baseRate, fx_amount = @fx WHERE reservation_id = @id AND stay_date >= @bd
+                  AND stay_date NOT IN (SELECT business_date FROM pms.room_charge_postings WHERE reservation_id = @id)
+                """, new { id, baseRate, fx, bd });
+            (nightly, fxNightly) = (baseRate, fx ?? r.FxNightlyRate);
+        }
+        await tx.ExecAsync("UPDATE pms.reservations SET adults = @adults, nightly_rate = @nightly, fx_nightly_rate = @fxNightly, updated_at = now(), version = version + 1 WHERE id = @id",
+            new { id, adults, nightly, fxNightly });
+        await tx.AuditAsync("reservation.occupancy", "reservation", id, new { r.Adults, r.NightlyRate }, new { adults, nightly, people });
     }
 
     static async Task EnsureCapacityAsync(Tx tx, Guid roomTypeId, int adults, int children)

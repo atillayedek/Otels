@@ -51,10 +51,13 @@ public static class GuestEndpoints
     {
         var g = app.MapGroup("/api/v1/guests").WithTags("Guests").RequirePermission("guest.view");
 
-        g.MapGet("/", async (Db db, RequestContext ctx, string? q, bool? vip, bool? blacklisted, int page = 1, int pageSize = 50) =>
+        g.MapGet("/", async (Db db, RequestContext ctx, string? q, string? firstName, string? lastName, bool? vip, bool? blacklisted, int page = 1, int pageSize = 50) =>
         {
             var p = new PageRequest(page, pageSize);
             var term = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
+            // Ad ve soyad ayrı kutulardan aranır (başından eşleşme); ikisi birlikte verilirse ikisi de uymalıdır.
+            var fn = string.IsNullOrWhiteSpace(firstName) ? null : firstName.Trim();
+            var ln = string.IsNullOrWhiteSpace(lastName) ? null : lastName.Trim();
             var digits = term is null ? null : Validate.NormalizePhone(term);
             const string where = """
                 WHERE (@term::text IS NULL
@@ -62,10 +65,12 @@ public static class GuestEndpoints
                        OR (g.last_name || ' ' || g.first_name) ILIKE '%' || @term || '%'
                        OR g.identity_number = @term OR lower(g.email) = lower(@term)
                        OR (@digits::text IS NOT NULL AND length(@digits) >= 7 AND g.phone_normalized LIKE '%' || @digits || '%'))
+                  AND (@fn::text IS NULL OR g.first_name ILIKE @fn || '%' OR g.first_name ILIKE '% ' || @fn || '%')
+                  AND (@ln::text IS NULL OR g.last_name ILIKE @ln || '%' OR g.last_name ILIKE '% ' || @ln || '%')
                   AND (@vip::bool IS NULL OR g.is_vip = @vip)
                   AND (@bl::bool IS NULL OR g.is_blacklisted = @bl)
                 """;
-            var prm = new { term, digits, vip, bl = blacklisted, p.Limit, p.Offset };
+            var prm = new { term, digits, fn, ln, vip, bl = blacklisted, p.Limit, p.Offset };
             var total = await db.ScalarAsync<long>("SELECT count(*) FROM pms.guests g " + where, prm);
             var items = await db.QueryAsync<GuestListItem>($"""
                 SELECT g.id, g.first_name, g.last_name, g.nationality::text AS nationality, g.identity_number, g.phone, g.email, g.is_vip, g.is_blacklisted,

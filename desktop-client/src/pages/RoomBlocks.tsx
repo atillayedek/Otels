@@ -50,13 +50,13 @@ export default function RoomBlocksPage() {
   );
 }
 
-function BlockModal({ onClose }: { onClose: () => void }) {
+export function BlockModal({ onClose, roomId }: { onClose: () => void; roomId?: string }) {
   const rooms = useRooms();
   const qc = useQueryClient();
   const { property } = useSession();
-  const [f, setF] = useState({ roomId: '', kind: 'out_of_order', dateFrom: property?.businessDate ?? '', dateTo: addDays(property?.businessDate ?? '', 1), reason: '' });
+  const [f, setF] = useState({ roomId: roomId ?? '', kind: 'out_of_order', dateFrom: property?.businessDate ?? '', dateTo: addDays(property?.businessDate ?? '', 1), reason: '' });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(s => ({ ...s, [k]: e.target.value }));
-  const save = useAction(async (key: string) => { await post('/api/v1/room-blocks', { ...f, ticketId: null }, key); await qc.invalidateQueries({ queryKey: ['blocks'] }); }, { success: 'Oda bloklandı.' });
+  const save = useAction(async (key: string) => { await post('/api/v1/room-blocks', { ...f, ticketId: null }, key); await qc.invalidateQueries({ predicate: q => ['blocks', 'roomStatus', 'rack'].includes(String(q.queryKey[0])) }); }, { success: 'Oda satışa kapatıldı.' });
   return (
     <Modal title="Odayı satışa kapat" onClose={onClose} footer={<>
       <button className="btn" onClick={onClose}>Vazgeç</button>

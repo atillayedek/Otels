@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Moon, XCircle } from 'lucide-react';
 import { get, post } from '../lib/api';
@@ -7,6 +6,7 @@ import type { NightAuditPreview, NightAuditResult, Setting } from '../lib/types'
 import { fmtDate, fmtDateTime, fmtMoney, fmtQty } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
+import { useOpenReservation } from '../components/Windows';
 import { Empty, ErrorBox, Spinner, useConfirm } from '../components/ui';
 
 interface History { id: string; businessDate: string; startedAt: string; completedAt: string; username: string; summary: Record<string, unknown> }
@@ -23,7 +23,7 @@ function summaryText(s: Record<string, unknown>) {
 }
 
 export default function NightAuditPage() {
-  const nav = useNavigate();
+  const openRes = useOpenReservation();
   const qc = useQueryClient();
   const confirm = useConfirm();
   const { property } = useSession();
@@ -75,8 +75,8 @@ export default function NightAuditPage() {
             <div className="card"><div className="card-head"><h3>Kontroller</h3></div><div className="card-body">
               {pv.data!.blockers.length === 0 && pv.data!.warnings.length === 0 && <div className="ok-box row"><CheckCircle2 size={15} /> Engel veya uyarı yok.</div>}
               <ul className="list-plain">
-                {pv.data!.blockers.map((b, i) => <li key={'b' + i}><XCircle size={15} color="var(--danger)" /><span>{b.message}</span><span className="spacer" />{b.reservationId && <button className="btn sm" onClick={() => nav(`/reservations/${b.reservationId}`)}>Aç</button>}</li>)}
-                {pv.data!.warnings.map((w, i) => <li key={'w' + i}><AlertTriangle size={15} color="var(--warning)" /><span>{w.message}</span><span className="spacer" />{w.reservationId && <button className="btn sm" onClick={() => nav(`/reservations/${w.reservationId}`)}>Aç</button>}</li>)}
+                {pv.data!.blockers.map((b, i) => <li key={'b' + i}><XCircle size={15} color="var(--danger)" /><span>{b.message}</span><span className="spacer" />{b.reservationId && <button className="btn sm" onClick={() => openRes(b.reservationId!)}>Aç</button>}</li>)}
+                {pv.data!.warnings.map((w, i) => <li key={'w' + i}><AlertTriangle size={15} color="var(--warning)" /><span>{w.message}</span><span className="spacer" />{w.reservationId && <button className="btn sm" onClick={() => openRes(w.reservationId!)}>Aç</button>}</li>)}
               </ul>
               {pv.data!.blockers.length > 0 && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>Kırmızı maddeler çözülmeden gün kapatılamaz.</div>}
             </div></div>

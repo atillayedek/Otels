@@ -5,6 +5,8 @@ import { HashRouter } from 'react-router-dom';
 import { queryClient, SessionProvider } from './lib/session';
 import { ConfirmProvider, ToastProvider } from './components/ui';
 import { App } from './App';
+import { AppearanceProvider } from './lib/appearance';
+import { installEnterNavigation } from './lib/enterNav';
 import '@fontsource/sora/600.css';
 import '@fontsource/sora/700.css';
 import './styles/app.css';
@@ -14,9 +16,13 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window && (window as { __T
   await import('./lib/devBrowserBridge');
 }
 
+// Formlarda Enter bir sonraki kutucuğa geçer (resepsiyonda Tab yerine Enter kullanılır).
+installEnterNavigation();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
+      <AppearanceProvider>
       <ToastProvider>
         <ConfirmProvider>
           <SessionProvider>
@@ -26,6 +32,7 @@ createRoot(document.getElementById('root')!).render(
           </SessionProvider>
         </ConfirmProvider>
       </ToastProvider>
+      </AppearanceProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

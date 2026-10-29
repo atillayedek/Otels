@@ -10,7 +10,7 @@ namespace HotelPms.Server.Modules.Reports;
 
 public sealed record ReportColumn(string Key, string Header, string Type);
 public sealed record ReportParam(string Key, string Label, string Type, bool Required);
-public sealed record ReportInfo(string Name, string Title, string Category, IReadOnlyList<ReportParam> Params, IReadOnlyList<ReportColumn> Columns);
+public sealed record ReportInfo(string Name, string Title, string Category, IReadOnlyList<ReportParam> Params, IReadOnlyList<ReportColumn> Columns, bool Landscape = false);
 public sealed record ReportResult(string Name, string Title, IReadOnlyList<ReportColumn> Columns, IReadOnlyList<IDictionary<string, object?>> Rows,
     IDictionary<string, object?> Totals, DateTime GeneratedAt, DateOnly BusinessDate);
 
@@ -25,6 +25,8 @@ public sealed class ReportDefinition
     public required string Sql { get; init; }
     /// <summary>Toplamı alınacak sayısal kolonlar.</summary>
     public string[] SumColumns { get; init; } = [];
+    /// <summary>Yazdırmada yatay A4 (çok sütunlu listeler, ör. polis listesi).</summary>
+    public bool Landscape { get; init; }
 }
 
 public sealed record DashboardDto(DateOnly BusinessDate, string HotelName, string Currency, int RoomsTotal, int Occupied, int VacantClean, int VacantDirty,
@@ -293,6 +295,7 @@ public static class ReportEndpoints
                 """,
         },
         KbsExcel.Definition,
+        KbsExcel.PoliceList,
         new()
         {
             Name = "guest-history", Title = "Misafir Konaklama Geçmişi", Category = "Misafir", Permission = "report.view", Params = [From, To],
@@ -622,7 +625,7 @@ public static class ReportEndpoints
         var g = app.MapGroup("/api/v1/reports").WithTags("Reports");
 
         g.MapGet("/", (RequestContext ctx) => Definitions.Where(d => ctx.RequireUser().Has(d.Permission))
-            .Select(d => new ReportInfo(d.Name, d.Title, d.Category, d.Params, d.Columns)).ToList());
+            .Select(d => new ReportInfo(d.Name, d.Title, d.Category, d.Params, d.Columns, d.Landscape)).ToList());
 
         KbsExcel.Map(g);
 

@@ -3,11 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Pencil, Plus, Search, Users } from 'lucide-react';
 import { api, get, qs } from '../lib/api';
-import type { GuestListItem, Paged, ReservationListItem } from '../lib/types';
+import type { Paged, ReservationListItem } from '../lib/types';
 import { addDays, fmtDate, fmtMoney, MEAL_LABEL, nightsBetween, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
 import { useAgencies, useCompanies, useRatePlans, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
+import { useOpenReservation } from '../components/Windows';
+import { GuestSearch } from '../components/GuestSearch';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, Money, MoneyInput, Spinner, type Column } from '../components/ui';
 
 interface GroupListItem { id: string; groupNumber: string; name: string; companyName?: string; agencyName?: string; contactName?: string; arrival?: string; departure?: string; rooms: number; inHouse: number; cancelled: number; balance: string; createdAt: string }
@@ -83,6 +85,7 @@ function GroupModal({ group, onClose, onSaved }: { group?: Group; onClose: () =>
 
 function GroupDetail({ id }: { id: string }) {
   const nav = useNavigate();
+  const openRes = useOpenReservation();
   const { can } = useSession();
   const [edit, setEdit] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -118,7 +121,7 @@ function GroupDetail({ id }: { id: string }) {
         <div className="card"><div className="card-body"><Kv items={[['Notlar', g.notes], ['Oluşturma', fmtDate(g.createdAt)]]} /></div></div>
       </div>
       <div className="info-box" style={{ marginBottom: 10 }}>Oda listesi gelince her rezervasyonu açıp <b>Düzenle</b> ile misafirini gerçek kişiyle değiştirin; girişten önce yapılan değişiklikte sorumlu kişi o odadan çıkarılır. Ek kişiler "Ek misafirler" sekmesinden eklenir.</div>
-      {res.error ? <ErrorBox error={res.error} /> : <DataTable rows={rows} columns={cols} rowKey={r => r.id} onRowClick={r => nav(`/reservations/${r.id}`)} maxHeight="calc(100vh - 380px)" empty={<Empty title={res.isLoading ? 'Yükleniyor…' : 'Bu gruba henüz oda eklenmedi.'} />} />}
+      {res.error ? <ErrorBox error={res.error} /> : <DataTable rows={rows} columns={cols} rowKey={r => r.id} onRowClick={r => openRes(r.id)} maxHeight="calc(100vh - 380px)" empty={<Empty title={res.isLoading ? 'Yükleniyor…' : 'Bu gruba henüz oda eklenmedi.'} />} />}
       {edit && <GroupModal group={g} onClose={() => setEdit(false)} />}
       {adding && <AddRoomsModal group={g} onClose={() => setAdding(false)} />}
     </div>
@@ -132,8 +135,6 @@ function AddRoomsModal({ group, onClose }: { group: Group; onClose: () => void }
   const plans = useRatePlans();
   const bd = property?.businessDate ?? '';
   const [guest, setGuest] = useState<{ id: string; name: string } | null>(null);
-  const [q, setQ] = useState('');
-  const guests = useQuery({ queryKey: ['guests', 'groupPick', q], queryFn: () => get<Paged<GuestListItem>>(`/api/v1/guests${qs({ q, pageSize: 8 })}`), enabled: q.trim().length >= 2 });
   const [f, setF] = useState({ roomTypeId: '', count: '1', arrival: bd, departure: addDays(bd, 1), adults: '2', children: '0', ratePlanId: '', nightlyRate: '', mealPlan: 'BB', status: 'tentative', optionUntil: '' });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(s => ({ ...s, [k]: e.target.value }));
   const nights = nightsBetween(f.arrival, f.departure);
@@ -154,10 +155,7 @@ function AddRoomsModal({ group, onClose }: { group: Group; onClose: () => void }
       <div className="form-grid">
         <Field label="Odaların başlangıç misafiri (grup sorumlusu)" required className="span-4" hint="Misafir kartı yoksa önce Misafirler ekranından ekleyin. Oda listesi gelince her rezervasyonun misafiri değiştirilir.">
           {guest ? <div className="row"><b>{guest.name}</b><button className="btn sm ghost" onClick={() => setGuest(null)}>Değiştir</button></div> : (
-            <div className="stack" style={{ gap: 4 }}>
-              <input className="input" placeholder="Ad, soyad, telefon (en az 2 karakter)" value={q} onChange={e => setQ(e.target.value)} autoFocus />
-              {guests.data?.items.map(x => <button key={x.id} className="btn sm ghost" style={{ justifyContent: 'flex-start' }} onClick={() => setGuest({ id: x.id, name: `${x.firstName} ${x.lastName}` })}>{x.firstName} {x.lastName} {x.phone ? `· ${x.phone}` : ''}</button>)}
-            </div>
+            <GuestSearch maxHeight={180} onPick={x => setGuest({ id: x.id, name: `${x.firstName} ${x.lastName}` })} />
           )}
         </Field>
         <Field label="Oda tipi" required className="span-2"><select className="input" value={f.roomTypeId} onChange={set('roomTypeId')}><option value="">Seçin</option>{types.data?.filter(t => t.isActive).map(t => <option key={t.id} value={t.id}>{t.code} · {t.name}</option>)}</select></Field>

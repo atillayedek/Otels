@@ -8,6 +8,7 @@ import { fmtDate, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
 import { CHANNEL_NAME } from '../lib/product';
 import { useSession } from '../lib/session';
 import { PageHead } from '../components/common';
+import { useOpenReservation } from '../components/Windows';
 import { Badge, DataTable, Empty, ErrorBox, Money, Pager, Tabs, useContextMenu, useToast, type Column } from '../components/ui';
 import { CheckInModal, CheckOutModal } from '../components/ReservationActions';
 
@@ -16,6 +17,7 @@ const TITLES: Record<View, string> = { all: 'Rezervasyon Listesi', arrivals: 'Be
 
 export default function ReservationsPage() {
   const nav = useNavigate();
+  const openRes = useOpenReservation();
   const toast = useToast();
   const menu = useContextMenu();
   const { can, property } = useSession();
@@ -45,7 +47,7 @@ export default function ReservationsPage() {
   };
 
   const rowMenu = (e: React.MouseEvent, r: ReservationListItem) => menu.open(e, [
-    { label: 'Aç', icon: <FileText size={14} />, onClick: () => nav(`/reservations/${r.id}`) },
+    { label: 'Aç', icon: <FileText size={14} />, onClick: () => openRes(r.id) },
     ...((r.status === 'confirmed' || r.status === 'tentative') && r.arrival <= (property?.businessDate ?? '') && can('checkin.execute') ? [{ label: 'Giriş yap', icon: <LogIn size={14} />, onClick: () => void open(r.id, 'in') }] : []),
     ...(r.status === 'checked_in' && can('checkout.execute') ? [{ label: 'Çıkış yap', icon: <LogOut size={14} />, onClick: () => void open(r.id, 'out') }] : []),
   ]);
@@ -85,7 +87,7 @@ export default function ReservationsPage() {
         <span className="count">{list.data ? `${list.data.total} kayıt` : ''}</span>
       </div>
       {list.error ? <ErrorBox error={list.error} /> : (
-        <DataTable rows={list.data?.items ?? []} columns={cols} rowKey={r => r.id} onRowClick={r => nav(`/reservations/${r.id}`)} onRowContext={rowMenu} maxHeight="calc(100vh - 290px)"
+        <DataTable rows={list.data?.items ?? []} columns={cols} rowKey={r => r.id} onRowClick={r => openRes(r.id)} onRowContext={rowMenu} maxHeight="calc(100vh - 290px)"
           empty={list.isLoading ? <Empty title="Yükleniyor…" /> : <Empty title={term || status || from || to ? 'Bu filtreye uyan rezervasyon yok' : view === 'arrivals' ? 'Bugün beklenen geliş bulunmuyor.' : view === 'departures' ? 'Bugün beklenen çıkış bulunmuyor.' : view === 'inhouse' ? 'Konaklayan misafir bulunmuyor.' : 'Henüz rezervasyon bulunmuyor.'} />} />
       )}
       {list.data && <Pager page={page} pageSize={list.data.pageSize} total={list.data.total} onPage={setPage} />}

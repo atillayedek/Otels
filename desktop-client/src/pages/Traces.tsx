@@ -1,15 +1,15 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ListTodo } from 'lucide-react';
 import { get, qs } from '../lib/api';
 import { PageHead } from '../components/common';
+import { useOpenReservation } from '../components/Windows';
 import { Empty, ErrorBox, Spinner } from '../components/ui';
 import { DEPARTMENT, TraceRow, type Trace } from '../components/Traces';
 
 /** Bugün ve geçmişte kalmış açık misafir hatırlatmaları; bölüme göre süzülür. */
 export default function TracesPage() {
-  const nav = useNavigate();
+  const openRes = useOpenReservation();
   const [department, setDepartment] = useState('');
   const [upcoming, setUpcoming] = useState(false);
   const list = useQuery({ queryKey: ['traces', 'open', department, upcoming], queryFn: () => get<Trace[]>(`/api/v1/traces${qs({ department, upcoming })}`) });
@@ -28,7 +28,7 @@ export default function TracesPage() {
           : (
             <div className="table-wrap">
               <table className="dt"><thead><tr><th>Gün</th><th>Bölüm</th><th>Misafir</th><th>Hatırlatma</th><th>Durum</th><th /></tr></thead>
-                <tbody>{list.data.map(t => <TraceRow key={t.id} t={t} showReservation onOpen={() => nav(`/reservations/${t.reservationId}`)} />)}</tbody></table>
+                <tbody>{list.data.map(t => <TraceRow key={t.id} t={t} showReservation onOpen={() => openRes(t.reservationId)} />)}</tbody></table>
             </div>
           )}
       </div>

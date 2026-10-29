@@ -4,11 +4,13 @@ import { get } from '../lib/api';
 import { moduleAllowed, useLicense } from '../lib/queries';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  AlarmClock, BarChart3, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
+  AlarmClock, BarChart3, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, Palette, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
 } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
 import { SupportModal } from './Support';
+import { AppearanceModal } from './AppearanceSettings';
+import { WindowsProvider, WindowTaskbar, useWindows, type WinSpec } from './Windows';
 import { useLogo } from './PrintDoc';
 
 interface NavItem { to: string; label: string; perm?: string | string[] }
@@ -116,13 +118,14 @@ export function firstAllowedRoute(can: (p: string) => boolean): string | null {
 interface QuickCounts { arrivalsExpected: number; arrivalsCheckedIn: number; departuresExpected: number; departuresCheckedOut: number; vacantDirty: number; pendingWakeups: number; kbsPending: number }
 
 /** Üst menü: her modülün kendi rengi var; bekleyen iş sayıları rozet olarak görünür. */
-const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[]; tone: string; badge?: (c: QuickCounts) => number; module?: string }[] = [
+const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string[]; tone: string; badge?: (c: QuickCounts) => number; module?: string; win?: WinSpec }[] = [
   { to: '/', label: 'Durum', icon: <Gauge />, perm: 'dashboard.view', tone: '#4f46e5' },
   { to: '/rack', label: 'Rack', icon: <LayoutGrid />, perm: 'reservation.view', tone: '#2563eb' },
   { to: '/blokaj', label: 'Blokaj', icon: <CalendarRange />, perm: 'reservation.view', tone: '#0284c7' },
   { to: '/availability', label: 'Fiyat/Doluluk', icon: <Tags />, perm: 'reservation.view', tone: '#0d9488' },
-  { to: '/reservations/new', label: 'Rezervasyon', icon: <ClipboardList />, perm: 'reservation.create', tone: '#7c3aed' },
-  { to: '/walk-in', label: 'Walk-in', icon: <UserPlus />, perm: ['checkin.execute', 'reservation.create'], tone: '#c026d3' },
+  // Yeni rezervasyon ve walk-in arkadaki ekranı kapatmadan pencere olarak açılır.
+  { to: '/reservations/new', label: 'Rezervasyon', icon: <ClipboardList />, perm: 'reservation.create', tone: '#7c3aed', win: { kind: 'new-reservation' } },
+  { to: '/walk-in', label: 'Walk-in', icon: <UserPlus />, perm: ['checkin.execute', 'reservation.create'], tone: '#c026d3', win: { kind: 'walk-in' } },
   { to: '/reservations?view=arrivals', label: 'Gelişler', icon: <PlaneLanding />, perm: 'reservation.view', tone: '#16a34a', badge: c => c.arrivalsExpected - c.arrivalsCheckedIn },
   { to: '/reservations?view=departures', label: 'Çıkışlar', icon: <PlaneTakeoff />, perm: 'reservation.view', tone: '#ea580c', badge: c => c.departuresExpected - c.departuresCheckedOut },
   { to: '/reservations?view=inhouse', label: 'Konaklayan', icon: <BedDouble />, perm: 'reservation.view', tone: '#9333ea' },
@@ -137,6 +140,12 @@ const QUICK: { to: string; label: string; icon: ReactNode; perm: string | string
 const initials = (name?: string) => (name ?? '').trim().split(/\s+/).slice(0, 2).map(w => w.charAt(0).toLocaleUpperCase('tr-TR')).join('') || '?';
 
 export function Layout({ children }: { children: ReactNode }) {
+  return <WindowsProvider><Shell>{children}</Shell></WindowsProvider>;
+}
+
+function Shell({ children }: { children: ReactNode }) {
+  const windows = useWindows();
+  const [look, setLook] = useState(false);
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
   const can = (p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p));
   const [collapsed, setCollapsed] = useState(false);
@@ -185,8 +194,8 @@ export function Layout({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div style={{ padding: 8, borderTop: '1px solid #334155' }}>
-          <button className="btn ghost" style={{ color: '#cbd5e1', width: '100%', justifyContent: 'flex-start' }} onClick={() => setCollapsed(c => !c)}>
+        <div style={{ padding: 8, borderTop: '1px solid var(--nav-line)' }}>
+          <button className="btn ghost" style={{ color: 'var(--nav-text)', width: '100%', justifyContent: 'flex-start' }} onClick={() => setCollapsed(c => !c)}>
             {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}<span className="nav-label">Menüyü daralt</span>
           </button>
         </div>
@@ -198,7 +207,7 @@ export function Layout({ children }: { children: ReactNode }) {
             const n = i.badge && counts.data ? Math.max(0, i.badge(counts.data)) : 0;
             const active = here === i.to || (i.to !== '/' && loc.pathname === i.to.split('?')[0] && !i.to.includes('?'));
             return (
-              <button key={i.to} className={active ? 'active' : ''} style={{ '--tone': i.tone } as CSSProperties} onClick={() => nav(i.to)}
+              <button key={i.to} className={active ? 'active' : ''} style={{ '--tone': i.tone } as CSSProperties} onClick={() => (i.win && windows ? windows.open(i.win) : nav(i.to))}
                 title={n ? `${i.label}: ${n} bekleyen` : i.label}>
                 <span className="qi">{i.icon}{n > 0 && <em>{n > 99 ? '99+' : n}</em>}</span><span className="ql">{i.label}</span>
               </button>
@@ -207,12 +216,14 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <div className="top-right">
           <div className="bizdate" title="Gece denetimiyle bir sonraki güne geçer"><CalendarRange /><span><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></span></div>
+          <button className="btn ghost icon" onClick={() => setLook(true)} title="Görünüm: tema, renk ve simgeler"><Palette /></button>
           <button className="btn ghost icon" onClick={() => setSupport(true)} title="Yardım ve destek"><LifeBuoy /></button>
           <button className="user-chip" onClick={() => nav('/account')} title="Hesabım"><span className="avatar">{initials(me?.fullName)}</span><span className="who"><b>{me?.fullName}</b><small><ShieldCheck size={11} /> {me?.username}</small></span></button>
           <button className="btn ghost icon" onClick={() => void logout()} title="Oturumu kapat"><LogOut /></button>
         </div>
       </header>
       {support && <SupportModal onClose={() => setSupport(false)} />}
+      {look && <AppearanceModal onClose={() => setLook(false)} />}
 
       <main className="main">
         {!connected && <div className="banner danger"><span className="dot off" />Sunucu bağlantısı kesildi. Otomatik olarak yeniden bağlanılıyor… Bağlantı kurulana kadar yapılan işlemler kaydedilmez.</div>}
@@ -232,6 +243,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <span>Kullanıcı: {me?.username}</span><span className="sep" />
         <span>İş günü: {fmtDate(property?.businessDate)}</span><span className="sep" />
         <span>Cihaz: {client?.hostname}</span>
+        <WindowTaskbar />
         <span className="spacer" />
         <span>TSDMR Digital Studio · İstemci {client?.version}</span>
       </footer>

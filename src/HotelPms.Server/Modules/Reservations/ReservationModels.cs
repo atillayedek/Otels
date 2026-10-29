@@ -10,7 +10,16 @@ public sealed record ReservationDto(
     string Source, string? Market, string? Segment, bool IsWalkIn, TimeOnly? Eta, TimeOnly? Etd, int RoomChargeWindow, string? Notes,
     string? SpecialRequests, decimal DepositRequired, DateOnly? OptionUntil, DateTime? CheckedInAt, DateTime? CheckedOutAt, DateTime? CancelledAt,
     string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version, string? RateCurrency, decimal? FxNightlyRate,
-    string? Channel, string? ChannelRef, string? GuestAlertNote = null);
+    string? Channel, string? ChannelRef, string? GuestAlertNote = null,
+    decimal? RateSgl = null, decimal? RateDbl = null, decimal? RateTrp = null, decimal? RateQuad = null);
+
+/// <summary>Kişi sayısına göre gecelik fiyat (kontrat detayı). Tutarlar rezervasyonun fiyat para birimindedir; boş olan kullanılmaz.</summary>
+public sealed record OccupancyRates(decimal? Single, decimal? Double, decimal? Triple, decimal? Quad)
+{
+    public bool IsEmpty => Single is null && Double is null && Triple is null && Quad is null;
+    /// <summary>Yetişkin sayısına karşılık gelen fiyat (4 ve üstü dört kişilik).</summary>
+    public decimal? For(int adults) => adults switch { <= 1 => Single, 2 => Double, 3 => Triple, _ => Quad };
+}
 
 public sealed record ReservationListItem(Guid Id, string ReservationNumber, string Status, string GuestName, bool GuestIsVip, string? CompanyName,
     string? AgencyName, string RoomTypeCode, string? RoomNumber, DateOnly Arrival, DateOnly Departure, int Adults, int Children,
@@ -48,7 +57,9 @@ public sealed record SaveReservationRequest(
     string? RateCurrency = null,
     // Satış kanalı (booking, expedia, hotelrunner…) ve kanalın rezervasyon numarası.
     string? Channel = null,
-    string? ChannelRef = null);
+    string? ChannelRef = null,
+    // Kişi sayısına göre fiyat: doluysa ve gecelik fiyat elle verilmemişse yetişkin sayısına karşılık gelen fiyat uygulanır.
+    OccupancyRates? Occupancy = null);
 
 public sealed record CancelRequest(string Reason, int Version);
 public sealed record VersionRequest(int Version);

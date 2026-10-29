@@ -75,12 +75,42 @@ public static class KbsExcel
 
     public static ReportDefinition Definition => new()
     {
-        Name = "kbs-guests", Title = "Polis Konaklama Listesi (KBS Excel)", Category = "Misafir", Permission = "kbs.manage",
+        Name = "kbs-guests", Title = "KBS Toplu Konaklayan Excel'i", Category = "Misafir", Permission = "kbs.manage",
         Params = [new("arrival", "Giriş tarihi (boş: şu an konaklayanlar)", "date", false)],
         Columns = [new("room", "Oda", "text"), new("tckn", "T.C. Kimlik No", "text"), new("documentNo", "Belge No", "text"), new("firstName", "Adı", "text"),
             new("lastName", "Soyadı", "text"), new("birthDate", "Doğum Tarihi", "date"), new("gender", "Cinsiyet", "text"), new("phone", "Cep Telefonu", "text"),
             new("plate", "Araç Plaka", "text"), new("nationality", "Uyruk", "text"), new("kbsCountry", "KBS Ülke Kodu", "int"), new("missing", "Eksik bilgi", "text")],
         Sql = ReportSql,
+    };
+
+    /// <summary>
+    /// Polis listesi (konaklayan kimlik listesi): KBS yükleme dosyasından ayrı, yazdırılmak üzere yatay A4 düzende.
+    /// Ana ve ek misafirlerin hepsi, kimlik ve aile bilgileriyle; araç plakası yer almaz.
+    /// </summary>
+    public static ReportDefinition PoliceList => new()
+    {
+        Name = "police-list", Title = "Polis Listesi (Konaklayanlar)", Category = "Misafir", Permission = "kbs.manage", Landscape = true,
+        Params = [new("arrival", "Giriş tarihi (boş: şu an konaklayanlar)", "date", false)],
+        Columns = [new("room", "Oda", "text"), new("firstName", "Adı", "text"), new("lastName", "Soyadı", "text"), new("fatherName", "Baba Adı", "text"),
+            new("motherName", "Anne Adı", "text"), new("birthPlace", "Doğum Yeri", "text"), new("birthDate", "Doğum Tarihi", "date"), new("gender", "Cinsiyet", "text"),
+            new("nationality", "Uyruk", "text"), new("identityType", "Belge Türü", "text"), new("identityNumber", "Kimlik / Belge No", "text"),
+            new("arrivalDate", "Giriş", "date"), new("departureDate", "Çıkış", "date")],
+        Sql = """
+            WITH people AS (
+                SELECT rm.sort_order, rm.number AS room, r.arrival, r.departure, g.*, CASE WHEN rg.is_primary THEN 0 ELSE 1 END AS ord
+                FROM pms.reservations r JOIN pms.rooms rm ON rm.id = r.room_id
+                JOIN pms.reservation_guests rg ON rg.reservation_id = r.id JOIN pms.guests g ON g.id = rg.guest_id
+                WHERE (@arrival::date IS NULL AND r.status = 'checked_in') OR (r.arrival = @arrival::date AND r.status IN ('checked_in', 'checked_out'))
+            )
+            SELECT p.room, p.first_name, p.last_name, p.father_name, p.mother_name, p.birth_place, p.birth_date,
+                   CASE p.gender WHEN 'male' THEN 'Erkek' WHEN 'female' THEN 'Kadın' END AS gender, p.nationality::text AS nationality,
+                   CASE p.identity_type WHEN 'tckn' THEN 'T.C. Kimlik' WHEN 'passport' THEN 'Pasaport' WHEN 'id_card' THEN 'Kimlik kartı'
+                        WHEN 'driver_license' THEN 'Ehliyet' WHEN 'other' THEN 'Diğer' END AS identity_type,
+                   p.identity_number, p.arrival AS arrival_date, p.departure AS departure_date
+            FROM people p
+            WHERE p.anonymized_at IS NULL
+            ORDER BY p.sort_order, p.room, p.ord, p.last_name, p.first_name
+            """,
     };
 
     public static void Map(RouteGroupBuilder g)

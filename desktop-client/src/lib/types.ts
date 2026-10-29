@@ -17,13 +17,17 @@ export interface LicenseStatus {
 }
 
 export interface RoomType { id: string; code: string; name: string; description?: string; maxAdults: number; maxChildren: number; defaultRate: Money; sortOrder: number; isActive: boolean; roomCount: number; version: number }
-export interface Room { id: string; roomTypeId: string; roomTypeCode: string; number: string; floor?: string; description?: string; features?: string; hkStatus: string; isDnd: boolean; hkNote?: string; sortOrder: number; isActive: boolean; version: number }
+export interface Room { id: string; roomTypeId: string; roomTypeCode: string; number: string; floor?: string; description?: string; features?: string; hkStatus: string; isDnd: boolean; hkNote?: string; sortOrder: number; isActive: boolean; version: number; groupId?: string }
+export interface RoomGroup { id: string; name: string; color: string; sortOrder: number; roomCount: number; version: number }
 export interface RoomStatus {
   id: string; number: string; floor?: string; roomTypeId: string; roomTypeCode: string; hkStatus: string; isDnd: boolean; hkNote?: string; hkUpdatedAt?: string;
   foStatus: 'occupied' | 'vacant'; blockKind?: string; blockReason?: string; inHouseReservationId?: string; inHouseGuest?: string; inHouseDeparture?: DateStr; isVip: boolean;
   arrivalReservationId?: string; arrivalGuest?: string; departureToday: boolean; openTasks: number; openTickets: number;
   inHouseCheckedInAt?: string; inHouseAccount?: string; inHouseNote?: string; inHousePax?: number; inHouseBalance?: Money; inHouseCurrency?: string;
   arrivalEta?: string; arrivalAccount?: string; arrivalNote?: string; arrivalDeparture?: DateStr;
+  groupId?: string; groupName?: string; groupColor?: string;
+  /** Odada kayıtlı herkes (ana + ek misafirler), " · " ile ayrılmış. */
+  inHouseGuests?: string;
 }
 export interface RoomBlock { id: string; roomId: string; roomNumber: string; kind: string; dateFrom: DateStr; dateTo: DateStr; reason: string; ticketId?: string; isActive: boolean; createdAt: string; createdBy?: string }
 
@@ -55,6 +59,8 @@ export interface Reservation {
   roomChargeWindow: number; notes?: string; specialRequests?: string; depositRequired: Money; optionUntil?: DateStr; checkedInAt?: string; checkedOutAt?: string;
   cancelledAt?: string; cancelReason?: string; createdAt: string; createdBy?: string; balance: Money; version: number; rateCurrency?: string; fxNightlyRate?: Money;
   channel?: string; channelRef?: string; guestAlertNote?: string;
+  /** Kişi sayısına göre gecelik fiyat (fiyat para biriminde). */
+  rateSgl?: Money; rateDbl?: Money; rateTrp?: Money; rateQuad?: Money;
 }
 export interface ReservationListItem {
   id: string; reservationNumber: string; status: string; guestName: string; guestIsVip: boolean; companyName?: string; agencyName?: string; roomTypeCode: string;
@@ -106,7 +112,7 @@ export interface Dashboard {
 }
 export interface ReportColumn { key: string; header: string; type: string }
 export interface ReportParam { key: string; label: string; type: string; required: boolean }
-export interface ReportInfo { name: string; title: string; category: string; params: ReportParam[]; columns: ReportColumn[] }
+export interface ReportInfo { name: string; title: string; category: string; params: ReportParam[]; columns: ReportColumn[]; landscape?: boolean }
 export interface ReportResult { name: string; title: string; columns: ReportColumn[]; rows: Record<string, unknown>[]; totals: Record<string, unknown>; generatedAt: string; businessDate: DateStr }
 export interface KbsReport { id: string; reservationId: string; reservationNumber: string; roomNumber?: string; guestId: string; guestName: string; event: string; status: string; manualReference?: string; manualReason?: string; createdAt: string; updatedAt: string }
 

@@ -1,18 +1,18 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { IdCard } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
 import type { KbsReport } from '../lib/types';
 import { fmtDateTime, KBS_STATUS } from '../lib/format';
 import { PageHead, useAction } from '../components/common';
+import { useOpenReservation } from '../components/Windows';
 import { KbsFormModal } from '../components/KbsForm';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, type Column } from '../components/ui';
 
 const COLOR: Record<string, string> = { accepted: 'green', reported_manually: 'green', blocked_configuration: 'orange', needs_data: 'orange', rejected: 'red', manual_action_required: 'red', outcome_unknown: 'red' };
 
 export default function KbsPage() {
-  const nav = useNavigate();
+  const openRes = useOpenReservation();
   const [status, setStatus] = useState('');
   const [manual, setManual] = useState<KbsReport | null>(null);
   const [formFor, setFormFor] = useState<string | null>(null);
@@ -39,7 +39,7 @@ export default function KbsPage() {
         <select className="input" style={{ width: 200 }} value={status} onChange={e => setStatus(e.target.value)}><option value="">Tüm durumlar</option>{Object.entries(KBS_STATUS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         <span className="count">{list.data?.length ?? 0} kayıt</span>
       </div>
-      {list.error ? <ErrorBox error={list.error} /> : <DataTable rows={list.data ?? []} columns={cols} rowKey={r => r.id} onRowClick={r => nav(`/reservations/${r.reservationId}`)} maxHeight="calc(100vh - 290px)" empty={<Empty title={list.isLoading ? 'Yükleniyor…' : 'Kimlik bildirimi kaydı bulunmuyor.'} />} />}
+      {list.error ? <ErrorBox error={list.error} /> : <DataTable rows={list.data ?? []} columns={cols} rowKey={r => r.id} onRowClick={r => openRes(r.reservationId)} maxHeight="calc(100vh - 290px)" empty={<Empty title={list.isLoading ? 'Yükleniyor…' : 'Kimlik bildirimi kaydı bulunmuyor.'} />} />}
       {manual && <ManualModal report={manual} onClose={() => setManual(null)} />}
       {formFor && <KbsFormModal reservationId={formFor} onClose={() => setFormFor(null)} />}
     </div>

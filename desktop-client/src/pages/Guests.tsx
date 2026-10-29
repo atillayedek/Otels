@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Crown, Search, UserPlus } from 'lucide-react';
 import { api, get, qs } from '../lib/api';
@@ -9,20 +8,26 @@ import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { Badge, DataTable, Empty, ErrorBox, Modal, Pager, type Column } from '../components/ui';
 import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../components/GuestFields';
+import { useOpenGuest } from '../components/Windows';
 
 export default function GuestsPage() {
-  const nav = useNavigate();
+  const openGuest = useOpenGuest();
   const { can } = useSession();
   const [q, setQ] = useState('');
-  const [term, setTerm] = useState('');
+  const [first, setFirst] = useState('');
+  const [last, setLast] = useState('');
+  const [term, setTerm] = useState({ q: '', first: '', last: '' });
   const [flag, setFlag] = useState('');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
-  useEffect(() => { const t = setTimeout(() => { setTerm(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
-  const list = useQuery({ queryKey: ['guests', term, flag, page], queryFn: () => get<Paged<GuestListItem>>(`/api/v1/guests${qs({ q: term, vip: flag === 'vip' || null, blacklisted: flag === 'black' || null, page, pageSize: 100 })}`) });
+  // Ad ve soyad ayrı kutulardan aranır; üçüncü kutu kimlik no, telefon veya e-posta içindir.
+  useEffect(() => { const t = setTimeout(() => { setTerm({ q: q.trim(), first: first.trim(), last: last.trim() }); setPage(1); }, 300); return () => clearTimeout(t); }, [q, first, last]);
+  const searching = !!(term.q || term.first || term.last);
+  const list = useQuery({ queryKey: ['guests', term, flag, page], queryFn: () => get<Paged<GuestListItem>>(`/api/v1/guests${qs({ q: term.q || null, firstName: term.first || null, lastName: term.last || null, vip: flag === 'vip' || null, blacklisted: flag === 'black' || null, page, pageSize: 100 })}`) });
 
   const cols: Column<GuestListItem>[] = [
-    { key: 'name', header: 'Ad soyad', filter: true, value: g => `${g.firstName} ${g.lastName}`, render: g => <>{g.isVip && <Crown size={12} color="var(--warning)" />} {g.firstName} {g.lastName} {g.isBlacklisted && <Badge color="red">Kara liste</Badge>}</> },
+    { key: 'firstName', header: 'Ad', filter: true, render: g => <>{g.isVip && <Crown size={12} color="var(--warning)" />} {g.firstName} {g.isBlacklisted && <Badge color="red">Kara liste</Badge>}</> },
+    { key: 'lastName', header: 'Soyad', filter: true },
     { key: 'nationality', header: 'Uyruk', width: 70, filter: true },
     { key: 'identityNumber', header: 'Kimlik no', filter: true, render: g => <span className="mono">{g.identityNumber}</span> },
     { key: 'phone', header: 'Telefon', filter: true },
@@ -36,16 +41,18 @@ export default function GuestsPage() {
       <PageHead title="Misafir Kartları" actions={can('guest.edit') && <button className="btn primary" onClick={() => setCreating(true)}><UserPlus /> Yeni misafir</button>} />
       <div className="toolbar">
         <Search size={15} className="muted" />
-        <input className="input" style={{ width: 300 }} placeholder="Ad, soyad, kimlik no, telefon, e-posta" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+        <input className="input" style={{ width: 160 }} placeholder="Ad" value={first} onChange={e => setFirst(e.target.value)} autoFocus />
+        <input className="input" style={{ width: 160 }} placeholder="Soyad" value={last} onChange={e => setLast(e.target.value)} />
+        <input className="input" style={{ width: 210 }} placeholder="Kimlik no, telefon, e-posta" value={q} onChange={e => setQ(e.target.value)} />
         <select className="input" style={{ width: 150 }} value={flag} onChange={e => { setFlag(e.target.value); setPage(1); }}><option value="">Tüm misafirler</option><option value="vip">VIP</option><option value="black">Kara liste</option></select>
         <span className="count">{list.data ? `${list.data.total} misafir` : ''}</span>
       </div>
       {list.error ? <ErrorBox error={list.error} /> : (
-        <DataTable rows={list.data?.items ?? []} columns={cols} rowKey={g => g.id} onRowClick={g => nav(`/guests/${g.id}`)} maxHeight="calc(100vh - 250px)"
-          empty={<Empty title={list.isLoading ? 'Yükleniyor…' : term || flag ? 'Aramaya uyan misafir yok' : 'Henüz misafir kaydı bulunmuyor.'} text={!term && !flag && !list.isLoading ? 'Misafirler rezervasyonla veya Veri Aktarım Merkezi ile eklenir.' : undefined} />} />
+        <DataTable rows={list.data?.items ?? []} columns={cols} rowKey={g => g.id} onRowClick={g => openGuest(g.id)} maxHeight="calc(100vh - 250px)"
+          empty={<Empty title={list.isLoading ? 'Yükleniyor…' : searching || flag ? 'Aramaya uyan misafir yok' : 'Henüz misafir kaydı bulunmuyor.'} text={!searching && !flag && !list.isLoading ? 'Misafirler rezervasyonla veya Veri Aktarım Merkezi ile eklenir.' : undefined} />} />
       )}
       {list.data && <Pager page={page} pageSize={list.data.pageSize} total={list.data.total} onPage={setPage} />}
-      {creating && <GuestCreateModal onClose={() => setCreating(false)} onSaved={id => nav(`/guests/${id}`)} />}
+      {creating && <GuestCreateModal onClose={() => setCreating(false)} onSaved={id => openGuest(id)} />}
     </div>
   );
 }
