@@ -86,6 +86,53 @@ public static class ReservationEndpoints
             return new { id };
         }, requireKey: false)).RequirePermission("reservation.edit");
 
+        // Ana folyo: bu konaklamanın harcamalarının (kapsama göre) yazılacağı konaklayan oda ve bu odaya bağlı odalar.
+        g.MapGet("/{id:guid}/master", async (Guid id, Db db) =>
+        {
+            var m = await db.QuerySingleOrDefaultAsync<MasterRow>("""
+                SELECT r.master_reservation_id, rm.number AS master_room, g.first_name || ' ' || g.last_name AS master_guest, m.status AS master_status, r.master_scope
+                FROM pms.reservations r LEFT JOIN pms.reservations m ON m.id = r.master_reservation_id
+                LEFT JOIN pms.rooms rm ON rm.id = m.room_id LEFT JOIN pms.guests g ON g.id = m.guest_id
+                WHERE r.id = @id
+                """, new { id }) ?? throw PmsException.NotFound("Rezervasyon");
+            var children = await db.QueryAsync<LinkedRoom>("""
+                SELECT c.id, rm.number AS room_number, g.first_name || ' ' || g.last_name AS guest_name, c.status, c.master_scope AS scope
+                FROM pms.reservations c LEFT JOIN pms.rooms rm ON rm.id = c.room_id JOIN pms.guests g ON g.id = c.guest_id
+                WHERE c.master_reservation_id = @id ORDER BY c.status = 'checked_in' DESC, rm.number
+                """, new { id });
+            return new MasterInfo(m.MasterReservationId, m.MasterRoom, m.MasterGuest, m.MasterStatus, m.MasterScope, children.ToList());
+        }).RequirePermission("folio.view");
+
+        g.MapPut("/{id:guid}/master", (Guid id, MasterRequest req, CommandRunner cmd) => cmd.RunAsync("reservation.master", new { id, req }, async tx =>
+        {
+            if (req.Scope is not ("all" or "room" or "extras")) throw PmsException.Validation("Geçersiz ana folyo kapsamı.");
+            var r = await tx.OneOrNullAsync<(string Status, string Currency, Guid? Master)>(
+                "SELECT status, currency::text, master_reservation_id FROM pms.reservations WHERE id = @id FOR UPDATE", new { id }) ;
+            if (r == default) throw PmsException.NotFound("Rezervasyon");
+            if (r.Status is "cancelled" or "no_show" or "checked_out") throw PmsException.Validation("Bu konaklama için ana folyo değiştirilemez.");
+            if (req.MasterReservationId is { } mid)
+            {
+                if (mid == id) throw PmsException.Validation("Konaklama kendi ana folyosu olamaz.");
+                var m = await tx.OneOrNullAsync<(string Status, string Currency, Guid? Master, string? Room)>("""
+                    SELECT r.status, r.currency::text, r.master_reservation_id, rm.number FROM pms.reservations r LEFT JOIN pms.rooms rm ON rm.id = r.room_id
+                    WHERE r.id = @mid FOR UPDATE OF r
+                    """, new { mid });
+                if (m == default) throw PmsException.NotFound("Ana folyo konaklaması");
+                if (m.Status != "checked_in") throw PmsException.Validation("Ana folyo olarak yalnız konaklayan bir oda seçilebilir.");
+                if (m.Master is not null) throw PmsException.Validation($"Oda {m.Room} başka bir ana folyoya bağlı; zincirleme bağlantı yapılamaz. Doğrudan ana odayı seçin.");
+                if (m.Currency != r.Currency) throw PmsException.Validation("Ana folyonun para birimi bu konaklamayla aynı olmalıdır.");
+                if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.reservations WHERE master_reservation_id = @id AND status = 'checked_in')", new { id }))
+                    throw PmsException.Validation("Bu oda başka odaların ana folyosu; kendisi başka bir ana folyoya bağlanamaz.");
+            }
+            await tx.ExecAsync("UPDATE pms.reservations SET master_reservation_id = @mid, master_scope = @Scope, version = version + 1 WHERE id = @id",
+                new { id, mid = req.MasterReservationId, req.Scope });
+            await tx.AuditAsync("reservation.master", "reservation", id, new { master = r.Master }, new { master = req.MasterReservationId, req.Scope });
+            tx.Publish("reservations", id);
+            if (req.MasterReservationId is { } m2) tx.Publish("reservations", m2);
+            if (r.Master is { } old) tx.Publish("reservations", old);
+            return new { id };
+        }, requireKey: false)).RequirePermission("folio.transfer");
+
         g.MapPost("/{id:guid}/guests", (Guid id, AddSharerRequest req, CommandRunner cmd) => cmd.RunAsync("reservation.add_guest", new { id, req }, async tx =>
         {
             var status = await tx.ScalarAsync<string?>("SELECT status FROM pms.reservations WHERE id = @id FOR UPDATE", new { id }) ?? throw PmsException.NotFound("Rezervasyon");
@@ -265,3 +312,8 @@ public static class ReservationEndpoints
     public sealed record AuditRow(DateTime At, string? Username, string Action, string? Reason);
     public sealed record SharerDto(Guid Id, string Name, bool IsPrimary, string? Nationality, bool HasIdentity, long GuestNo, string? KeyCardNo, bool IsActive, int? Age, decimal Balance);
 }
+
+public sealed record MasterRequest(Guid? MasterReservationId, string Scope);
+public sealed record LinkedRoom(Guid Id, string? RoomNumber, string GuestName, string Status, string Scope);
+public sealed record MasterInfo(Guid? MasterReservationId, string? MasterRoom, string? MasterGuest, string? MasterStatus, string Scope, List<LinkedRoom> Children);
+sealed record MasterRow(Guid? MasterReservationId, string? MasterRoom, string? MasterGuest, string? MasterStatus, string MasterScope);

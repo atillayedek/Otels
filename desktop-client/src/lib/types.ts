@@ -90,6 +90,9 @@ export interface FolioLine {
   isVoided: boolean; transferredOut: Money; tenderedCurrency?: string; tenderedAmount?: Money; exchangeRate?: string;
 }
 export interface FolioDetail { folio: Folio; lines: FolioLine[] }
+export interface LinkedRoom { id: string; roomNumber?: string; guestName: string; status: string; scope: MasterScope }
+export type MasterScope = 'all' | 'room' | 'extras';
+export interface MasterInfo { masterReservationId?: string; masterRoom?: string; masterGuest?: string; masterStatus?: string; scope: MasterScope; children: LinkedRoom[] }
 export interface CashSale { id: string; folioNumber: string; name: string; currency: string; total: Money; paymentMethods?: string; note?: string; username?: string; createdAt: string; businessDate: DateStr; isCancelled: boolean }
 export interface TransactionCode { id: string; code: string; name: string; category: string; defaultPrice?: Money; vatRate: Money; isSystem: boolean; isActive: boolean }
 export interface PaymentMethod { id: string; code: string; name: string; kind: string; requiresReference: boolean; isSystem: boolean; isActive: boolean }

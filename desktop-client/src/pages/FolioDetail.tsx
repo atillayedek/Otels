@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Printer } from 'lucide-react';
 import { api, del, get, newKey, post, put } from '../lib/api';
-import type { AuditRow, Folio, FolioDetail, GuestProfile, Reservation, Sharer } from '../lib/types';
+import type { AuditRow, Folio, FolioDetail, GuestProfile, MasterInfo, MasterScope, Paged, Reservation, ReservationListItem, Sharer } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney, STATUS_LABEL } from '../lib/format';
 import { useAgencies, useCompanies, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
@@ -20,7 +20,7 @@ import { useWinSelf, useWindows } from '../components/Windows';
 import { ReservationEditModal } from './ReservationForm';
 import { SharerModal, WakeupModal } from './ReservationDetail';
 
-type Dlg = 'edit' | 'checkin' | 'checkout' | 'move' | 'cancel' | 'extend' | 'sharer' | 'wakeup' | 'kontrat' | 'plan' | 'ratelog' | 'traces' | 'docs' | 'history' | 'card' | null;
+type Dlg = 'edit' | 'checkin' | 'checkout' | 'move' | 'cancel' | 'extend' | 'sharer' | 'wakeup' | 'kontrat' | 'plan' | 'ratelog' | 'traces' | 'docs' | 'history' | 'card' | 'master' | null;
 const DIALOGS = ['edit', 'checkin', 'checkout', 'move', 'cancel', 'extend', 'sharer', 'wakeup'];
 const RATE_ACTIONS = ['reservation.create', 'reservation.update', 'reservation.occupancy', 'reservation.folio_details', 'reservation.move_room', 'reservation.change_stay'];
 
@@ -61,6 +61,7 @@ export function FolioDetailView({ id, initialAction, kbs }: { id: string; initia
   const res = useQuery({ queryKey: ['reservation', id], queryFn: () => get<Reservation>(`/api/v1/reservations/${id}`) });
   const sharers = useQuery({ queryKey: ['reservation', id, 'guests'], queryFn: () => get<Sharer[]>(`/api/v1/reservations/${id}/guests`) });
   const folios = useQuery({ queryKey: ['folios', id], queryFn: () => get<Folio[]>(`/api/v1/folios?reservationId=${id}`), enabled: can('folio.view') });
+  const master = useQuery({ queryKey: ['reservation', id, 'master'], queryFn: () => get<MasterInfo>(`/api/v1/reservations/${id}/master`), enabled: can('folio.view') });
   const r = res.data;
   const [d, setD] = useState<Draft | null>(null);
   // Kayıt yenilenince (ör. başka ekrandan değişiklik) form kayıtlı değerlere döner.
@@ -278,6 +279,18 @@ export function FolioDetailView({ id, initialAction, kbs }: { id: string; initia
             <button className="btn sm" onClick={() => setDlg('ratelog')}>Fiyat Log</button>
           </div>
           <label className="fdw-chk"><input type="checkbox" checked={d.rateLocked} disabled={!editable || !can('rate.override')} onChange={e => set('rateLocked', e.target.checked)} /> Fiyatı Kilitle</label>
+          <div className="fdw-pgrid fdw-master">
+            <label className="fdw-l">Ana Folyo</label>
+            <input className={`input fdw-ro ${master.data?.masterReservationId ? 'fdw-yellow' : ''}`} readOnly title="Bu odanın harcamalarının yazılacağı oda"
+              value={master.data?.masterReservationId ? `Oda ${master.data.masterRoom ?? '—'} · ${master.data.masterGuest ?? ''} (${SCOPE_LABEL[master.data.scope]})` : ''} />
+            <button className="btn sm" disabled={!(pre || inHouse) || !can('folio.transfer') || (master.data?.children.some(c => c.status === 'checked_in') ?? false)}
+              title={master.data?.children.some(c => c.status === 'checked_in') ? 'Bu oda başka odaların ana folyosu' : 'Ana folyo seç'} onClick={() => setDlg('master')}>…</button>
+          </div>
+          {!!master.data?.children.filter(c => c.status === 'checked_in').length && (
+            <div className="fdw-linked">Bağlı odalar: {master.data.children.filter(c => c.status === 'checked_in').map(c => (
+              <button key={c.id} className="btn sm ghost" title={`${c.guestName} · ${SCOPE_LABEL[c.scope]}`} onClick={() => windows?.open({ kind: 'reservation', id: c.id })}>{c.roomNumber ?? '—'}</button>
+            ))}</div>
+          )}
           <div className="fdw-bal"><label className="fdw-l">Bakiye</label><input className={`input fdw-ro num ${Number(r.balance) > 0 ? 'due' : ''}`} value={fmtMoney(String(-Number(r.balance)))} readOnly title="Misafir açısından bakiye (eksi: misafir borçlu)" /></div>
         </div>
       </div>
@@ -342,6 +355,7 @@ export function FolioDetailView({ id, initialAction, kbs }: { id: string; initia
       {dlg === 'kontrat' && <KontratModal r={r} onClose={() => setDlg(null)} />}
       {dlg === 'plan' && <PlanModal r={r} onClose={() => setDlg(null)} />}
       {dlg === 'ratelog' && <HistoryModal r={r} rateOnly onClose={() => setDlg(null)} />}
+      {dlg === 'master' && master.data && <MasterModal r={r} info={master.data} onClose={() => setDlg(null)} />}
       {dlg === 'history' && <HistoryModal r={r} onClose={() => setDlg(null)} />}
       {dlg === 'card' && selected && <KeyCardModal sharer={selected} onClose={() => setDlg(null)} onSave={async no => { await keyCard(no); setDlg(null); }} />}
       {dlg === 'traces' && <Modal title="Misafir istekleri / hatırlatmalar" size="lg" onClose={() => setDlg(null)}><ReservationTraces reservationId={r.id} arrival={r.arrival} departure={r.departure} open={pre || inHouse} /></Modal>}
@@ -456,4 +470,53 @@ export function FolioLinesView({ id, action }: { id: string; action?: string }) 
   if (res.error || !res.data) return <div className="page"><ErrorBox error={res.error} /></div>;
   if (!can('folio.view')) return <div className="page"><Empty title="Folyo görüntüleme yetkiniz yok" /></div>;
   return <div className="page"><FolioPanel reservation={res.data} initialDialog={action === 'charge' || action === 'payment' ? action : undefined} /></div>;
+}
+
+const SCOPE_LABEL: Record<MasterScope, string> = { all: 'tüm harcamalar', room: 'yalnız oda ücreti', extras: 'yalnız ekstralar' };
+
+/** Ana folyo seçimi: bu odanın harcamaları (seçilen kapsamda) konaklayan başka bir odanın folyosuna yazılır. */
+function MasterModal({ r, info, onClose }: { r: Reservation; info: MasterInfo; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const inhouse = useQuery({ queryKey: ['reservations', 'inhouse-picker'], queryFn: () => get<Paged<ReservationListItem>>(`/api/v1/reservations?view=inhouse&pageSize=500`) });
+  const [mid, setMid] = useState(info.masterReservationId ?? '');
+  const [scope, setScope] = useState<MasterScope>(info.scope);
+  const [busy, setBusy] = useState(false);
+  const rooms = (inhouse.data?.items ?? []).filter(x => x.id !== r.id && x.roomNumber && x.currency === r.currency)
+    .sort((a, b) => (a.roomNumber ?? '').localeCompare(b.roomNumber ?? '', 'tr', { numeric: true }));
+  const save = async (masterId: string | null) => {
+    setBusy(true);
+    try {
+      await put(`/api/v1/reservations/${r.id}/master`, { masterReservationId: masterId, scope });
+      await qc.invalidateQueries({ predicate: q => ['reservation', 'reservations'].includes(String(q.queryKey[0])) });
+      toast.ok(masterId ? 'Ana folyo bağlandı.' : 'Ana folyo bağlantısı kaldırıldı.');
+      onClose();
+    } catch (e) { toast.error(e); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Ana Folyo" onClose={onClose} footer={<>
+      {info.masterReservationId && <button className="btn danger" disabled={busy} onClick={() => void save(null)}>Bağlantıyı kaldır</button>}
+      <span className="spacer" />
+      <button className="btn" onClick={onClose}>Vazgeç</button>
+      <button className="btn primary" disabled={busy || !mid} onClick={() => void save(mid)}>Kaydet</button>
+    </>}>
+      <div className="stack">
+        <Field label="Ana oda (konaklayan)">
+          <select className="input" value={mid} onChange={e => setMid(e.target.value)} autoFocus>
+            <option value="" />{rooms.map(x => <option key={x.id} value={x.id}>{x.roomNumber} · {x.guestName}</option>)}
+          </select>
+        </Field>
+        <Field label="Ana folyoya yazılacaklar">
+          <div className="stack" style={{ gap: 6 }}>
+            {(['all', 'room', 'extras'] as const).map(k => (
+              <label key={k} className="fdw-chk"><input type="radio" name="master-scope" checked={scope === k} onChange={() => setScope(k)} />
+                {k === 'all' ? 'Tüm harcamalar (oda ücreti ve ekstralar)' : k === 'room' ? 'Yalnız oda ücreti ve konaklama vergisi' : 'Yalnız ekstralar (masraflar, restoran)'}</label>
+            ))}
+          </div>
+        </Field>
+        <div className="muted" style={{ fontSize: 12 }}>Bağlantıdan sonraki masraflar ana odanın folyosuna "· Oda {r.roomNumber ?? ''}" notuyla yazılır; önceki satırlar yerinde kalır.
+          Ana odanın çıkışı, bağlı odalar konaklarken yapılamaz.</div>
+      </div>
+    </Modal>
+  );
 }

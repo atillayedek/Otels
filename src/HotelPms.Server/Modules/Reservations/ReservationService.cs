@@ -514,6 +514,13 @@ public static class ReservationService
         CheckVersion(r, req.Version);
         if (r.Status != "checked_in") throw PmsException.Validation("Yalnız konaklayan misafir için check-out yapılabilir.");
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        // Ana folyo: bu odaya harcama yönlendiren konaklayan odalar varken çıkış yapılamaz (masrafları sahipsiz kalırdı).
+        var linked = await tx.ListAsync<string>("""
+            SELECT COALESCE(rm.number, c.reservation_number) FROM pms.reservations c LEFT JOIN pms.rooms rm ON rm.id = c.room_id
+            WHERE c.master_reservation_id = @id AND c.status = 'checked_in' ORDER BY 1
+            """, new { id });
+        if (linked.Count > 0)
+            throw PmsException.Conflict($"Bu folyo ana folyo olarak kullanılıyor: {string.Join(", ", linked)}. Önce bu odaların çıkışını yapın veya ana folyo bağlantısını kaldırın.", "master_has_children");
 
         // Günübirlik kullanım: bu iş gününde giriş yapan konaklamanın gecesi henüz yazılmadı; gece denetimi çıkmış konaklamaya ücret yazmaz.
         string? waiveReason = null;

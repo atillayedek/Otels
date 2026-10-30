@@ -121,6 +121,24 @@ public static class FolioService
         return f;
     }
 
+    /// <summary>
+    /// Ana folyo yönlendirmesi: konaklamanın ana folyosu tanımlıysa ve kapsam bu masrafı içeriyorsa, ana odanın (konaklayan) açık folyosunu döner.
+    /// Ana oda konaklamıyorsa, açık folyosu yoksa veya para birimi farklıysa masraf kendi folyosunda kalır.
+    /// </summary>
+    internal static async Task<Guid?> MasterFolioAsync(Tx tx, Guid? reservationId, string currency, bool isRoomCharge)
+    {
+        if (reservationId is not { } rid) return null;
+        var m = await tx.OneOrNullAsync<(Guid? MasterId, string Scope)>("SELECT master_reservation_id, master_scope FROM pms.reservations WHERE id = @rid", new { rid });
+        if (m.MasterId is not { } mid) return null;
+        if (m.Scope == "room" && !isRoomCharge || m.Scope == "extras" && isRoomCharge) return null;
+        var target = await tx.OneOrNullAsync<(Guid Id, string Currency)>("""
+            SELECT f.id, f.currency::text FROM pms.folios f JOIN pms.reservations r ON r.id = f.reservation_id
+            WHERE f.reservation_id = @mid AND f.status = 'open' AND r.status = 'checked_in'
+            ORDER BY (f.window_no = r.room_charge_window) DESC, f.window_no LIMIT 1 FOR UPDATE OF f
+            """, new { mid });
+        return target == default || target.Currency != currency ? null : target.Id;
+    }
+
     internal static async Task<Guid?> CurrentShiftAsync(Tx tx, bool required)
     {
         var shift = await tx.ScalarAsync<Guid?>("SELECT id FROM pms.cashier_shifts WHERE user_id = @uid AND status = 'open'", new { uid = tx.User.Id });
@@ -201,11 +219,15 @@ public static class FolioService
                     throw PmsException.Validation($"Kredi limiti aşılıyor: limit {rules.Limit:N2}, mevcut bakiye {bal:N2}, masraf {amount:N2}. Önce tahsilat alın veya limiti değiştirin.");
             }
         }
-        var id = await InsertLineAsync(tx, folioId, "charge", desc, amount, f.Currency, bd, codeId: req.TransactionCodeId, quantity: req.Quantity,
+        // Ana folyo tanımlıysa masraf ana odanın folyosuna, hangi odadan geldiği yazılarak işlenir.
+        var target = await MasterFolioAsync(tx, f.ReservationId, f.Currency, false) ?? folioId;
+        if (target != folioId && f.RoomNumber is not null) desc = $"{desc} · Oda {f.RoomNumber}";
+        var id = await InsertLineAsync(tx, target, "charge", desc, amount, f.Currency, bd, codeId: req.TransactionCodeId, quantity: req.Quantity,
             unitPrice: req.UnitPrice, reference: Validate.Optional(req.Reference, 100), room: f.RoomNumber, vat: code.VatRate);
-        await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, req.TransactionCodeId, desc });
-        await GuestExtraDiscountAsync(tx, folioId, id, amount, f.Currency, bd, f.RoomNumber);
-        tx.Publish("folios", folioId);
+        await tx.AuditAsync("folio.charge", "folio", target, null, new { lineId = id, amount, req.TransactionCodeId, desc, routedFrom = target != folioId ? folioId : (Guid?)null });
+        await GuestExtraDiscountAsync(tx, target, id, amount, f.Currency, bd, f.RoomNumber);
+        tx.Publish("folios", target);
+        if (target != folioId) tx.Publish("folios", folioId);
         return id;
     }
 
@@ -217,11 +239,14 @@ public static class FolioService
         var f = await LockOpenFolioAsync(tx, folioId);
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
         if (amount <= 0) throw PmsException.Validation("Tutar sıfırdan büyük olmalıdır.");
-        var id = await InsertLineAsync(tx, folioId, "charge", description, amount, f.Currency, bd, codeId: codeId, unitPrice: amount, reference: reference,
+        var target = await MasterFolioAsync(tx, f.ReservationId, f.Currency, false) ?? folioId;
+        if (target != folioId && f.RoomNumber is not null) description = $"{description} · Oda {f.RoomNumber}";
+        var id = await InsertLineAsync(tx, target, "charge", description, amount, f.Currency, bd, codeId: codeId, unitPrice: amount, reference: reference,
             room: f.RoomNumber, vat: vatRate);
-        await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, codeId, description, reference });
-        await GuestExtraDiscountAsync(tx, folioId, id, amount, f.Currency, bd, f.RoomNumber);
-        tx.Publish("folios", folioId);
+        await tx.AuditAsync("folio.charge", "folio", target, null, new { lineId = id, amount, codeId, description, reference, routedFrom = target != folioId ? folioId : (Guid?)null });
+        await GuestExtraDiscountAsync(tx, target, id, amount, f.Currency, bd, f.RoomNumber);
+        tx.Publish("folios", target);
+        if (target != folioId) tx.Publish("folios", folioId);
         return id;
     }
 
@@ -507,6 +532,10 @@ public static class FolioService
             "SELECT id FROM pms.folios WHERE reservation_id = @reservationId AND window_no = @window AND status = 'open'", new { reservationId, window })
             ?? await tx.ScalarAsync<Guid?>("SELECT id FROM pms.folios WHERE reservation_id = @reservationId AND status = 'open' ORDER BY window_no LIMIT 1", new { reservationId })
             ?? throw PmsException.Conflict($"{reservationNumber} için açık folyo yok.");
+        // Ana folyo kapsamı oda ücretini içeriyorsa oda ücreti ve vergisi ana odanın folyosuna yazılır.
+        var master = await MasterFolioAsync(tx, reservationId, currency, true);
+        var routed = master is not null ? $" · Oda {roomNumber}" : "";
+        folioId = master ?? folioId;
         decimal tax = 0;
         var roomAmount = rate;
         if (kv is { Rate: > 0 })
@@ -529,12 +558,12 @@ public static class FolioService
             fxRoom = fx with { Amount = roomFx };
             fxTax = tax == 0 ? null : fx with { Amount = fx.Amount - roomFx };
         }
-        var lineId = await InsertLineAsync(tx, folioId, "charge", $"Konaklama {bd:dd.MM.yyyy}" + TenderText(fxRoom), roomAmount, currency, bd, codeId: roomCodeId,
+        var lineId = await InsertLineAsync(tx, folioId, "charge", $"Konaklama {bd:dd.MM.yyyy}" + routed + TenderText(fxRoom), roomAmount, currency, bd, codeId: roomCodeId,
             unitPrice: roomAmount, room: roomNumber, isRoomCharge: true, vat: roomVatRate, tender: fxRoom);
         await tx.ExecAsync("INSERT INTO pms.room_charge_postings (reservation_id, business_date, folio_line_id) VALUES (@reservationId, @bd, @lineId)",
             new { reservationId, bd, lineId });
         if (tax > 0)
-            await InsertLineAsync(tx, folioId, "charge", $"Konaklama vergisi %{kv!.Rate:0.##} {bd:dd.MM.yyyy}", tax, currency, bd, codeId: kv.CodeId,
+            await InsertLineAsync(tx, folioId, "charge", $"Konaklama vergisi %{kv!.Rate:0.##} {bd:dd.MM.yyyy}" + routed, tax, currency, bd, codeId: kv.CodeId,
                 unitPrice: tax, room: roomNumber, vat: roomVatRate, tender: fxTax);
         return roomAmount + tax;
     }

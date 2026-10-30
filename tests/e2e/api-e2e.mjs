@@ -1375,6 +1375,35 @@ try {
     assert.match(e.message, /Hesap girilmelidir/);
   });
 
+  await step('Ana folyo: bağlı odanın masrafı ana odaya yazılır, zincir/kendisi reddedilir, ana oda bağlıyken çıkış engellenir', async () => {
+    const k = () => ({ key: randomUUID() });
+    const master = state.inhouse, child = state.eurRes;
+    const spa = (await api('GET', '/api/v1/finance/transaction-codes')).find(c => c.code === 'SPA20').id;
+    await api('PUT', `/api/v1/reservations/${child}/master`, { masterReservationId: child, scope: 'all' }, { expect: 422 });
+    await api('PUT', `/api/v1/reservations/${child}/master`, { masterReservationId: master, scope: 'bogus' }, { expect: 422 });
+    await api('PUT', `/api/v1/reservations/${child}/master`, { masterReservationId: master, scope: 'extras' });
+    await api('PUT', `/api/v1/reservations/${master}/master`, { masterReservationId: child, scope: 'all' }, { expect: 422 }); // zincir
+    const info = await api('GET', `/api/v1/reservations/${master}/master`);
+    assert.ok(info.children.some(c => c.id === child && c.scope === 'extras' && c.roomNumber === '202'), 'bağlı oda listesi');
+    const cinfo = await api('GET', `/api/v1/reservations/${child}/master`);
+    assert.deepEqual([cinfo.masterReservationId, cinfo.masterRoom, cinfo.scope], [master, '201', 'extras']);
+    const childFolio = (await api('GET', `/api/v1/folios?reservationId=${child}`))[0].id;
+    const masterFolio = (await api('GET', `/api/v1/folios?reservationId=${master}`))[0].id;
+    const before = (await api('GET', `/api/v1/folios/${childFolio}`)).folio.balance;
+    const ch = await api('POST', `/api/v1/folios/${childFolio}/charges`, { transactionCodeId: spa, quantity: '1', unitPrice: '200.00' }, k());
+    const mf = await api('GET', `/api/v1/folios/${masterFolio}`);
+    const line = mf.lines.find(l => l.id === ch.id);
+    assert.ok(line && line.description.endsWith('· Oda 202') && line.roomNumber === '202', 'masraf ana folyoda, oda bilgisiyle');
+    assert.equal((await api('GET', `/api/v1/folios/${childFolio}`)).folio.balance, before, 'bağlı odanın bakiyesi değişmez');
+    const mr = await api('GET', `/api/v1/reservations/${master}`);
+    const e = await api('POST', `/api/v1/reservations/${master}/check-out`, { version: mr.version, lateCheckOut: false }, { ...k(), expect: 409 });
+    assert.match(e.message, /ana folyo/);
+    await api('POST', `/api/v1/folio-lines/${ch.id}/void`, { reason: 'test' }, k());
+    await api('PUT', `/api/v1/reservations/${child}/master`, { masterReservationId: null, scope: 'all' });
+    assert.equal((await api('GET', `/api/v1/reservations/${child}/master`)).masterReservationId ?? null, null);
+    assert.equal((await api('GET', `/api/v1/reservations/${master}/master`)).children.length, 0);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);
