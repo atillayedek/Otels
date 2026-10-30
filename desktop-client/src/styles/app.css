@@ -816,3 +816,32 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .psw-hint { font-size: 11.5px; color: var(--text-2); }
 .psw-dept { justify-self: end; font-weight: 700; padding: 2px 10px; border: 1px solid var(--border-strong); background: #fffbe6; border-radius: 4px; }
 .psw-foot { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 4px; }
+
+/* Departman seçici (Kod / Açıklama listesi) */
+.cpick { position: relative; min-width: 0; }
+.cpick-in { display: flex; }
+.cpick-in .input { border-top-right-radius: 0; border-bottom-right-radius: 0; min-width: 0; flex: 1; }
+.cpick-btn { width: 26px; flex: none; border: 1px solid var(--border-strong); border-left: 0; background: #fffbe6; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; cursor: pointer; display: grid; place-items: center; color: var(--text-2); }
+.cpick-pop { position: absolute; z-index: 30; top: calc(100% + 2px); left: 0; width: 340px; max-height: 300px; overflow: auto; background: #fffef5; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); }
+.cpick-pop table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cpick-pop th { position: sticky; top: 0; background: var(--surface-3); text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--border-strong); }
+.cpick-pop td { padding: 4px 8px; cursor: pointer; }
+.cpick-pop td:first-child { width: 70px; border-right: 1px solid var(--border); }
+.cpick-pop tr.hi td { background: var(--primary, #2563eb); color: #fff; }
+.keys-table td:first-child { width: 110px; }
+.keys-table kbd { display: inline-block; min-width: 26px; padding: 1px 7px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); font: 600 12px/1.6 inherit; text-align: center; }
+.ctx-key { margin-left: auto; padding-left: 18px; font: 500 11.5px/1 inherit; color: var(--muted); background: none; border: 0; }
+
+/* Görünüm: sekmeler ve hızlı tema menüsü */
+.ap-tabs { display: flex; gap: 4px; margin: -4px 0 14px; border-bottom: 1px solid var(--border); }
+.ap-tabs button { border: 0; background: none; padding: 8px 14px; font: inherit; font-size: 13px; color: var(--text-2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.ap-tabs button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.ql-backdrop { position: fixed; inset: 0; z-index: 60; }
+.ql-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 61; width: 260px; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.ql-title { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 8px 0 6px; }
+.ql-title:first-child { margin-top: 0; }
+.ql-sw { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.ql-sw button { height: 34px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; display: grid; place-items: center; color: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.ql-sw button.active { border-color: var(--text); }
+.ql-pop .seg { display: flex; }
+.ql-pop .seg button { flex: 1; }

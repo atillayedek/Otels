@@ -145,7 +145,7 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
 }
 
 /* ---------------------------------------------------------------- Sağ tık menüsü */
-export interface MenuItem { label: string; icon?: ReactNode; onClick?: () => void; disabled?: boolean; danger?: boolean; separator?: boolean; children?: MenuItem[]; checked?: boolean; hint?: string }
+export interface MenuItem { label: string; icon?: ReactNode; onClick?: () => void; disabled?: boolean; danger?: boolean; separator?: boolean; children?: MenuItem[]; checked?: boolean; hint?: string; shortcut?: string }
 
 const ITEM_H = 31;
 const menuHeight = (items: MenuItem[]) => items.reduce((h, i) => h + (i.separator ? 9 : ITEM_H), 12);
@@ -164,6 +164,7 @@ function CtxList({ items, close, flip, className, style }: { items: MenuItem[]; 
             onClick={() => { if (i.children) return; close(); i.onClick?.(); }}>
             {i.checked !== undefined ? <span className="ctx-check">{i.checked ? <CheckCircle2 size={14} /> : null}</span> : i.icon}
             <span className="ctx-label">{i.label}</span>
+            {i.shortcut && <kbd className="ctx-key">{i.shortcut}</kbd>}
             {i.children && <ChevronRight size={14} className="ctx-arrow" />}
           </button>
           {sub?.idx === idx && i.children && (

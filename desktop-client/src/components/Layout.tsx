@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
 import { moduleAllowed, useLicense } from '../lib/queries';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  AlarmClock, BarChart3, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, Palette, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
+  AlarmClock, BarChart3, Coins, HandCoins, Keyboard, PencilLine, Phone, ReceiptText, ShoppingCart, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, Palette, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
 } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
 import { SupportModal } from './Support';
-import { AppearanceModal } from './AppearanceSettings';
+import { AppearanceModal, QuickLook } from './AppearanceSettings';
 import { WindowsProvider, WindowTaskbar, useWindows, type WinSpec } from './Windows';
 import { useLogo } from './PrintDoc';
+import { Modal, useContextMenu } from './ui';
 
 interface NavItem { to: string; label: string; perm?: string | string[] }
 interface NavGroup { label: string; icon: ReactNode; module?: string; items: NavItem[] }
@@ -147,8 +148,9 @@ export function Layout({ children }: { children: ReactNode }) {
 function Shell({ children }: { children: ReactNode }) {
   const windows = useWindows();
   const [look, setLook] = useState(false);
+  const [quickLook, setQuickLook] = useState(false);
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
-  const can = (p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p));
+  const can = useCallback((p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p)), [canOne]);
   const [collapsed, setCollapsed] = useState(false);
   const [support, setSupport] = useState(false);
   const [q, setQ] = useState('');
@@ -161,17 +163,45 @@ function Shell({ children }: { children: ReactNode }) {
   // Otel logosu menüde gösterilir ve yazdırma anında hazır olması için önbelleğe alınır.
   const hotelLogo = useLogo().data?.dataUrl;
   const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => get<QuickCounts>('/api/v1/dashboard'), enabled: can('dashboard.view'), refetchInterval: 60_000 });
-  // Alt+6: Peşin Satış penceresi (klasik resepsiyon kısayolu).
-  const cashSaleOk = can(['folio.post', 'payment.create']);
+  const [keysHelp, setKeysHelp] = useState(false);
+  const harcamaMenu = useContextMenu();
+  // Kısayollar: tek listeden hem tuşlar hem F1 yardım penceresi ve Harcama menüsündeki ipuçları üretilir.
+  const shortcuts = useMemo(() => {
+    const win = (spec: WinSpec, path: string) => () => (windows ? windows.open(spec) : nav(path));
+    const list: { key: string; code: string; alt?: boolean; label: string; ok: boolean; run: () => void }[] = [
+      { key: 'F1', code: 'F1', label: 'Kısayol listesi', ok: true, run: () => setKeysHelp(true) },
+      { key: 'F2', code: 'F2', label: 'Yeni rezervasyon', ok: can('reservation.create'), run: win({ kind: 'new-reservation' }, '/reservations/new') },
+      { key: 'F3', code: 'F3', label: 'Walk-in', ok: can(['checkin.execute', 'reservation.create']), run: win({ kind: 'walk-in' }, '/walk-in') },
+      { key: 'F4', code: 'F4', label: 'Oda Rack', ok: can('reservation.view'), run: () => nav('/rack') },
+      { key: 'Alt+2', code: 'Digit2', alt: true, label: 'Telefon / Fax', ok: can('folio.post'), run: win({ kind: 'charge', mode: 'telephone' }, '/rack') },
+      { key: 'Alt+3', code: 'Digit3', alt: true, label: 'Muhtelif harcama', ok: can('folio.post'), run: win({ kind: 'charge', mode: 'misc' }, '/rack') },
+      { key: 'Alt+6', code: 'Digit6', alt: true, label: 'Peşin satış', ok: can(['folio.post', 'payment.create']), run: win({ kind: 'cash-sale' }, '/cash-sale') },
+    ];
+    return list;
+  }, [windows, nav, can]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.code !== 'Digit6' || !cashSaleOk) return;
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const s = shortcuts.find(x => x.code === e.code && !!x.alt === e.altKey);
+      if (!s || !s.ok) return;
       e.preventDefault();
-      if (windows) windows.open({ kind: 'cash-sale' }); else nav('/cash-sale');
+      s.run();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [windows, nav, cashSaleOk]);
+  }, [shortcuts]);
+  const hint = (code: string) => shortcuts.find(s => s.code === code && s.alt)?.key;
+  const openHarcama = (e: React.MouseEvent) => {
+    const w = (spec: WinSpec) => () => windows?.open(spec);
+    harcamaMenu.open(e, [
+      { label: 'Muhtelif', icon: <ReceiptText size={14} />, shortcut: hint('Digit3'), disabled: !can('folio.post'), onClick: w({ kind: 'charge', mode: 'misc' }) },
+      { label: 'Telefon Fax', icon: <Phone size={14} />, shortcut: hint('Digit2'), disabled: !can('folio.post'), onClick: w({ kind: 'charge', mode: 'telephone' }) },
+      { label: 'Misafir Paid-Out', icon: <HandCoins size={14} />, disabled: !can(['folio.post', 'payment.create']), onClick: w({ kind: 'charge', mode: 'paidout' }) },
+      { label: 'Tutar Düzeltme', icon: <PencilLine size={14} />, disabled: !can('folio.discount'), onClick: w({ kind: 'charge', mode: 'adjust' }) },
+      { label: '', separator: true },
+      { label: 'Peşin Satış', icon: <ShoppingCart size={14} />, shortcut: hint('Digit6'), disabled: !can(['folio.post', 'payment.create']), onClick: w({ kind: 'cash-sale' }) },
+    ]);
+  };
 
   const groups = useMemo(() => {
     const needle = q.trim().toLocaleLowerCase('tr-TR');
@@ -218,17 +248,27 @@ function Shell({ children }: { children: ReactNode }) {
           {QUICK.filter(i => can(i.perm) && moduleAllowed(license.data, i.module)).map(i => {
             const n = i.badge && counts.data ? Math.max(0, i.badge(counts.data)) : 0;
             const active = here === i.to || (i.to !== '/' && loc.pathname === i.to.split('?')[0] && !i.to.includes('?'));
-            return (
+            const harcama = i.to === '/walk-in' && windows && can('folio.post') && (
+              <button key="harcama" style={{ '--tone': '#b45309' } as CSSProperties} onClick={openHarcama} title="Harcama: muhtelif, telefon, paid-out, tutar düzeltme, peşin satış">
+                <span className="qi"><Coins /></span><span className="ql">Harcama</span>
+              </button>
+            );
+            return [
               <button key={i.to} className={active ? 'active' : ''} style={{ '--tone': i.tone } as CSSProperties} onClick={() => (i.win && windows ? windows.open(i.win) : nav(i.to))}
                 title={n ? `${i.label}: ${n} bekleyen` : i.label}>
                 <span className="qi">{i.icon}{n > 0 && <em>{n > 99 ? '99+' : n}</em>}</span><span className="ql">{i.label}</span>
-              </button>
-            );
+              </button>,
+              harcama,
+            ];
           })}
         </div>
         <div className="top-right">
           <div className="bizdate" title="Gece denetimiyle bir sonraki güne geçer"><CalendarRange /><span><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></span></div>
-          <button className="btn ghost icon" onClick={() => setLook(true)} title="Görünüm: tema, renk ve simgeler"><Palette /></button>
+          <span style={{ position: 'relative' }}>
+            <button className="btn ghost icon" onClick={() => setQuickLook(q => !q)} title="Görünüm: tema, yazı ve simge boyutu"><Palette /></button>
+            {quickLook && <QuickLook onClose={() => setQuickLook(false)} onMore={() => setLook(true)} />}
+          </span>
+          <button className="btn ghost icon" onClick={() => setKeysHelp(true)} title="Kısayollar (F1)"><Keyboard /></button>
           <button className="btn ghost icon" onClick={() => setSupport(true)} title="Yardım ve destek"><LifeBuoy /></button>
           <button className="user-chip" onClick={() => nav('/account')} title="Hesabım"><span className="avatar">{initials(me?.fullName)}</span><span className="who"><b>{me?.fullName}</b><small><ShieldCheck size={11} /> {me?.username}</small></span></button>
           <button className="btn ghost icon" onClick={() => void logout()} title="Oturumu kapat"><LogOut /></button>
@@ -236,6 +276,16 @@ function Shell({ children }: { children: ReactNode }) {
       </header>
       {support && <SupportModal onClose={() => setSupport(false)} />}
       {look && <AppearanceModal onClose={() => setLook(false)} />}
+      {harcamaMenu.node}
+      {keysHelp && (
+        <Modal title="Klavye kısayolları" onClose={() => setKeysHelp(false)} footer={<button className="btn primary" onClick={() => setKeysHelp(false)}>Tamam</button>}>
+          <table className="dt keys-table"><tbody>
+            {shortcuts.filter(s => s.ok).map(s => <tr key={s.key}><td><kbd>{s.key}</kbd></td><td>{s.label}</td></tr>)}
+            <tr><td><kbd>Enter</kbd></td><td>Formda sonraki alana geç</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Açık pencereyi / menüyü kapat</td></tr>
+          </tbody></table>
+        </Modal>
+      )}
 
       <main className="main">
         {!connected && <div className="banner danger"><span className="dot off" />Sunucu bağlantısı kesildi. Otomatik olarak yeniden bağlanılıyor… Bağlantı kurulana kadar yapılan işlemler kaydedilmez.</div>}

@@ -64,6 +64,12 @@ public static class FolioEndpoints
         g.MapPost("/{id:guid}/refunds", (Guid id, RefundRequest req, CommandRunner cmd) => cmd.RunAsync("folio.refund", new { id, req }, async tx =>
             new { id = await FolioService.RefundAsync(tx, id, req) })).RequirePermission("payment.refund");
 
+        g.MapPost("/{id:guid}/paid-out", (Guid id, PaidOutRequest req, CommandRunner cmd) => cmd.RunAsync("folio.paid_out", new { id, req }, async tx =>
+        {
+            tx.Ctx.Require("folio.post");
+            return new { id = await FolioService.PaidOutAsync(tx, id, req) };
+        })).RequirePermission("payment.create");
+
         g.MapPost("/{id:guid}/discounts", (Guid id, DiscountRequest req, CommandRunner cmd) => cmd.RunAsync("folio.discount", new { id, req }, async tx =>
             new { id = await FolioService.DiscountAsync(tx, id, req) })).RequirePermission("folio.discount");
 

@@ -507,6 +507,15 @@ try {
     await api('POST', `/api/v1/folio-lines/${pay.id}/void`, { reason: 'tekrar' }, { key: randomUUID(), expect: 422 });
     const after = await api('GET', `/api/v1/folios/${state.folio}`);
     assert.equal(after.folio.balance, '99.99');
+    // Misafir Paid-Out: kasadan nakit çıkışı, folyoya borç; açıklama zorunlu. Silinince bakiye eski haline döner.
+    await api('POST', `/api/v1/folios/${state.folio}/paid-out`, { amount: '25.00', description: ' ' }, { key: randomUUID(), expect: 422 });
+    const po = await api('POST', `/api/v1/folios/${state.folio}/paid-out`, { amount: '25.00', description: 'Kargo', reference: 'MK-1' }, { key: randomUUID() });
+    let fp = await api('GET', `/api/v1/folios/${state.folio}`);
+    const pl = fp.lines.find(l => l.id === po.id);
+    assert.deepEqual([fp.folio.balance, pl.lineType, pl.amount, pl.paymentMethod, pl.description], ['124.99', 'refund', '25.00', 'Nakit', 'Misafir Paid-Out - Kargo']);
+    await api('POST', `/api/v1/folio-lines/${po.id}/void`, { reason: 'yanlış oda' }, { key: randomUUID() });
+    fp = await api('GET', `/api/v1/folios/${state.folio}`);
+    assert.equal(fp.folio.balance, '99.99');
   });
 
   await step('Konaklama vergisi ayarı ve süresi dolan opsiyon', async () => {

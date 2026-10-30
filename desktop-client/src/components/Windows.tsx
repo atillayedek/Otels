@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Copy, Loader2, Minus, Square, X } from 'lucide-react';
 import { PageErrorBoundary } from './PageErrorBoundary';
+import type { ChargeMode } from '../pages/ChargeWindow';
 
 /**
  * Masaüstü pencereleri: rezervasyon/folyo, misafir kartı, yeni rezervasyon ve walk-in, arkadaki ekranın (ör. Oda Rack)
@@ -14,7 +15,8 @@ export type WinSpec =
   | { kind: 'folio'; id: string; action?: string }
   | { kind: 'new-reservation'; params?: Record<string, string> }
   | { kind: 'walk-in'; params?: Record<string, string> }
-  | { kind: 'cash-sale' };
+  | { kind: 'cash-sale' }
+  | { kind: 'charge'; mode: ChargeMode; reservationId?: string };
 
 interface Win { key: string; spec: WinSpec; title: string; x: number; y: number; w: number; h: number; z: number; max: boolean; min: boolean }
 
@@ -29,12 +31,14 @@ const FolioWin = lazy(() => import('../pages/FolioDetail').then(m => ({ default:
 const GuestWin = lazy(() => import('../pages/GuestDetail').then(m => ({ default: m.GuestView })));
 const NewResWin = lazy(() => import('../pages/ReservationForm').then(m => ({ default: m.ReservationNewWindow })));
 const CashSaleWin = lazy(() => import('../pages/CashSale').then(m => ({ default: m.CashSaleView })));
+const ChargeWin = lazy(() => import('../pages/ChargeWindow').then(m => ({ default: m.ChargeView })));
+const CHARGE_TITLE: Record<ChargeMode, string> = { misc: 'Muhtelif Harcama', telephone: 'Telefon / Fax', paidout: 'Misafir Paid-Out', adjust: 'Tutar Düzeltme' };
 
-const SIZE: Record<WinSpec['kind'], [number, number]> = { reservation: [1040, 720], folio: [1080, 640], guest: [1000, 680], 'new-reservation': [1180, 780], 'walk-in': [1180, 780], 'cash-sale': [620, 600] };
-const TITLE: Record<WinSpec['kind'], string> = { reservation: 'Folyo Detayı', folio: 'Hesap Hareketleri', guest: 'Misafir kartı', 'new-reservation': 'Yeni rezervasyon', 'walk-in': 'Walk-in', 'cash-sale': 'Peşin Satış' };
+const SIZE: Record<WinSpec['kind'], [number, number]> = { reservation: [1040, 720], folio: [1080, 640], guest: [1000, 680], 'new-reservation': [1180, 780], 'walk-in': [1180, 780], 'cash-sale': [620, 600], charge: [600, 560] };
+const TITLE: Record<WinSpec['kind'], string> = { reservation: 'Folyo Detayı', folio: 'Hesap Hareketleri', guest: 'Misafir kartı', 'new-reservation': 'Yeni rezervasyon', 'walk-in': 'Walk-in', 'cash-sale': 'Peşin Satış', charge: 'Harcama' };
 
 let seq = 0;
-const keyOf = (s: WinSpec) => (s.kind === 'reservation' || s.kind === 'guest' || s.kind === 'folio' ? `${s.kind}:${s.id}` : s.kind === 'cash-sale' ? s.kind : `${s.kind}:${++seq}`);
+const keyOf = (s: WinSpec) => (s.kind === 'reservation' || s.kind === 'guest' || s.kind === 'folio' ? `${s.kind}:${s.id}` : s.kind === 'cash-sale' ? s.kind : s.kind === 'charge' ? `charge:${s.mode}` : `${s.kind}:${++seq}`);
 
 export function WindowsProvider({ children }: { children: ReactNode }) {
   const [wins, setWins] = useState<Win[]>([]);
@@ -51,7 +55,7 @@ export function WindowsProvider({ children }: { children: ReactNode }) {
       const vw = window.innerWidth, vh = window.innerHeight;
       const w = Math.min(dw, vw - 40), h = Math.min(dh, vh - 70);
       const off = (ws.length % 6) * 26;
-      return [...ws, { key, spec, title: TITLE[spec.kind], w, h, x: Math.max(10, (vw - w) / 2 + off - 60), y: Math.max(10, (vh - h) / 2 + off - 40), z: top(), max: false, min: false }];
+      return [...ws, { key, spec, title: spec.kind === 'charge' ? CHARGE_TITLE[spec.mode] : TITLE[spec.kind], w, h, x: Math.max(10, (vw - w) / 2 + off - 60), y: Math.max(10, (vh - h) / 2 + off - 40), z: top(), max: false, min: false }];
     });
   }, []);
   const close = useCallback((key: string) => setWins(ws => ws.filter(w => w.key !== key)), []);
@@ -120,6 +124,7 @@ function WindowFrame({ w, api, patch, focus }: { w: Win; api: WinApi; patch: (k:
               {s.kind === 'folio' && <FolioWin id={s.id} action={s.action} />}
               {(s.kind === 'new-reservation' || s.kind === 'walk-in') && <NewResWin mode={s.kind === 'walk-in' ? 'walkin' : 'new'} params={s.params} />}
               {s.kind === 'cash-sale' && <CashSaleWin />}
+              {s.kind === 'charge' && <ChargeWin mode={s.mode} reservationId={s.reservationId} />}
             </Suspense>
           </PageErrorBoundary>
         </SelfCtx.Provider>

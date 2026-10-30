@@ -19,6 +19,7 @@ public sealed record PostPaymentRequest(Guid PaymentMethodId, decimal Amount, st
 public sealed record RefundRequest(Guid PaymentMethodId, decimal Amount, string Reason, string? Reference, string? TenderedCurrency = null,
     decimal? TenderedAmount = null, decimal? ExchangeRate = null);
 public sealed record DiscountRequest(string Kind, decimal Amount, string Reason, Guid? RelatedLineId);
+public sealed record PaidOutRequest(decimal Amount, string Description, string? Reference);
 public sealed record VoidRequest(string Reason);
 public sealed record TransferLineRequest(Guid TargetFolioId, decimal? Amount, string Reason);
 public sealed record TransferBalanceRequest(Guid TargetFolioId, string Reason);
@@ -325,6 +326,28 @@ public static class FolioService
         var id = await InsertLineAsync(tx, folioId, "refund", "İade - " + method.Name + TenderText(tender), req.Amount, f.Currency, bd,
             methodId: req.PaymentMethodId, shiftId: shift, reference: reference, reason: reason, room: f.RoomNumber, tender: tender);
         await tx.AuditAsync("payment.refund", "folio", folioId, null, new { lineId = id, req.Amount, method = method.Name, reference, tender }, reason);
+        tx.Publish("folios", folioId);
+        tx.Publish("cashier");
+        return id;
+    }
+
+    /// <summary>
+    /// Misafir Paid-Out: otel, misafir adına kasadan nakit öder (ör. kargo, taksi, dışarıdan alınan ürün) ve tutarı misafirin folyosuna borç yazar.
+    /// Kasadan nakit çıkışı olduğundan nakit ödeme tipiyle "refund" satırı olarak kaydedilir: folyo bakiyesi artar, kasa beklenen nakdi azalır, gelir oluşmaz.
+    /// </summary>
+    public static async Task<Guid> PaidOutAsync(Tx tx, Guid folioId, PaidOutRequest req)
+    {
+        var f = await LockOpenFolioAsync(tx, folioId);
+        var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        Validate.Money(req.Amount, "Tutar");
+        var desc = Validate.Required(req.Description, "Açıklama", 250);
+        var cash = await tx.ScalarAsync<Guid?>("SELECT id FROM pms.payment_methods WHERE kind = 'cash' AND is_active ORDER BY sort_order, code LIMIT 1")
+            ?? throw PmsException.Validation("Aktif nakit ödeme tipi yok. Yönetim → İşlem Kodları ve Ödeme Tipleri ekranından tanımlayın.");
+        var shift = await CurrentShiftAsync(tx, required: true);
+        var reference = Validate.Optional(req.Reference, 100);
+        var id = await InsertLineAsync(tx, folioId, "refund", "Misafir Paid-Out - " + desc, req.Amount, f.Currency, bd, methodId: cash, shiftId: shift,
+            reference: reference, reason: "Paid-Out", room: f.RoomNumber);
+        await tx.AuditAsync("folio.paid_out", "folio", folioId, null, new { lineId = id, req.Amount, desc, reference });
         tx.Publish("folios", folioId);
         tx.Publish("cashier");
         return id;

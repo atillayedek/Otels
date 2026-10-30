@@ -11,6 +11,7 @@ import { PageHead, useAction } from '../components/common';
 import { FolioPrint } from '../components/FolioPanel';
 import { Badge, Empty, ErrorBox, Modal, MoneyInput, Spinner } from '../components/ui';
 import { useWinSelf } from '../components/Windows';
+import { CodePicker } from '../components/CodePicker';
 
 const LEDGER = ['city_ledger', 'company', 'agency'];
 
@@ -83,9 +84,7 @@ export function CashSaleView() {
       <div className="psw-box">
         <label className="psw-l">Departman</label>
         <div className="psw-code">
-          <select className="input" value={codeId} onChange={e => setCodeId(e.target.value)} autoFocus>
-            <option value="" />{saleCodes.map(c => <option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}
-          </select>
+          <CodePicker codes={saleCodes} value={codeId} onChange={setCodeId} autoFocus />
           <input className="input psw-ro" readOnly tabIndex={-1} value={code?.name ?? ''} />
         </div>
         <label className="psw-l">Açıklama</label>
