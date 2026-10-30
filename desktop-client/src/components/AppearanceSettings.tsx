@@ -42,12 +42,12 @@ function Presets() {
 }
 
 /** Üst çubuktaki palet düğmesinin hızlı menüsü: tek tıkla tema, yazı ve simge boyutu; ayrıntılar için tüm ayarlar. */
-export function QuickLook({ onMore, onClose }: { onMore: () => void; onClose: () => void }) {
+export function QuickLook({ onMore, onClose, up }: { onMore: () => void; onClose: () => void; up?: boolean }) {
   const { a, set, applyPreset } = useAppearance();
   return (
     <>
       <div className="ql-backdrop" onMouseDown={onClose} />
-      <div className="ql-pop" role="dialog" aria-label="Hızlı görünüm">
+      <div className={`ql-pop${up ? " up" : ""}`} role="dialog" aria-label="Hızlı görünüm">
         <div className="ql-title">Tema</div>
         <div className="ql-sw">
           {PRESETS.map(p => (

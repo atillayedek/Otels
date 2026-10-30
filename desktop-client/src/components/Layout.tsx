@@ -265,11 +265,6 @@ function Shell({ children }: { children: ReactNode }) {
         </div>
         <div className="top-right">
           <QuickFind />
-          <div className="bizdate" title="Gece denetimiyle bir sonraki güne geçer"><CalendarRange /><span><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></span></div>
-          <span style={{ position: 'relative' }}>
-            <button className="btn ghost icon" onClick={() => setQuickLook(q => !q)} title="Görünüm: tema, yazı ve simge boyutu"><Palette /></button>
-            {quickLook && <QuickLook onClose={() => setQuickLook(false)} onMore={() => setLook(true)} />}
-          </span>
           <button className="btn ghost icon" onClick={() => setKeysHelp(true)} title="Kısayollar (F1)"><Keyboard /></button>
           <button className="btn ghost icon" onClick={() => setSupport(true)} title="Yardım ve destek"><LifeBuoy /></button>
           <button className="user-chip" onClick={() => nav('/account')} title="Hesabım"><span className="avatar">{initials(me?.fullName)}</span><span className="who"><b>{me?.fullName}</b><small><ShieldCheck size={11} /> {me?.username}</small></span></button>
@@ -306,12 +301,33 @@ function Shell({ children }: { children: ReactNode }) {
         <span><span className={`dot ${connected ? 'on' : 'off'}`} />{connected ? 'Bağlı' : 'Bağlantı yok'}</span><span className="sep" />
         <span><Building2 size={12} /> {client?.activeServer ? `${client.activeServer.name} (${client.activeServer.host}:${client.activeServer.port})` : '-'}</span><span className="sep" />
         <span>Kullanıcı: {me?.username}</span><span className="sep" />
-        <span>İş günü: {fmtDate(property?.businessDate)}</span><span className="sep" />
         <span>Cihaz: {client?.hostname}</span>
         <WindowTaskbar />
         <span className="spacer" />
+        <StatusClock businessDate={property?.businessDate} />
+        <span className="sep" />
+        <span style={{ position: 'relative' }}>
+          <button className="sb-btn" onClick={() => setQuickLook(q => !q)} title="Görünüm: tema, yazı ve simge boyutu"><Palette size={12} /> Görünüm</button>
+          {quickLook && <QuickLook up onClose={() => setQuickLook(false)} onMore={() => setLook(true)} />}
+        </span>
+        <span className="sep" />
         <span>TSDMR Digital Studio · İstemci {client?.version}</span>
       </footer>
     </div>
+  );
+}
+
+/** Alt çubukta iş günü ve saat (dakikada bir güncellenir). İş günü gece denetimiyle değişir; takvim gününden farklı olabilir. */
+function StatusClock({ businessDate }: { businessDate?: string }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <span className="sb-clock" title="İş günü gece denetimiyle bir sonraki güne geçer">
+      <CalendarRange size={12} /> İş günü <b>{fmtDate(businessDate)}</b>
+      <span className="sb-time">{now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
+    </span>
   );
 }
