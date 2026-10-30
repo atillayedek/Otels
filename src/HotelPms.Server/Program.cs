@@ -180,6 +180,7 @@ try
     LostFoundEndpoints.Map(app);
     AllotmentEndpoints.Map(app);
     FolioEndpoints.Map(app);
+    CashSaleEndpoints.Map(app);
     ExchangeRateEndpoints.Map(app);
     StockEndpoints.Map(app);
     PosEndpoints.Map(app);

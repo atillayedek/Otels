@@ -562,6 +562,33 @@ try {
     assert.equal(f.folio.balance, '1224.99');
   });
 
+  await step('Peşin satış: TL ve dövizli satış, kapalı folyo, cari aktarım reddi, iptal (kasa net sıfır)', async () => {
+    const codes = await api('GET', '/api/v1/finance/transaction-codes');
+    const mini = codes.find(c => c.code === 'MINI').id;
+    const room = codes.find(c => c.code === 'ROOM').id;
+    const methods = await api('GET', '/api/v1/finance/payment-methods');
+    const ledger = methods.find(m => ['city_ledger', 'company', 'agency'].includes(m.kind));
+    const sale = { transactionCodeId: mini, description: 'Dışarıdan müşteri', amount: '120.00', currency: null, exchangeRate: null, paymentMethodId: state.cash, reference: null, note: 'masa 3' };
+    await api('POST', '/api/v1/cash-sales', { ...sale, transactionCodeId: room }, { key: randomUUID(), expect: 422 });
+    if (ledger) await api('POST', '/api/v1/cash-sales', { ...sale, paymentMethodId: ledger.id }, { key: randomUUID(), expect: 422 });
+    const key = randomUUID();
+    const [s1, s2] = await Promise.all([api('POST', '/api/v1/cash-sales', sale, { key }), api('POST', '/api/v1/cash-sales', sale, { key })]);
+    assert.equal(s1.id, s2.id, 'çift tıklama tek satış');
+    const f = await api('GET', `/api/v1/folios/${s1.id}`);
+    assert.deepEqual([f.folio.status, f.folio.payerKind, f.folio.balance, f.folio.reservationId ?? null], ['closed', 'house', '0.00', null]);
+    assert.equal(f.lines.find(l => l.lineType === 'charge').reference, 'masa 3');
+    const eur = await api('POST', '/api/v1/cash-sales', { ...sale, amount: '2.00', currency: 'EUR', note: null }, { key: randomUUID() });
+    assert.equal(eur.total, '75.00'); // 2 EUR × 37,5
+    let list = await api('GET', '/api/v1/cash-sales');
+    assert.ok(list.some(x => x.id === s1.id && x.total === '120.00' && !x.isCancelled && x.note === 'masa 3'));
+    for (const x of [s1, eur]) await api('POST', `/api/v1/cash-sales/${x.id}/cancel`, { reason: 'yanlış satış' }, { key: randomUUID() });
+    await api('POST', `/api/v1/cash-sales/${s1.id}/cancel`, { reason: 'tekrar' }, { key: randomUUID(), expect: 422 });
+    list = await api('GET', '/api/v1/cash-sales');
+    assert.ok(list.filter(x => x.id === s1.id || x.id === eur.id).every(x => x.isCancelled), 'iptal edildi');
+    const fc = await api('GET', `/api/v1/folios/${s1.id}`);
+    assert.deepEqual([fc.folio.status, fc.folio.balance], ['closed', '0.00']);
+  });
+
   await step('Bakiyeli check-out engellenir; tahsilat sonrası check-out', async () => {
     let r = await api('GET', `/api/v1/reservations/${state.res}`);
     await api('POST', `/api/v1/reservations/${state.res}/check-out`, { version: r.version, lateCheckOut: false }, { key: randomUUID(), expect: 409 });

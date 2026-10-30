@@ -108,7 +108,7 @@ public static class AccountingService
 
         // ---- Folyo hareketleri
         var rows = await tx.ListAsync<FolioRow>("""
-            SELECT l.line_type, l.amount, l.vat_rate, (f.reservation_id IS NULL) AS is_account_folio,
+            SELECT l.line_type, l.amount, l.vat_rate, (f.reservation_id IS NULL AND f.payer_kind IN ('company', 'agency')) AS is_account_folio,
                    l.transaction_code_id AS code_id, tc.category, tc.gl_account AS code_gl, pm.kind AS method_kind,
                    o.line_type AS rel_type, o.vat_rate AS rel_vat, o.transaction_code_id AS rel_code_id, otc.category AS rel_category,
                    otc.gl_account AS rel_code_gl, opm.kind AS rel_method_kind, (o.transaction_code_id IS NOT NULL) AS rel_has_code,

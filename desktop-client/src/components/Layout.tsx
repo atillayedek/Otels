@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
 import { moduleAllowed, useLicense } from '../lib/queries';
@@ -47,6 +47,7 @@ export const NAV: NavGroup[] = [
   {
     label: 'Ön Kasa', icon: <Wallet size={17} />, items: [
       { to: '/cashier', label: 'Kasa Vardiyası', perm: 'cashier.manage' },
+      { to: '/cash-sale', label: 'Peşin Satış (Alt+6)', perm: ['folio.post', 'payment.create'] },
       { to: '/exchange-rates', label: 'Döviz Kurları', perm: 'folio.view' },
       { to: '/reports/folio-balances', label: 'Açık Folyolar', perm: 'financial_report.view' },
       { to: '/reports/company-ledger', label: 'Şirket Cari', perm: 'financial_report.view' },
@@ -160,6 +161,17 @@ function Shell({ children }: { children: ReactNode }) {
   // Otel logosu menüde gösterilir ve yazdırma anında hazır olması için önbelleğe alınır.
   const hotelLogo = useLogo().data?.dataUrl;
   const counts = useQuery({ queryKey: ['dashboard'], queryFn: () => get<QuickCounts>('/api/v1/dashboard'), enabled: can('dashboard.view'), refetchInterval: 60_000 });
+  // Alt+6: Peşin Satış penceresi (klasik resepsiyon kısayolu).
+  const cashSaleOk = can(['folio.post', 'payment.create']);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.code !== 'Digit6' || !cashSaleOk) return;
+      e.preventDefault();
+      if (windows) windows.open({ kind: 'cash-sale' }); else nav('/cash-sale');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [windows, nav, cashSaleOk]);
 
   const groups = useMemo(() => {
     const needle = q.trim().toLocaleLowerCase('tr-TR');
@@ -187,7 +199,7 @@ function Shell({ children }: { children: ReactNode }) {
                 </button>
                 {isOpen && !collapsed && (
                   <div className="nav-sub">
-                    {g.items.map(i => <a key={i.to} href="#" className={here === i.to ? 'active' : ''} onClick={e => { e.preventDefault(); nav(i.to); }}>{i.label}</a>)}
+                    {g.items.map(i => <a key={i.to} href="#" className={here === i.to ? 'active' : ''} onClick={e => { e.preventDefault(); if (i.to === '/cash-sale' && windows) windows.open({ kind: 'cash-sale' }); else nav(i.to); }}>{i.label}</a>)}
                   </div>
                 )}
               </div>

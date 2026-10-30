@@ -33,8 +33,15 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
   const detail = useQuery({ queryKey: ['folio', activeId], queryFn: () => get<FolioDetail>(`/api/v1/folios/${activeId}`), enabled: !!activeId });
   const [dlg, setDlg] = useState<Dialog>(initialDialog ? { kind: initialDialog } : null);
   const [printing, setPrinting] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
   const f = detail.data?.folio;
   const editable = f?.status === 'open';
+  // Silinen satır ve onu sıfırlayan ters kayıt listede gösterilmez (denetim için kayıtta durur; yetkili kullanıcı "Silinenleri göster" ile görebilir).
+  const allLines = detail.data?.lines ?? [];
+  const lines = showDeleted ? allLines : allLines.filter(l => !l.isVoided && l.lineType !== 'void');
+  const cents = (m: string) => Math.round(Number(m) * 100);
+  const debit = lines.reduce((a, l) => a + Math.max(0, cents(l.amount)), 0) / 100;
+  const credit = lines.reduce((a, l) => a + Math.max(0, -cents(l.amount)), 0) / 100;
 
   const close = useAction(async (key: string) => { await post(`/api/v1/folios/${f!.id}/close`, { version: f!.version }, key); await refresh(); }, { success: 'Folyo kapatıldı.' });
   const routing = useAction(async (key: string, w: number) => { await post(`/api/v1/reservations/${reservation!.id}/routing`, { roomChargeWindow: w }, key); await refresh(); }, { success: 'Oda ücreti yönlendirmesi güncellendi.' });
@@ -42,7 +49,7 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
   const lineMenu = (e: React.MouseEvent, l: FolioLine) => {
     if (!editable || l.isVoided || l.lineType === 'void') return;
     menu.open(e, [
-      { label: 'Satırı iptal et', icon: <Ban size={14} />, disabled: !can('folio.void'), onClick: () => setDlg({ kind: 'void', line: l }) },
+      { label: 'Satırı sil', icon: <Ban size={14} />, disabled: !can('folio.void'), onClick: () => setDlg({ kind: 'void', line: l }) },
       { label: 'Başka folyoya aktar', icon: <ArrowRightLeft size={14} />, disabled: !can('folio.transfer') || l.lineType !== 'charge', onClick: () => setDlg({ kind: 'transfer', line: l }) },
       { label: 'Bu masrafa indirim', icon: <Percent size={14} />, disabled: !can('folio.discount') || l.lineType !== 'charge', onClick: () => setDlg({ kind: 'discount', line: l }) },
     ]);
@@ -86,11 +93,11 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
             <table className="dt">
               <thead><tr><th>İş günü</th><th>Tür</th><th>Açıklama</th><th>Oda</th><th style={{ textAlign: 'right' }}>Miktar</th><th style={{ textAlign: 'right' }}>Tutar</th><th>Kullanıcı</th><th>Zaman</th></tr></thead>
               <tbody>
-                {detail.data!.lines.map(l => (
-                  <tr key={l.id} className={l.isVoided ? 'strike' : ''} onContextMenu={e => lineMenu(e, l)} onClick={e => lineMenu(e, l)} style={{ cursor: editable ? 'context-menu' : undefined }}>
+                {lines.map(l => (
+                  <tr key={l.id} className={l.isVoided || l.lineType === 'void' ? 'muted' : ''} onContextMenu={e => lineMenu(e, l)} onClick={e => lineMenu(e, l)} style={{ cursor: editable ? 'context-menu' : undefined }}>
                     <td>{fmtDate(l.businessDate)}</td>
                     <td>{LINE_LABEL[l.lineType] ?? l.lineType}{l.paymentMethod ? ` · ${l.paymentMethod}` : ''}</td>
-                    <td>{l.description}{l.reference && <span className="muted"> · {l.reference}</span>}{l.reason && <span className="muted"> · {l.reason}</span>}{l.isVoided && <Badge color="red">İptal edildi</Badge>}</td>
+                    <td>{l.description}{l.reference && <span className="muted"> · {l.reference}</span>}{l.reason && <span className="muted"> · {l.reason}</span>}{l.isVoided && <Badge color="red">Silindi</Badge>}</td>
                     <td>{l.roomNumber}</td>
                     <td className="num">{l.lineType === 'charge' ? fmtQty(l.quantity) : ''}</td>
                     <td className="num"><Money value={l.amount} colored /></td>
@@ -100,12 +107,16 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
                 ))}
               </tbody>
               <tfoot>
-                <tr><td colSpan={5}>Borç {fmtMoney(f.totalCharges)} · Alacak {fmtMoney(f.totalCredits)}</td><td className="num"><b>{fmtMoney(f.balance, f.currency)}</b></td><td colSpan={2}>Bakiye</td></tr>
+                <tr><td colSpan={5}>Borç {fmtMoney(debit.toFixed(2))} · Alacak {fmtMoney(credit.toFixed(2))}</td><td className="num"><b>{fmtMoney(f.balance, f.currency)}</b></td><td colSpan={2}>Bakiye</td></tr>
               </tfoot>
             </table>
-            {detail.data!.lines.length === 0 && <Empty title="Bu folyoda henüz işlem yok" />}
+            {lines.length === 0 && <Empty title="Bu folyoda henüz işlem yok" />}
           </div>
-          {editable && <div className="muted" style={{ fontSize: 11.5 }}>Satır üzerinde tıklayarak iptal, aktarım veya indirim işlemlerini açabilirsiniz. İşlemler silinmez; düzeltme ayrı satır olarak kaydedilir.</div>}
+          <div className="row" style={{ fontSize: 11.5 }}>
+            {editable && <span className="muted">Satır üzerinde tıklayarak silme, aktarım veya indirim işlemlerini açabilirsiniz. Silinen satır listeden kalkar; kim, ne zaman, hangi gerekçeyle sildiği denetim kaydında tutulur.</span>}
+            <span className="spacer" />
+            {can('audit.view') && allLines.some(l => l.lineType === 'void') && <label className="check"><input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)} /> Silinenleri göster</label>}
+          </div>
         </>
       )}
       {menu.node}
@@ -175,7 +186,7 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
     reopen: !!v.reason?.trim(),
   }[dlg.kind];
 
-  const titles: Record<string, string> = { charge: 'Masraf ekle', payment: 'Tahsilat', refund: 'İade', discount: 'İndirim / düzeltme', void: 'Satır iptali', transfer: 'Satır aktarımı', balance: 'Bakiye aktarımı', newFolio: 'Yeni folyo penceresi', invoice: 'Fatura bilgisi', reopen: 'Folyoyu yeniden aç' };
+  const titles: Record<string, string> = { charge: 'Masraf ekle', payment: 'Tahsilat', refund: 'İade', discount: 'İndirim / düzeltme', void: 'Satır silme', transfer: 'Satır aktarımı', balance: 'Bakiye aktarımı', newFolio: 'Yeni folyo penceresi', invoice: 'Fatura bilgisi', reopen: 'Folyoyu yeniden aç' };
   const reason = <Field label="Gerekçe" required className="span-4"><input className="input" value={v.reason ?? ''} onChange={set('reason')} maxLength={300} /></Field>;
 
   return (
@@ -241,7 +252,7 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
           {reason}
         </>}
         {dlg.kind === 'void' && <>
-          <div className="span-4 warn-box">{dlg.line.description} · {fmtMoney(dlg.line.amount)} satırı iptal edilecek. Satır silinmez; ters kayıt oluşturulur.</div>
+          <div className="span-4 warn-box">{dlg.line.description} · {fmtMoney(dlg.line.amount)} satırı folyodan silinecek. Silme işlemi gerekçesiyle denetim kaydına yazılır.</div>
           {reason}
         </>}
         {(dlg.kind === 'transfer' || dlg.kind === 'balance') && <>
@@ -271,7 +282,7 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
 }
 
 /** Misafire verilen folyo dökümü: borç ve alacak ayrı sütunlarda, bakiye belirgin. A4, kenar boşluklarını belge kendisi verir. */
-export function FolioPrint({ detail, reservation }: { detail: FolioDetail; reservation?: Reservation }) {
+export function FolioPrint({ detail, reservation, kind = 'Folyo' }: { detail: FolioDetail; reservation?: Reservation; kind?: string }) {
   const f = detail.folio;
   const lines = detail.lines.filter(l => !l.isVoided && l.lineType !== 'void');
   const abs = (m: string) => m.replace('-', '');
@@ -292,7 +303,7 @@ export function FolioPrint({ detail, reservation }: { detail: FolioDetail; reser
   ];
   return (
     <div className="doc folio-doc">
-      <DocHeader kind="Folyo" no={f.folioNumber} lines={[`Pencere ${f.windowNo} · ${f.currency}`]} />
+      <DocHeader kind={kind} no={f.folioNumber} lines={[reservation || f.reservationNumber ? `Pencere ${f.windowNo} · ${f.currency}` : f.currency]} />
 
       <section className="fd-info">
         {info.filter(([, v]) => v).map(([k, v]) => <div key={k}><span>{k}</span><b>{v}</b></div>)}

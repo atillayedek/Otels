@@ -31,6 +31,7 @@ const Guests = lazy(() => import('./pages/Guests'));
 const GuestDetail = lazy(() => import('./pages/GuestDetail'));
 const Accounts = lazy(() => import('./pages/Accounts'));
 const Cashier = lazy(() => import('./pages/Cashier'));
+const CashSale = lazy(() => import('./pages/CashSale'));
 const ExchangeRates = lazy(() => import('./pages/ExchangeRates'));
 const Stock = lazy(() => import('./pages/Stock'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
@@ -156,6 +157,7 @@ export function App() {
           <Route path="/companies" element={<Accounts kind="companies" />} />
           <Route path="/agencies" element={<Accounts kind="agencies" />} />
           <Route path="/cashier" element={<Cashier />} />
+          <Route path="/cash-sale" element={<CashSale />} />
           <Route path="/exchange-rates" element={<ExchangeRates />} />
           <Route path="/stock" element={<Stock />} />
           <Route path="/purchase-orders" element={<PurchaseOrders />} />

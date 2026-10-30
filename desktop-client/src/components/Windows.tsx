@@ -13,7 +13,8 @@ export type WinSpec =
   | { kind: 'guest'; id: string }
   | { kind: 'folio'; id: string; action?: string }
   | { kind: 'new-reservation'; params?: Record<string, string> }
-  | { kind: 'walk-in'; params?: Record<string, string> };
+  | { kind: 'walk-in'; params?: Record<string, string> }
+  | { kind: 'cash-sale' };
 
 interface Win { key: string; spec: WinSpec; title: string; x: number; y: number; w: number; h: number; z: number; max: boolean; min: boolean }
 
@@ -27,12 +28,13 @@ const ReservationWin = lazy(() => import('../pages/FolioDetail').then(m => ({ de
 const FolioWin = lazy(() => import('../pages/FolioDetail').then(m => ({ default: m.FolioLinesView })));
 const GuestWin = lazy(() => import('../pages/GuestDetail').then(m => ({ default: m.GuestView })));
 const NewResWin = lazy(() => import('../pages/ReservationForm').then(m => ({ default: m.ReservationNewWindow })));
+const CashSaleWin = lazy(() => import('../pages/CashSale').then(m => ({ default: m.CashSaleView })));
 
-const SIZE: Record<WinSpec['kind'], [number, number]> = { reservation: [1040, 720], folio: [1080, 640], guest: [1000, 680], 'new-reservation': [1180, 780], 'walk-in': [1180, 780] };
-const TITLE: Record<WinSpec['kind'], string> = { reservation: 'Folyo Detayı', folio: 'Hesap Hareketleri', guest: 'Misafir kartı', 'new-reservation': 'Yeni rezervasyon', 'walk-in': 'Walk-in' };
+const SIZE: Record<WinSpec['kind'], [number, number]> = { reservation: [1040, 720], folio: [1080, 640], guest: [1000, 680], 'new-reservation': [1180, 780], 'walk-in': [1180, 780], 'cash-sale': [620, 600] };
+const TITLE: Record<WinSpec['kind'], string> = { reservation: 'Folyo Detayı', folio: 'Hesap Hareketleri', guest: 'Misafir kartı', 'new-reservation': 'Yeni rezervasyon', 'walk-in': 'Walk-in', 'cash-sale': 'Peşin Satış' };
 
 let seq = 0;
-const keyOf = (s: WinSpec) => (s.kind === 'reservation' || s.kind === 'guest' || s.kind === 'folio' ? `${s.kind}:${s.id}` : `${s.kind}:${++seq}`);
+const keyOf = (s: WinSpec) => (s.kind === 'reservation' || s.kind === 'guest' || s.kind === 'folio' ? `${s.kind}:${s.id}` : s.kind === 'cash-sale' ? s.kind : `${s.kind}:${++seq}`);
 
 export function WindowsProvider({ children }: { children: ReactNode }) {
   const [wins, setWins] = useState<Win[]>([]);
@@ -117,6 +119,7 @@ function WindowFrame({ w, api, patch, focus }: { w: Win; api: WinApi; patch: (k:
               {s.kind === 'guest' && <GuestWin id={s.id} />}
               {s.kind === 'folio' && <FolioWin id={s.id} action={s.action} />}
               {(s.kind === 'new-reservation' || s.kind === 'walk-in') && <NewResWin mode={s.kind === 'walk-in' ? 'walkin' : 'new'} params={s.params} />}
+              {s.kind === 'cash-sale' && <CashSaleWin />}
             </Suspense>
           </PageErrorBoundary>
         </SelfCtx.Provider>
