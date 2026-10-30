@@ -23,6 +23,7 @@ import { ReservationTraces } from '../components/Traces';
 import { GuestSearch } from '../components/GuestSearch';
 import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../components/GuestFields';
 import { useWinSelf, useWindows } from '../components/Windows';
+import { FolioDetailView } from './FolioDetail';
 
 type Dlg = 'edit' | 'checkin' | 'checkout' | 'move' | 'cancel' | 'extend' | 'sharer' | 'wakeup' | null;
 type Extra = 'rates' | 'traces' | 'history' | 'docs';
@@ -35,7 +36,7 @@ export default function ReservationDetailPage() {
   const [initial] = useState(() => sp.get('do') ?? undefined);
   const [kbs] = useState(() => sp.get('kbs') === '1');
   useEffect(() => { if (sp.has('do') || sp.has('kbs')) setSp({}, { replace: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return <ReservationView key={id} id={id!} initialAction={initial} kbs={kbs} />;
+  return <div className="page"><FolioDetailView key={id} id={id!} initialAction={initial} kbs={kbs} /></div>;
 }
 
 /**
@@ -251,7 +252,7 @@ export function SharerModal({ reservationId, onClose }: { reservationId: string;
   );
 }
 
-function WakeupModal({ reservation: r, onClose }: { reservation: Reservation; onClose: () => void }) {
+export function WakeupModal({ reservation: r, onClose }: { reservation: Reservation; onClose: () => void }) {
   const qc = useQueryClient();
   const [at, setAt] = useState('');
   const [notes, setNotes] = useState('');

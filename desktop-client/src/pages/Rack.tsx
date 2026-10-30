@@ -69,11 +69,6 @@ export default function RackPage() {
     dirty: rooms.filter(r => r.hkStatus === 'dirty').length,
     blocked: rooms.filter(r => r.blockKind).length,
   }), [rooms]);
-  const tones = useMemo(() => {
-    const m: Record<Tone, number> = { vacant: 0, occupied: 0, departure: 0, arrival: 0, dirty: 0, cleaning: 0, inspected: 0, blocked: 0 };
-    for (const r of rooms) m[toneOf(r)]++;
-    return m;
-  }, [rooms]);
 
   // Arama: oda no, odadaki herkesin adı (ana ve ek misafirler, bugünkü geliş dahil), firma/acente.
   const needle = lc(q.trim());
@@ -92,6 +87,8 @@ export default function RackPage() {
   const filtered = !!(q.trim() || filter !== 'all');
 
   /** Konaklama penceresi (arkadaki rack yerinde kalır); pencere sistemi yoksa sayfaya gider. */
+  /** Hesap hareketleri (masraf/tahsilat) ayrı pencerede açılır. */
+  const openFolio = (id: string, action?: string) => (windows ? windows.open({ kind: 'folio', id, action }) : nav(`/reservations/${id}${action ? `?do=${action}` : ''}`));
   const openRes = (id: string, action?: string) => (windows ? windows.open({ kind: 'reservation', id, action }) : nav(`/reservations/${id}${action ? `?do=${action}` : ''}`));
   const newRes = (r: RoomStatus, walkIn: boolean) => {
     const params: Record<string, string> = walkIn ? { room: r.id } : { room: r.id, type: r.roomTypeId };
@@ -123,10 +120,10 @@ export default function RackPage() {
       { separator: true, label: '' },
       {
         label: 'Ödeme / harcama', icon: <CreditCard size={14} />, disabled: !ih, children: [
-          { label: 'Tahsilat al', icon: <CreditCard size={14} />, disabled: !can('payment.create'), onClick: () => ih && openRes(ih, 'payment') },
-          { label: 'Masraf gir', icon: <Plus size={14} />, disabled: !can('folio.post'), onClick: () => ih && openRes(ih, 'charge') },
+          { label: 'Tahsilat al', icon: <CreditCard size={14} />, disabled: !can('payment.create'), onClick: () => ih && openFolio(ih, 'payment') },
+          { label: 'Masraf gir', icon: <Plus size={14} />, disabled: !can('folio.post'), onClick: () => ih && openFolio(ih, 'charge') },
           { label: 'Adisyon aç (restoran / bar)', icon: <Utensils size={14} />, disabled: !can('pos.order'), onClick: () => nav(`/pos?room=${encodeURIComponent(r.number)}`) },
-          { label: 'Hesap hareketleri (folyo)', icon: <FileText size={14} />, onClick: () => ih && openRes(ih) },
+          { label: 'Hesap hareketleri (folyo)', icon: <FileText size={14} />, onClick: () => ih && openFolio(ih) },
         ],
       },
       {
@@ -173,7 +170,9 @@ export default function RackPage() {
 
   const setZoom = (s: Size) => { setSize(s); savePref(SIZE_KEY, s); };
   const print = () => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
-  const F = (k: Filter, label: string) => <button className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>{label} ({counts[k]})</button>;
+  // Süzgeç düğmelerindeki renk noktası kart rengini gösterir (ayrı açıklama şeridi yok).
+  const DOT: Partial<Record<Filter, string>> = { vacant: 'vacant', occupied: 'occupied', arrival: 'arrival', departure: 'departure', dirty: 'dirty', blocked: 'blocked' };
+  const F = (k: Filter, label: string) => <button className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>{DOT[k] && <i className={`fdot tone-${DOT[k]}`} />}{label} ({counts[k]})</button>;
 
   const tile = (r: RoomStatus) => {
     const t = toneOf(r);
@@ -237,18 +236,6 @@ export default function RackPage() {
         <div className={`rack-grid size-${size}`}>{view.map(tile)}</div>
       )}
 
-      {/* Oda durum bilgileri: her rengin anlamı ve kaç oda olduğu */}
-      {rooms.length > 0 && (
-        <div className="rack-legend">
-          {([['vacant', 'Boş (temiz)'], ['occupied', 'Dolu'], ['departure', 'Bugün çıkış'], ['arrival', 'Geliş bekleniyor'], ['dirty', 'Kirli (boş)'], ['cleaning', 'Temizleniyor'], ['inspected', 'Kontrol edildi'], ['blocked', 'Bloke / arızalı']] as [Tone, string][]).map(([k, l]) => (
-            <button key={k} className={`rl-item tone-${k}`} onClick={() => setFilter(k === 'vacant' ? 'vacant' : k === 'occupied' ? 'occupied' : k === 'departure' ? 'departure' : k === 'arrival' ? 'arrival' : k === 'dirty' ? 'dirty' : k === 'blocked' ? 'blocked' : 'all')} title={`${l}: ${tones[k]} oda`}>
-              <i />{l}<b>{tones[k]}</b>
-            </button>
-          ))}
-          <span className="rl-sep" />
-          <span className="rl-hint">Kartın alt şeridi temizlik durumunu gösterir (<span className="hk-chip hk-dirty">Kirli</span> <span className="hk-chip hk-clean">Temiz</span> <span className="hk-chip hk-inspected">Kontrol edildi</span> <span className="hk-chip hk-cleaning">Temizleniyor</span>) · sol çizgi oda grubunun rengidir · renkler Görünüm ayarından değiştirilir.</span>
-        </div>
-      )}
 
       {menu.node}
       {hkRoom && <HkStatusModal roomId={hkRoom} onClose={() => setHkRoom(null)} />}

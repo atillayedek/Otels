@@ -745,3 +745,57 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .blk-legend-block { background: repeating-linear-gradient(135deg, var(--bk-block-soft), var(--bk-block-soft) 3px, #e2e8f0 3px, #e2e8f0 6px); border: 1px solid var(--bk-block); }
 /* Yatay rapor (polis listesi): ekranda değil yalnız baskıda yatay A4 */
 @media print { .report-doc.landscape .fd-table th, .report-doc.landscape .fd-table td { font-size: 8pt; padding: 1.4mm 1.4mm; } }
+
+/* Rack süzgeç düğmelerinde kart rengi noktası */
+.fdot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; border: 1px solid rgba(15,23,42,.25); }
+.fdot.tone-vacant { background: var(--rk-vacant); } .fdot.tone-occupied { background: var(--rk-occupied); } .fdot.tone-arrival { background: var(--rk-arrival); }
+.fdot.tone-departure { background: var(--rk-departure); } .fdot.tone-dirty { background: var(--rk-dirty); } .fdot.tone-blocked { background: var(--rk-blocked); }
+
+/* ================================================================ Folyo Detayı (klasik resepsiyon folyo penceresi) */
+.fdw { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; font-size: 12.5px; min-height: 100%; }
+.fdw .input { height: 26px; padding: 2px 6px; font-size: 12.5px; }
+.fdw textarea.input { height: auto; }
+.fdw .btn.sm { height: 24px; }
+.fdw-box { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 10px; }
+.fdw-top, .fdw-mid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 8px; }
+.fdw-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) 74px minmax(0, 1fr); align-items: center; gap: 4px 8px; margin-bottom: 4px; }
+.fdw-top > .fdw-box:first-child .fdw-row:first-child { grid-template-columns: 74px minmax(0, 1fr) auto auto; }
+.fdw-top > .fdw-box:first-child .fdw-row:nth-child(2) { grid-template-columns: 74px 140px minmax(0, 1fr); }
+.fdw-l { color: var(--text-2); white-space: nowrap; text-align: right; }
+.fdw-ro { background: var(--surface-3) !important; color: var(--text); }
+.fdw-ro.due { color: #b91c1c; font-weight: 700; }
+.fdw-yellow { background: #fffbe6 !important; }
+.fdw-name { font-weight: 700; text-transform: uppercase; }
+.fdw-click { cursor: pointer; background: #fffbe6 !important; }
+.fdw-time { width: 92px; flex: none; }
+.fdw-short { width: 70px; flex: none; }
+.fdw-chk { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--text-2); }
+.fdw-grid { display: grid; grid-template-columns: 74px minmax(0, 1fr) 82px minmax(0, 1fr); align-items: center; gap: 4px 8px; }
+.fdw-tabs { display: flex; gap: 2px; margin-top: 8px; border-bottom: 1px solid var(--border-strong); }
+.fdw-tabs button { border: 1px solid var(--border-strong); border-bottom: 0; background: var(--surface-3); padding: 3px 10px; font: inherit; font-size: 12px; border-radius: 4px 4px 0 0; cursor: pointer; color: var(--text-2); }
+.fdw-tabs button.active { background: var(--surface); color: var(--text); font-weight: 600; position: relative; top: 1px; }
+.fdw-tabbody { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 0; }
+.fdw-price { display: flex; flex-direction: column; gap: 8px; }
+.fdw-pgrid { display: grid; grid-template-columns: 60px 1fr 1fr; gap: 4px 8px; align-items: center; }
+.fdw-pgrid b { text-align: center; font-size: 11.5px; color: var(--muted); }
+.fdw-pbtns { display: flex; gap: 6px; flex-wrap: wrap; }
+.fdw-bal { display: grid; grid-template-columns: 60px 1fr; gap: 8px; align-items: center; margin-top: auto; }
+.fdw-bal .input { font-size: 14px; height: 30px; }
+.fdw-guests { padding: 0; overflow: hidden; }
+.fdw-gbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.fdw-gtab { font-weight: 600; padding: 2px 8px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); }
+.fdw-gtable td, .fdw-gtable th { padding: 4px 8px; }
+.fdw-foot { display: flex; align-items: center; gap: 6px; padding-top: 4px; position: sticky; bottom: 0; background: var(--bg); }
+.fdw-split { position: relative; display: inline-flex; }
+.fdw-split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.fdw-caret { width: 24px; padding: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+.fdw-pop { position: absolute; bottom: calc(100% + 4px); right: 0; z-index: 5; display: flex; flex-direction: column; gap: 4px; align-items: stretch; min-width: 200px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.fdw-pop .btn { justify-content: flex-start; }
+.kontrat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kontrat fieldset { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.kontrat legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
+.kv-mini { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.kv-mini span { color: var(--muted); }
+@media (max-width: 900px) { .fdw-top, .fdw-mid { grid-template-columns: 1fr; } }
+.fdw-grid .row > .input:first-child { width: 100px; flex: none; }
+.fdw-grid { grid-template-columns: 74px minmax(200px, 1fr) 82px minmax(0, 1fr); }

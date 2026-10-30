@@ -57,9 +57,34 @@ public static class ReservationEndpoints
 
         g.MapGet("/{id:guid}/guests", (Guid id, Db db) => db.QueryAsync<SharerDto>("""
             SELECT g.id, g.first_name || ' ' || g.last_name AS name, rg.is_primary, g.nationality::text AS nationality,
-                   (g.identity_number IS NOT NULL) AS has_identity
+                   (g.identity_number IS NOT NULL) AS has_identity, g.guest_no, rg.key_card_no, rg.is_active,
+                   CASE WHEN g.birth_date IS NOT NULL THEN date_part('year', age(g.birth_date))::int END AS age,
+                   -- Cari bakiye: misafirin bu konaklama dışındaki açık folyolarının toplamı
+                   COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id
+                             WHERE f.guest_id = g.id AND f.status = 'open' AND f.reservation_id IS DISTINCT FROM @id), 0) AS balance
             FROM pms.reservation_guests rg JOIN pms.guests g ON g.id = rg.guest_id WHERE rg.reservation_id = @id ORDER BY rg.is_primary DESC, g.last_name
             """, new { id })).RequirePermission("reservation.view");
+
+        g.MapPut("/{id:guid}/guests/{guestId:guid}", (Guid id, Guid guestId, SharerUpdateRequest req, CommandRunner cmd) => cmd.RunAsync("reservation.update_guest", new { id, guestId, req }, async tx =>
+        {
+            var status = await tx.ScalarAsync<string?>("SELECT status FROM pms.reservations WHERE id = @id FOR UPDATE", new { id }) ?? throw PmsException.NotFound("Rezervasyon");
+            if (status is "cancelled" or "no_show" or "checked_out") throw PmsException.Validation("Bu konaklamanın misafir bilgisi değiştirilemez.");
+            var card = req.SetKeyCard ? Validate.Optional(req.KeyCardNo, 40) : null;
+            var n = await tx.ExecAsync("""
+                UPDATE pms.reservation_guests SET key_card_no = CASE WHEN @set THEN @card ELSE key_card_no END, is_active = COALESCE(@active, is_active)
+                WHERE reservation_id = @id AND guest_id = @guestId
+                """, new { id, guestId, set = req.SetKeyCard, card, active = req.IsActive });
+            if (n == 0) throw PmsException.NotFound("Odadaki misafir");
+            await tx.AuditAsync(req.SetKeyCard ? (card is null ? "reservation.key_card_delete" : "reservation.key_card_issue") : "reservation.update_guest", "reservation", id, null, new { guestId, card, req.IsActive });
+            tx.Publish("reservations", id);
+            return new { id };
+        }, requireKey: false)).RequirePermission("reservation.edit");
+
+        g.MapPut("/{id:guid}/folio-details", (Guid id, FolioDetailsRequest req, CommandRunner cmd) => cmd.RunAsync("reservation.folio_details", new { id, req }, async tx =>
+        {
+            await ReservationService.UpdateFolioDetailsAsync(tx, id, req);
+            return new { id };
+        }, requireKey: false)).RequirePermission("reservation.edit");
 
         g.MapPost("/{id:guid}/guests", (Guid id, AddSharerRequest req, CommandRunner cmd) => cmd.RunAsync("reservation.add_guest", new { id, req }, async tx =>
         {
@@ -238,5 +263,5 @@ public static class ReservationEndpoints
     }
 
     public sealed record AuditRow(DateTime At, string? Username, string Action, string? Reason);
-    public sealed record SharerDto(Guid Id, string Name, bool IsPrimary, string? Nationality, bool HasIdentity);
+    public sealed record SharerDto(Guid Id, string Name, bool IsPrimary, string? Nationality, bool HasIdentity, long GuestNo, string? KeyCardNo, bool IsActive, int? Age, decimal Balance);
 }

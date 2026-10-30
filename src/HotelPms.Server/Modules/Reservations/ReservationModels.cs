@@ -11,7 +11,15 @@ public sealed record ReservationDto(
     string? SpecialRequests, decimal DepositRequired, DateOnly? OptionUntil, DateTime? CheckedInAt, DateTime? CheckedOutAt, DateTime? CancelledAt,
     string? CancelReason, DateTime CreatedAt, string? CreatedBy, decimal Balance, int Version, string? RateCurrency, decimal? FxNightlyRate,
     string? Channel, string? ChannelRef, string? GuestAlertNote = null,
-    decimal? RateSgl = null, decimal? RateDbl = null, decimal? RateTrp = null, decimal? RateQuad = null);
+    decimal? RateSgl = null, decimal? RateDbl = null, decimal? RateTrp = null, decimal? RateQuad = null,
+    decimal DiscountPct = 0, bool NoManualCharges = false, string InvoiceType = "invoice", string KeyCardType = "GENEL", decimal CreditLimit = 0,
+    bool NoteOnCheckout = false, bool RateLocked = false, long GuestNo = 0, string? GuestPhone = null, string? GuestPreferences = null);
+
+/// <summary>Folyo detayı penceresinden kaydedilen konaklama ayarları. Firma: şirket veya acente (ikisinden biri).</summary>
+public sealed record FolioDetailsRequest(Guid? CompanyId, Guid? AgencyId, decimal DiscountPct, bool NoManualCharges, string InvoiceType, string KeyCardType,
+    decimal CreditLimit, string? Notes, bool NoteOnCheckout, string? SpecialRequests, TimeOnly? Etd, bool RateLocked, int Version);
+/// <summary>Odadaki misafir satırı: oda kartı numarası (SetKeyCard=true iken; boş = kartı sil) ve aktiflik.</summary>
+public sealed record SharerUpdateRequest(bool SetKeyCard, string? KeyCardNo, bool? IsActive);
 
 /// <summary>Kişi sayısına göre gecelik fiyat (kontrat detayı). Tutarlar rezervasyonun fiyat para birimindedir; boş olan kullanılmaz.</summary>
 public sealed record OccupancyRates(decimal? Single, decimal? Double, decimal? Triple, decimal? Quad)

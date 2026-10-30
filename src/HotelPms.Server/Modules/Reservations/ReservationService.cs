@@ -25,7 +25,9 @@ public static class ReservationService
                r.created_at, cu.username AS created_by,
                COALESCE((SELECT sum(l.amount) FROM pms.folios f JOIN pms.folio_lines l ON l.folio_id = f.id WHERE f.reservation_id = r.id), 0) AS balance,
                r.version, r.rate_currency::text AS rate_currency, r.fx_nightly_rate, r.channel, r.channel_ref, g.alert_note AS guest_alert_note,
-               r.rate_sgl, r.rate_dbl, r.rate_trp, r.rate_quad
+               r.rate_sgl, r.rate_dbl, r.rate_trp, r.rate_quad,
+               r.discount_pct, r.no_manual_charges, r.invoice_type, r.key_card_type, r.credit_limit, r.note_on_checkout, r.rate_locked,
+               g.guest_no, g.phone AS guest_phone, g.preferences AS guest_preferences
         FROM pms.reservations r
         JOIN pms.guests g ON g.id = r.guest_id
         JOIN pms.room_types t ON t.id = r.room_type_id
@@ -296,6 +298,7 @@ public static class ReservationService
         decimal nightly = r.NightlyRate;
         string? fxCur = r.RateCurrency;
         decimal? fxNightly = r.FxNightlyRate;
+        if (rateChanged && r.RateLocked) throw PmsException.Validation("Fiyat kilitli. Tarih, plan veya fiyat değişikliği için önce folyoda \"Fiyatı Kilitle\" işaretini kaldırın.");
         if (rateChanged)
         {
             var rates = await ResolveRatesAsync(tx, req, req.GuestId ?? r.GuestId, occTrusted);
@@ -705,7 +708,8 @@ public static class ReservationService
         adults = Math.Clamp(adults, 1, Math.Max(1, maxAdults));
         if (adults == r.Adults) return;
         var occ = new OccupancyRates(r.RateSgl, r.RateDbl, r.RateTrp, r.RateQuad);
-        var rate = occ.For(adults);
+        // Fiyat kilitliyse yalnız kişi sayısı güncellenir, gecelik fiyat değişmez.
+        var rate = r.RateLocked ? null : occ.For(adults);
         decimal nightly = r.NightlyRate;
         decimal? fxNightly = r.FxNightlyRate;
         if (rate is { } newRate)
@@ -727,6 +731,63 @@ public static class ReservationService
         await tx.ExecAsync("UPDATE pms.reservations SET adults = @adults, nightly_rate = @nightly, fx_nightly_rate = @fxNightly, updated_at = now(), version = version + 1 WHERE id = @id",
             new { id, adults, nightly, fxNightly });
         await tx.AuditAsync("reservation.occupancy", "reservation", id, new { r.Adults, r.NightlyRate }, new { adults, nightly, people });
+    }
+
+    // ------------------------------------------------------------------ Folyo detayı
+    /// <summary>
+    /// Folyo detayı penceresindeki konaklama ayarları: firma, indirim %, manuel harcama yasağı, fatura tipi, kart tipi, kredi limiti,
+    /// notlar, çıkış saati ve fiyat kilidi. İndirim değişirse postalanmamış gecelerin fiyatı yeni orana göre yeniden hesaplanır.
+    /// </summary>
+    public static async Task UpdateFolioDetailsAsync(Tx tx, Guid id, FolioDetailsRequest req)
+    {
+        var r = await GetForUpdateAsync(tx, id);
+        CheckVersion(r, req.Version);
+        if (r.Status is not ("tentative" or "confirmed" or "checked_in")) throw PmsException.Validation("Bu durumdaki konaklamanın folyo ayarları değiştirilemez.");
+        if (req.CompanyId is not null && req.AgencyId is not null) throw PmsException.Validation("Firma olarak şirket veya acenteden yalnız biri seçilir.");
+        if (req.InvoiceType is not ("invoice" or "receipt")) throw PmsException.Validation("Geçersiz fatura tipi.");
+        var cardType = Validate.Required(req.KeyCardType, "Kart tipi", 30).ToUpperInvariant();
+        if (req.DiscountPct < 0 || req.DiscountPct >= 100 || decimal.Round(req.DiscountPct, 2) != req.DiscountPct) throw PmsException.Validation("İndirim % 0 ile 99,99 arasında olmalıdır.");
+        Validate.Money(req.CreditLimit, "Kredi limiti", allowZero: true);
+        if (req.DiscountPct != r.DiscountPct) tx.Ctx.Require("rate.override");
+        if (req.CreditLimit != r.CreditLimit) tx.Ctx.Require("folio.close");
+        if (req.RateLocked != r.RateLocked) tx.Ctx.Require("rate.override");
+        if (req.AgencyId != r.AgencyId)
+            await EnsureAvailabilityAsync(tx, r.RoomTypeId, r.Status == "checked_in" ? await PropertyEndpoints.BusinessDateAsync(tx) : r.Arrival, r.Departure, id, req.AgencyId, false);
+
+        decimal nightly = r.NightlyRate;
+        decimal? fxNightly = r.FxNightlyRate;
+        if (req.DiscountPct != r.DiscountPct)
+        {
+            if (r.RateLocked && req.RateLocked) throw PmsException.Validation("Fiyat kilitli; indirim için önce \"Fiyatı Kilitle\" işaretini kaldırın.");
+            var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+            var factor = (100 - req.DiscountPct) / (100 - r.DiscountPct);
+            decimal Apply(decimal v) => decimal.Round(v * factor, 2, MidpointRounding.AwayFromZero);
+            var nights = await tx.ListAsync<(DateOnly Date, decimal Rate, decimal? Fx)>("""
+                SELECT stay_date, rate, fx_amount FROM pms.reservation_rates WHERE reservation_id = @id AND stay_date >= @bd
+                  AND stay_date NOT IN (SELECT business_date FROM pms.room_charge_postings WHERE reservation_id = @id)
+                """, new { id, bd });
+            foreach (var n in nights)
+                await tx.ExecAsync("UPDATE pms.reservation_rates SET rate = @rate, fx_amount = @fx WHERE reservation_id = @id AND stay_date = @d",
+                    new { id, d = n.Date, rate = Apply(n.Rate), fx = n.Fx is { } f ? Apply(f) : (decimal?)null });
+            nightly = Apply(r.NightlyRate);
+            fxNightly = r.FxNightlyRate is { } fn ? Apply(fn) : null;
+        }
+        await tx.ExecAsync("""
+            UPDATE pms.reservations SET company_id = @CompanyId, agency_id = @AgencyId, discount_pct = @DiscountPct, no_manual_charges = @NoManualCharges,
+                invoice_type = @InvoiceType, key_card_type = @cardType, credit_limit = @CreditLimit, notes = @notes, note_on_checkout = @NoteOnCheckout,
+                special_requests = @special, etd = @Etd, rate_locked = @RateLocked, nightly_rate = @nightly, fx_nightly_rate = @fxNightly,
+                updated_at = now(), version = version + 1
+            WHERE id = @id
+            """, new
+        {
+            id, req.CompanyId, req.AgencyId, req.DiscountPct, req.NoManualCharges, req.InvoiceType, cardType, req.CreditLimit,
+            notes = Validate.Optional(req.Notes, 4000), req.NoteOnCheckout, special = Validate.Optional(req.SpecialRequests, 2000), req.Etd, req.RateLocked, nightly, fxNightly,
+        });
+        await tx.AuditAsync("reservation.folio_details", "reservation", id,
+            new { r.CompanyId, r.AgencyId, r.DiscountPct, r.NoManualCharges, r.InvoiceType, r.KeyCardType, r.CreditLimit, r.RateLocked, r.NightlyRate },
+            new { req.CompanyId, req.AgencyId, req.DiscountPct, req.NoManualCharges, req.InvoiceType, KeyCardType = cardType, req.CreditLimit, req.RateLocked, NightlyRate = nightly });
+        tx.Publish("reservations", id);
+        tx.Publish("rooms");
     }
 
     static async Task EnsureCapacityAsync(Tx tx, Guid roomTypeId, int adults, int children)

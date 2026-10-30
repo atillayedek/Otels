@@ -188,6 +188,18 @@ public static class FolioService
         var amount = decimal.Round(req.Quantity * req.UnitPrice, 2, MidpointRounding.AwayFromZero);
         if (amount <= 0) throw PmsException.Validation("Tutar sıfırdan büyük olmalıdır.");
         var desc = Validate.Optional(req.Description, 300) ?? code.Name;
+        // Folyo detayındaki kurallar: "Manuel Harcama Yapılamaz" ve kredi limiti (0 = limitsiz).
+        if (f.ReservationId is { } rid)
+        {
+            var rules = await tx.OneAsync<(bool NoManual, decimal Limit)>("SELECT no_manual_charges, credit_limit FROM pms.reservations WHERE id = @rid", new { rid });
+            if (rules.NoManual) throw PmsException.Validation("Bu konaklamada manuel harcama yapılamaz (folyo detayında işaretli).");
+            if (rules.Limit > 0)
+            {
+                var bal = await tx.ScalarAsync<decimal>("SELECT COALESCE(sum(l.amount), 0) FROM pms.folios x JOIN pms.folio_lines l ON l.folio_id = x.id WHERE x.reservation_id = @rid", new { rid });
+                if (bal + amount > rules.Limit)
+                    throw PmsException.Validation($"Kredi limiti aşılıyor: limit {rules.Limit:N2}, mevcut bakiye {bal:N2}, masraf {amount:N2}. Önce tahsilat alın veya limiti değiştirin.");
+            }
+        }
         var id = await InsertLineAsync(tx, folioId, "charge", desc, amount, f.Currency, bd, codeId: req.TransactionCodeId, quantity: req.Quantity,
             unitPrice: req.UnitPrice, reference: Validate.Optional(req.Reference, 100), room: f.RoomNumber, vat: code.VatRate);
         await tx.AuditAsync("folio.charge", "folio", folioId, null, new { lineId = id, amount, req.TransactionCodeId, desc });

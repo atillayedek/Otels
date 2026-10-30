@@ -172,6 +172,7 @@ export function CheckOutModal({ reservation: r, onClose }: { reservation: Reserv
     </>}>
       <div className="stack">
         <div><b>{r.guestName}</b> · {fmtDate(r.arrival)} → {fmtDate(r.departure)}</div>
+        {r.noteOnCheckout && r.notes && <div className="warn-box"><b>Folyo notu:</b> {r.notes}</div>}
         {dayUse && dayUseState === 'pending' && (
           <div className="warn-box stack">
             <div>Misafir bugün giriş yaptı. Bu gecenin oda ücreti ({fmtMoney(r.nightlyRate, r.currency)}) gece denetiminde yazılacaktı; çıkış yapılırsa yazılmaz.

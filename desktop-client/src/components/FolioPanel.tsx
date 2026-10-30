@@ -271,7 +271,7 @@ function FolioDialog({ dlg, folio, reservation, folios, onClose, onDone }: { dlg
 }
 
 /** Misafire verilen folyo dökümü: borç ve alacak ayrı sütunlarda, bakiye belirgin. A4, kenar boşluklarını belge kendisi verir. */
-function FolioPrint({ detail, reservation }: { detail: FolioDetail; reservation?: Reservation }) {
+export function FolioPrint({ detail, reservation }: { detail: FolioDetail; reservation?: Reservation }) {
   const f = detail.folio;
   const lines = detail.lines.filter(l => !l.isVoided && l.lineType !== 'void');
   const abs = (m: string) => m.replace('-', '');

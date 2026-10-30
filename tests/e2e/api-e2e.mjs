@@ -403,6 +403,7 @@ try {
     const adminToken = token; token = '';
     await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
     await api('PUT', `/api/v1/reservations/${id}`, { ...body, version: r.version, occupancy: { ...occupancy, single: '1.00' } }, { ...k(), expect: 403 });
+    state.recepToken = token;   // sonraki adımlar giriş deneme sınırına takılmasın diye oturum yeniden kullanılır
     token = adminToken;
 
     // Oda grupları ve toplu oda işlemi (tek kayıtta, sürüm beklemeden)
@@ -433,6 +434,37 @@ try {
     assert.ok(defs.some(d => d.name === 'kbs-guests'), 'KBS Excel raporu ayrı');
     const rep = await api('GET', '/api/v1/reports/police-list');
     assert.ok(rep.rows.some(x => x.lastName === 'Işıkoğlu'), 'konaklayan misafir listede');
+
+    // Folyo detayı: manuel harcama yasağı, kredi limiti, indirim %, fiyat kilidi, fatura/kart tipi, oda kartı no
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.ok(r.guestNo > 0, 'misafir kodu (M.Kodu)');
+    const fd = { companyId: null, agencyId: null, discountPct: 0, noManualCharges: true, invoiceType: 'receipt', keyCardType: 'vip', creditLimit: '0', notes: 'Fiş verildi', noteOnCheckout: true,
+      specialRequests: null, etd: '11:30:00', rateLocked: false, version: r.version };
+    await api('PUT', `/api/v1/reservations/${id}/folio-details`, fd);
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.deepEqual([r.noManualCharges, r.invoiceType, r.keyCardType, r.noteOnCheckout, r.notes, r.etd], [true, 'receipt', 'VIP', true, 'Fiş verildi', '11:30:00']);
+    const fol = (await api('GET', `/api/v1/folios?reservationId=${id}`))[0];
+    const mcode = (await api('POST', '/api/v1/finance/transaction-codes', { code: 'LND', name: 'Çamaşır', category: 'laundry', vatRate: '20', isActive: true }));
+    const ch = { transactionCodeId: mcode.id, quantity: '1', unitPrice: '300.00' };
+    let e = await api('POST', `/api/v1/folios/${fol.id}/charges`, ch, { ...k(), expect: 422 });
+    assert.match(e.message, /manuel harcama/i);
+    await api('PUT', `/api/v1/reservations/${id}/folio-details`, { ...fd, noManualCharges: false, creditLimit: '200.00', version: r.version });
+    e = await api('POST', `/api/v1/folios/${fol.id}/charges`, ch, { ...k(), expect: 422 });
+    assert.match(e.message, /Kredi limiti/);
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    await api('PUT', `/api/v1/reservations/${id}/folio-details`, { ...fd, noManualCharges: false, creditLimit: '0', discountPct: 10, version: r.version });
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    assert.equal(r.nightlyRate, '1710.00', '%10 indirim gecelik fiyata uygulandı');
+    await api('PUT', `/api/v1/reservations/${id}/folio-details`, { ...fd, noManualCharges: false, creditLimit: '0', discountPct: 10, rateLocked: true, version: r.version });
+    r = await api('GET', `/api/v1/reservations/${id}`);
+    e = await api('PUT', `/api/v1/reservations/${id}`, { ...body, version: r.version, nightlyRate: '1500.00' }, { ...k(), expect: 422 });
+    assert.match(e.message, /kilitli/);
+    await api('PUT', `/api/v1/reservations/${id}/guests/${main}`, { setKeyCard: true, keyCardNo: 'K-301-1', isActive: null });
+    let sg = await api('GET', `/api/v1/reservations/${id}/guests`);
+    assert.equal(sg[0].keyCardNo, 'K-301-1'); assert.ok(sg[0].guestNo > 0);
+    await api('PUT', `/api/v1/reservations/${id}/guests/${main}`, { setKeyCard: true, keyCardNo: null, isActive: null });
+    sg = await api('GET', `/api/v1/reservations/${id}/guests`);
+    assert.equal(sg[0].keyCardNo ?? null, null, 'kart silindi');
 
     // Temizlik: rezervasyon iptal, deneme odası ve tipi pasif
     await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${id}`)).version }, k());
@@ -1201,7 +1233,8 @@ try {
     assert.equal(Number(d.folio.balance), 0, 'masraf iptalinde bağlı indirim de iptal edildi');
     // Resepsiyon (fiyat değiştirme yetkisi yok) misafire indirim veremez
     const adminToken = token; token = '';
-    await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
+    if (state.recepToken) token = state.recepToken;
+    else await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
     const gg = (await api('GET', `/api/v1/guests/${g.id}`)).guest;
     await api('PUT', `/api/v1/guests/${g.id}`, { ...gg, roomDiscountPct: 50, version: gg.version }, { expect: 403 });
     await api('PUT', `/api/v1/guests/${g.id}`, { ...gg, notes: 'Resepsiyon notu', version: gg.version });   // indirim değişmeden düzenleme serbest

@@ -61,6 +61,9 @@ export interface Reservation {
   channel?: string; channelRef?: string; guestAlertNote?: string;
   /** Kişi sayısına göre gecelik fiyat (fiyat para biriminde). */
   rateSgl?: Money; rateDbl?: Money; rateTrp?: Money; rateQuad?: Money;
+  /** Folyo detayı ayarları */
+  discountPct: Money; noManualCharges: boolean; invoiceType: 'invoice' | 'receipt'; keyCardType: string; creditLimit: Money; noteOnCheckout: boolean; rateLocked: boolean;
+  guestNo: number; guestPhone?: string; guestPreferences?: string;
 }
 export interface ReservationListItem {
   id: string; reservationNumber: string; status: string; guestName: string; guestIsVip: boolean; companyName?: string; agencyName?: string; roomTypeCode: string;
@@ -73,7 +76,7 @@ export interface RackRoom { id: string; number: string; floor?: string; roomType
 export interface RackBar { reservationId: string; reservationNumber: string; roomId?: string; roomTypeId: string; status: string; guestName: string; isVip: boolean; arrival: DateStr; departure: DateStr; adults: number; children: number; companyName?: string; agencyName?: string; balance: Money }
 export interface RackBlock { id: string; roomId: string; kind: string; dateFrom: DateStr; dateTo: DateStr; reason: string }
 export interface Rack { from: DateStr; to: DateStr; businessDate: DateStr; rooms: RackRoom[]; bars: RackBar[]; blocks: RackBlock[]; unassigned: RackBar[] }
-export interface Sharer { id: string; name: string; isPrimary: boolean; nationality?: string; hasIdentity: boolean }
+export interface Sharer { id: string; name: string; isPrimary: boolean; nationality?: string; hasIdentity: boolean; guestNo: number; keyCardNo?: string; isActive: boolean; age?: number; balance: Money }
 export interface AuditRow { at: string; username?: string; action: string; reason?: string }
 export interface Wakeup { id: string; reservationId: string; roomNumber?: string; guestName: string; callAt: string; status: string; notes?: string }
 
