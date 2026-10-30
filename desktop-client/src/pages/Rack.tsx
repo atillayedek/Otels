@@ -3,15 +3,14 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlarmClock, ArrowRightLeft, BedDouble, BellOff, Bell, Brush, CalendarClock, CalendarRange, ClipboardList, CreditCard, Crown, FileText, Layers, List, Lock, LogIn, LogOut,
+  AlarmClock, ArrowRightLeft, BedDouble, BellOff, Bell, Brush, CalendarClock, CalendarRange, ClipboardList, CreditCard, Crown, FileText, List, Lock, LogIn, LogOut,
   Minus, NotebookPen, Pencil, Plus, Printer, Search, ShieldCheck, StickyNote, Tag, UserPlus, Users, Utensils, Wrench, XCircle,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import { useRoomGroups, useRoomStatus, useRoomTypes } from '../lib/queries';
+import { useRoomGroups, useRoomStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { BLOCK_LABEL, fmtDate, fmtDateTime, fmtMoney, HK_LABEL } from '../lib/format';
 import type { RoomStatus } from '../lib/types';
-import { PageHead } from '../components/common';
 import { Empty, ErrorBox, Spinner, useContextMenu, useToast, type MenuItem } from '../components/ui';
 import { HkStatusModal, TicketModal } from '../components/RoomActions';
 import { DocFooter, DocHeader } from '../components/PrintDoc';
@@ -21,7 +20,6 @@ import { TaskModal } from './HkTasks';
 
 type Filter = 'all' | 'vacant' | 'occupied' | 'arrival' | 'departure' | 'dirty' | 'blocked';
 type Size = 's' | 'm' | 'l';
-type Layout = 'floor' | 'flow';
 /** Kartın ana rengi (gövde): bloke > dolu > geliş > kirli > temizleniyor/kontrol > boş. */
 type Tone = 'blocked' | 'occupied' | 'departure' | 'arrival' | 'dirty' | 'cleaning' | 'inspected' | 'vacant';
 
@@ -36,7 +34,6 @@ function toneOf(r: RoomStatus): Tone {
 }
 
 const SIZE_KEY = 'pms-rack-size';
-const LAYOUT_KEY = 'pms-rack-layout';
 const readPref = <T extends string>(key: string, allowed: T[], d: T): T => { try { const v = localStorage.getItem(key) as T | null; return v && allowed.includes(v) ? v : d; } catch { return d; } };
 const savePref = (key: string, v: string) => { try { localStorage.setItem(key, v); } catch { /* tarayıcı depolaması kapalı olabilir */ } };
 
@@ -51,19 +48,11 @@ export default function RackPage() {
   const windows = useWindows();
   const { can, property } = useSession();
   const status = useRoomStatus();
-  const types = useRoomTypes();
   const groups = useRoomGroups();
   const menu = useContextMenu();
   const [filter, setFilter] = useState<Filter>('all');
-  const [typeId, setTypeId] = useState('');
-  const [floor, setFloor] = useState('');
-  const [groupId, setGroupId] = useState('');
-  const [account, setAccount] = useState('');
-  const [inDate, setInDate] = useState('');
-  const [outDate, setOutDate] = useState('');
   const [q, setQ] = useState('');
   const [size, setSize] = useState<Size>(() => readPref(SIZE_KEY, ['s', 'm', 'l'], 'm'));
-  const [layout, setLayout] = useState<Layout>(() => readPref(LAYOUT_KEY, ['floor', 'flow'], 'floor'));
   const [hkRoom, setHkRoom] = useState<string | null>(null);
   const [ticketRoom, setTicketRoom] = useState<string | null>(null);
   const [blockRoom, setBlockRoom] = useState<string | null>(null);
@@ -71,8 +60,6 @@ export default function RackPage() {
   const [printing, setPrinting] = useState(false);
 
   const rooms = useMemo(() => status.data ?? [], [status.data]);
-  const floors = useMemo(() => [...new Set(rooms.map(r => r.floor).filter(Boolean))] as string[], [rooms]);
-  const accounts = useMemo(() => [...new Set(rooms.flatMap(r => [r.inHouseAccount, r.arrivalAccount]).filter(Boolean))].sort((a, b) => a!.localeCompare(b!, 'tr')) as string[], [rooms]);
   const counts = useMemo(() => ({
     all: rooms.length,
     vacant: rooms.filter(r => r.foStatus === 'vacant' && !r.blockKind).length,
@@ -91,12 +78,6 @@ export default function RackPage() {
   // Arama: oda no, odadaki herkesin adı (ana ve ek misafirler, bugünkü geliş dahil), firma/acente.
   const needle = lc(q.trim());
   const view = rooms.filter(r => {
-    if (typeId && r.roomTypeId !== typeId) return false;
-    if (floor && r.floor !== floor) return false;
-    if (groupId && (groupId === '-' ? !!r.groupId : r.groupId !== groupId)) return false;
-    if (account && r.inHouseAccount !== account && r.arrivalAccount !== account) return false;
-    if (inDate && localDate(r.inHouseCheckedInAt) !== inDate && !(r.arrivalReservationId && property?.businessDate === inDate)) return false;
-    if (outDate && r.inHouseDeparture !== outDate && r.arrivalDeparture !== outDate) return false;
     if (needle && ![r.number, r.inHouseGuest, r.arrivalGuest, r.inHouseGuests, r.inHouseAccount, r.arrivalAccount].some(x => lc(x).includes(needle))) return false;
     switch (filter) {
       case 'vacant': return r.foStatus === 'vacant' && !r.blockKind;
@@ -108,12 +89,7 @@ export default function RackPage() {
       default: return true;
     }
   });
-  const filtered = !!(typeId || floor || groupId || account || inDate || outDate || q.trim() || filter !== 'all');
-  const byFloor = useMemo(() => {
-    const m = new Map<string, RoomStatus[]>();
-    for (const r of view) { const k = r.floor ?? ''; if (!m.has(k)) m.set(k, []); m.get(k)!.push(r); }
-    return [...m.entries()];
-  }, [view]);
+  const filtered = !!(q.trim() || filter !== 'all');
 
   /** Konaklama penceresi (arkadaki rack yerinde kalır); pencere sistemi yoksa sayfaya gider. */
   const openRes = (id: string, action?: string) => (windows ? windows.open({ kind: 'reservation', id, action }) : nav(`/reservations/${id}${action ? `?do=${action}` : ''}`));
@@ -196,7 +172,6 @@ export default function RackPage() {
   };
 
   const setZoom = (s: Size) => { setSize(s); savePref(SIZE_KEY, s); };
-  const setLay = (l: Layout) => { setLayout(l); savePref(LAYOUT_KEY, l); };
   const print = () => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
   const F = (k: Filter, label: string) => <button className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>{label} ({counts[k]})</button>;
 
@@ -239,21 +214,6 @@ export default function RackPage() {
 
   return (
     <div className="page rack-page">
-      <PageHead title="Oda Rack" sub={`İş günü ${fmtDate(property?.businessDate)} · gösterilen ${view.length} / ${rooms.length} oda`} actions={<>
-        <div className="seg" title="Yerleşim">
-          <button className={layout === 'floor' ? 'active' : ''} onClick={() => setLay('floor')} title="Her kat bir satır"><Layers size={14} /> Kat kat</button>
-          <button className={layout === 'flow' ? 'active' : ''} onClick={() => setLay('flow')} title="Odalar art arda">Akış</button>
-        </div>
-        <div className="seg" title="Kart boyutu">
-          <button className={size === 's' ? 'active' : ''} onClick={() => setZoom('s')} aria-label="Küçült"><Minus size={14} /></button>
-          <button className={size === 'm' ? 'active' : ''} onClick={() => setZoom('m')}>Normal</button>
-          <button className={size === 'l' ? 'active' : ''} onClick={() => setZoom('l')} aria-label="Büyült"><Plus size={14} /></button>
-        </div>
-        <button className="btn" onClick={print} disabled={view.length === 0}><Printer /> Yazdır</button>
-        {can('checkin.execute') && can('reservation.create') && <button className="btn" onClick={() => (windows ? windows.open({ kind: 'walk-in' }) : nav('/walk-in'))}><UserPlus /> Walk-in</button>}
-        {can('reservation.create') && <button className="btn primary" onClick={() => (windows ? windows.open({ kind: 'new-reservation' }) : nav('/reservations/new'))}><ClipboardList /> Yeni rezervasyon</button>}
-      </>} />
-
       <div className="rack-tools">
         <div className="rack-search">
           <Search size={15} />
@@ -261,33 +221,19 @@ export default function RackPage() {
           {q && <button className="btn sm ghost" onClick={() => setQ('')} aria-label="Aramayı temizle">×</button>}
         </div>
         <div className="seg">{F('all', 'Tümü')}{F('vacant', 'Boş')}{F('occupied', 'Dolu')}{F('arrival', 'Geliş')}{F('departure', 'Çıkış')}{F('dirty', 'Kirli')}{F('blocked', 'Bloke')}</div>
-      </div>
-      <div className="row wrap" style={{ marginBottom: 12, gap: 10 }}>
-        <select className="input" style={{ width: 160 }} value={typeId} onChange={e => setTypeId(e.target.value)}><option value="">Tüm oda tipleri</option>{types.data?.map(t => <option key={t.id} value={t.id}>{t.code} · {t.name}</option>)}</select>
-        {floors.length > 0 && <select className="input" style={{ width: 110 }} value={floor} onChange={e => setFloor(e.target.value)}><option value="">Tüm katlar</option>{floors.map(f => <option key={f} value={f}>{f}. kat</option>)}</select>}
-        {(groups.data?.length ?? 0) > 0 && <select className="input" style={{ width: 150 }} value={groupId} onChange={e => setGroupId(e.target.value)}>
-          <option value="">Tüm oda grupları</option>{groups.data!.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}<option value="-">Grubu olmayanlar</option>
-        </select>}
-        <select className="input" style={{ width: 190 }} value={account} onChange={e => setAccount(e.target.value)} title="Şirket veya acente">
-          <option value="">Tüm firma / acenteler</option>{accounts.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <label className="row muted" style={{ gap: 6, fontSize: 12.5 }}>Giriş <input type="date" className="input" style={{ width: 150 }} value={inDate} onChange={e => setInDate(e.target.value)} /></label>
-        <label className="row muted" style={{ gap: 6, fontSize: 12.5 }}>Çıkış <input type="date" className="input" style={{ width: 150 }} value={outDate} onChange={e => setOutDate(e.target.value)} /></label>
-        {filtered && <button className="btn sm ghost" onClick={() => { setFilter('all'); setTypeId(''); setFloor(''); setGroupId(''); setAccount(''); setInDate(''); setOutDate(''); setQ(''); }}>Filtreleri temizle</button>}
+        <span className="spacer" />
+        <span className="muted" style={{ fontSize: 12 }}>{fmtDate(property?.businessDate)} · {view.length} / {rooms.length} oda</span>
+        <div className="seg" title="Kart boyutu">
+          <button className={size === 's' ? 'active' : ''} onClick={() => setZoom('s')} aria-label="Küçült"><Minus size={14} /></button>
+          <button className={size === 'm' ? 'active' : ''} onClick={() => setZoom('m')}>Normal</button>
+          <button className={size === 'l' ? 'active' : ''} onClick={() => setZoom('l')} aria-label="Büyült"><Plus size={14} /></button>
+        </div>
+        <button className="btn icon" onClick={print} disabled={view.length === 0} title="Yazdır"><Printer /></button>
       </div>
 
       {status.isLoading ? <Spinner /> : status.error ? <ErrorBox error={status.error} /> : rooms.length === 0 ? (
         <Empty icon={<BedDouble />} title="Henüz oda tanımlanmamış" text="Odaları Yönetim → Oda ve Oda Tipleri ekranından ekleyin." action={can('room.manage') ? <button className="btn primary" onClick={() => nav('/settings/rooms')}>Oda tanımla</button> : undefined} />
-      ) : view.length === 0 ? <Empty title={needle ? `"${q.trim()}" ile eşleşen oda veya misafir yok` : 'Bu filtreye uyan oda yok'} /> : layout === 'floor' && floors.length > 0 ? (
-        <div className={`rack-floors size-${size}`}>
-          {byFloor.map(([f, list]) => (
-            <div key={f} className="rack-floor">
-              <div className="rf-label">{f ? <>{f}<small>. kat</small></> : '—'}</div>
-              <div className="rack-row">{list.map(tile)}</div>
-            </div>
-          ))}
-        </div>
-      ) : (
+      ) : view.length === 0 ? <Empty title={needle ? `"${q.trim()}" ile eşleşen oda veya misafir yok` : 'Bu filtreye uyan oda yok'} /> : (
         <div className={`rack-grid size-${size}`}>{view.map(tile)}</div>
       )}
 
