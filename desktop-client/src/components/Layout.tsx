@@ -13,6 +13,7 @@ import { AppearanceModal, QuickLook } from './AppearanceSettings';
 import { WindowsProvider, WindowTaskbar, useWindows, type WinSpec } from './Windows';
 import { useLogo } from './PrintDoc';
 import { Modal, useContextMenu } from './ui';
+import { QuickFind } from './QuickFind';
 
 interface NavItem { to: string; label: string; perm?: string | string[] }
 interface NavGroup { label: string; icon: ReactNode; module?: string; items: NavItem[] }
@@ -263,6 +264,7 @@ function Shell({ children }: { children: ReactNode }) {
           })}
         </div>
         <div className="top-right">
+          <QuickFind />
           <div className="bizdate" title="Gece denetimiyle bir sonraki güne geçer"><CalendarRange /><span><small>İş günü</small><b>{fmtDate(property?.businessDate)}</b></span></div>
           <span style={{ position: 'relative' }}>
             <button className="btn ghost icon" onClick={() => setQuickLook(q => !q)} title="Görünüm: tema, yazı ve simge boyutu"><Palette /></button>
@@ -281,6 +283,7 @@ function Shell({ children }: { children: ReactNode }) {
         <Modal title="Klavye kısayolları" onClose={() => setKeysHelp(false)} footer={<button className="btn primary" onClick={() => setKeysHelp(false)}>Tamam</button>}>
           <table className="dt keys-table"><tbody>
             {shortcuts.filter(s => s.ok).map(s => <tr key={s.key}><td><kbd>{s.key}</kbd></td><td>{s.label}</td></tr>)}
+            <tr><td><kbd>Ctrl+K</kbd></td><td>Hızlı bul: oda, misafir veya rezervasyon no</td></tr>
             <tr><td><kbd>Enter</kbd></td><td>Formda sonraki alana geç</td></tr>
             <tr><td><kbd>Esc</kbd></td><td>Açık pencereyi / menüyü kapat</td></tr>
           </tbody></table>

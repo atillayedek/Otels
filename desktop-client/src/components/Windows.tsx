@@ -38,6 +38,8 @@ const SIZE: Record<WinSpec['kind'], [number, number]> = { reservation: [1040, 72
 const TITLE: Record<WinSpec['kind'], string> = { reservation: 'Folyo Detayı', folio: 'Hesap Hareketleri', guest: 'Misafir kartı', 'new-reservation': 'Yeni rezervasyon', 'walk-in': 'Walk-in', 'cash-sale': 'Peşin Satış', charge: 'Harcama' };
 
 let seq = 0;
+/** Pencereler üst çubuğun altında açılır; üst menü, hızlı bul ve kısayol düğmeleri her zaman görünür kalır. */
+const TOP = 70;
 const keyOf = (s: WinSpec) => (s.kind === 'reservation' || s.kind === 'guest' || s.kind === 'folio' ? `${s.kind}:${s.id}` : s.kind === 'cash-sale' ? s.kind : s.kind === 'charge' ? `charge:${s.mode}` : `${s.kind}:${++seq}`);
 
 export function WindowsProvider({ children }: { children: ReactNode }) {
@@ -53,9 +55,9 @@ export function WindowsProvider({ children }: { children: ReactNode }) {
       if (found) return ws.map(w => w.key === key ? { ...w, spec, min: false, z: top() } : w);
       const [dw, dh] = SIZE[spec.kind];
       const vw = window.innerWidth, vh = window.innerHeight;
-      const w = Math.min(dw, vw - 40), h = Math.min(dh, vh - 70);
+      const w = Math.min(dw, vw - 40), h = Math.min(dh, vh - TOP - 36);
       const off = (ws.length % 6) * 26;
-      return [...ws, { key, spec, title: spec.kind === 'charge' ? CHARGE_TITLE[spec.mode] : TITLE[spec.kind], w, h, x: Math.max(10, (vw - w) / 2 + off - 60), y: Math.max(10, (vh - h) / 2 + off - 40), z: top(), max: false, min: false }];
+      return [...ws, { key, spec, title: spec.kind === 'charge' ? CHARGE_TITLE[spec.mode] : TITLE[spec.kind], w, h, x: Math.max(10, (vw - w) / 2 + off - 60), y: Math.max(TOP, (vh - h) / 2 + off - 20), z: top(), max: false, min: false }];
     });
   }, []);
   const close = useCallback((key: string) => setWins(ws => ws.filter(w => w.key !== key)), []);
@@ -89,7 +91,7 @@ function WindowFrame({ w, api, patch, focus }: { w: Win; api: WinApi; patch: (k:
     const sx = e.clientX, sy = e.clientY, ox = w.x, oy = w.y;
     const move = (m: MouseEvent) => patch(w.key, {
       x: Math.min(window.innerWidth - 120, Math.max(-w.w + 160, ox + m.clientX - sx)),
-      y: Math.min(window.innerHeight - 60, Math.max(0, oy + m.clientY - sy)),
+      y: Math.min(window.innerHeight - 60, Math.max(TOP, oy + m.clientY - sy)),
     });
     const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
     window.addEventListener('mousemove', move);
