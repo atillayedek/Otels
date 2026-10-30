@@ -869,3 +869,8 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .fdw-master { grid-template-columns: 60px 1fr auto !important; }
 .fdw-linked { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); }
 .fdw-linked .btn { height: 22px; padding: 0 8px; font-weight: 600; }
+
+/* Rack çoklu seçim */
+.room-tile.selected { outline: 3px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent); }
+.rack-selbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 8px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); font-size: 13px; }
+.rack-selbar .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }

@@ -1404,6 +1404,27 @@ try {
     assert.equal((await api('GET', `/api/v1/reservations/${master}/master`)).children.length, 0);
   });
 
+  await step('Toplu masraf: seçili konaklayan odalara tek işlemde; boş seçim ve konaklamayan oda reddedilir (hiçbirine yazılmaz), aynı oda bir kez yazılır', async () => {
+    const k = () => ({ key: randomUUID() });
+    const spa = (await api('GET', '/api/v1/finance/transaction-codes')).find(c => c.code === 'SPA20').id;
+    const a = state.inhouse, b = state.eurRes;
+    const folioOf = async id => (await api('GET', `/api/v1/folios?reservationId=${id}`)).find(f => f.status === 'open').id;
+    const fa = await folioOf(a), fb = await folioOf(b);
+    const bal = async f => Number((await api('GET', `/api/v1/folios/${f}`)).folio.balance);
+    const [ba, bb] = [await bal(fa), await bal(fb)];
+    const body = { transactionCodeId: spa, description: 'Toplu deneme', quantity: '2', unitPrice: '15.00' };
+    await api('POST', '/api/v1/folios/bulk-charge', { ...body, reservationIds: [] }, { ...k(), expect: 422 });
+    const bad = await api('POST', '/api/v1/folios/bulk-charge', { ...body, reservationIds: [a, state.opt] }, { ...k(), expect: 422 });
+    assert.match(bad.message, /yalnız konaklayan/);
+    assert.equal(await bal(fa), ba, 'reddedilen toplu masrafta ilk oda da yazılmaz');
+    const r = await api('POST', '/api/v1/folios/bulk-charge', { ...body, reservationIds: [a, b, a] }, k());
+    assert.equal(r.count, 2, 'aynı oda iki kez seçilse de bir kez yazılır');
+    assert.equal(await bal(fa), ba + 30);
+    assert.equal(await bal(fb), bb + 30);
+    for (const id of r.lineIds) await api('POST', `/api/v1/folio-lines/${id}/void`, { reason: 'test' }, k());
+    assert.deepEqual([await bal(fa), await bal(fb)], [ba, bb]);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

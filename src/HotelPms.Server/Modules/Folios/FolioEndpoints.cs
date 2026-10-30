@@ -12,6 +12,7 @@ public sealed record ShiftTotalDto(string PaymentMethod, string Kind, string Cur
 public sealed record ShiftCashDto(string Currency, decimal Expected, decimal? Counted, decimal? Difference);
 public sealed record ShiftReport(ShiftDto Shift, IReadOnlyList<ShiftTotalDto> Totals, decimal ExpectedCash, IReadOnlyList<ShiftCashDto> Cash);
 public sealed record OpenShiftRequest(decimal OpeningFloat);
+public sealed record BulkChargeRequest(Guid[]? ReservationIds, Guid TransactionCodeId, string? Description, decimal Quantity, decimal UnitPrice, string? Reference);
 /// <summary>CountedCash tesis para birimindeki nakit; CountedForeign kasadaki dövizlerin sayımı (para birimi → tutar).</summary>
 public sealed record CloseShiftRequest(decimal CountedCash, string? Note, Dictionary<string, decimal>? CountedForeign = null);
 
@@ -58,7 +59,36 @@ public static class FolioEndpoints
         g.MapPost("/{id:guid}/charges", (Guid id, PostChargeRequest req, CommandRunner cmd) => cmd.RunAsync("folio.charge", new { id, req }, async tx =>
             new { id = await FolioService.PostChargeAsync(tx, id, req) })).RequirePermission("folio.post");
 
-        g.MapPost("/{id:guid}/payments", (Guid id, PostPaymentRequest req, CommandRunner cmd) => cmd.RunAsync("folio.payment", new { id, req }, async tx =>
+        // Toplu masraf (rack'te seçili odalar): aynı masraf her konaklamanın açık folyosuna yazılır; biri reddedilirse hiçbiri yazılmaz.
+        g.MapPost("/bulk-charge", (BulkChargeRequest req, CommandRunner cmd) => cmd.RunAsync("folio.bulk_charge", req, async tx =>
+        {
+            var ids = (req.ReservationIds ?? []).Distinct().ToArray();
+            if (ids.Length == 0) throw PmsException.Validation("Masraf yazılacak oda seçilmedi.");
+            if (ids.Length > 500) throw PmsException.Validation("Tek seferde en fazla 500 odaya masraf yazılabilir.");
+            var lines = new List<Guid>();
+            string? currency = null;
+            foreach (var rid in ids)
+            {
+                var r = await tx.OneOrNullAsync<(string Status, string Currency, string? Room, Guid? FolioId)>("""
+                    SELECT r.status, r.currency::text, rm.number,
+                           (SELECT f.id FROM pms.folios f WHERE f.reservation_id = r.id AND f.status = 'open'
+                             ORDER BY (f.window_no = r.room_charge_window) DESC, f.window_no LIMIT 1)
+                    FROM pms.reservations r LEFT JOIN pms.rooms rm ON rm.id = r.room_id WHERE r.id = @rid
+                    """, new { rid });
+                if (r == default) throw PmsException.NotFound("Rezervasyon");
+                if (r.Status != "checked_in") throw PmsException.Validation($"Oda {r.Room}: yalnız konaklayan odalara masraf yazılabilir.");
+                if (r.FolioId is not { } fid) throw PmsException.Validation($"Oda {r.Room}: açık folyo yok.");
+                // Aynı tutar her odaya kendi para biriminde yazılacağından seçim tek para birimi olmalı (200 TL ile 200 EUR karışmasın).
+                if (currency is not null && currency != r.Currency)
+                    throw PmsException.Validation($"Seçili odalar farklı para birimlerinde ({currency}, {r.Currency}). Toplu masrafı aynı para birimindeki odalara ayrı ayrı yazın.");
+                currency = r.Currency;
+                try { lines.Add(await FolioService.PostChargeAsync(tx, fid, new PostChargeRequest(req.TransactionCodeId, req.Description, req.Quantity, req.UnitPrice, req.Reference))); }
+                catch (PmsException ex) when (ex.Status < 500) { throw new PmsException(ex.Status, ex.Code, $"Oda {r.Room}: {ex.Message}", ex.Details); }
+            }
+            return new { count = lines.Count, lineIds = lines };
+        })).RequirePermission("folio.post");
+
+        g.MapPost("/{id:guid}/payments",(Guid id, PostPaymentRequest req, CommandRunner cmd) => cmd.RunAsync("folio.payment", new { id, req }, async tx =>
             new { id = await FolioService.PostPaymentAsync(tx, id, req) })).RequirePermission("payment.create");
 
         g.MapPost("/{id:guid}/refunds", (Guid id, RefundRequest req, CommandRunner cmd) => cmd.RunAsync("folio.refund", new { id, req }, async tx =>

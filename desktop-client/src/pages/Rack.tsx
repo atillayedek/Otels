@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlarmClock, ArrowRightLeft, BedDouble, BellOff, Bell, Brush, CalendarClock, CalendarRange, ClipboardList, CreditCard, Crown, FileText, List, Lock, LogIn, LogOut,
-  Minus, NotebookPen, Pencil, Plus, Printer, Search, ShieldCheck, StickyNote, Tag, UserPlus, Users, Utensils, Wrench, XCircle,
+  AlarmClock, ArrowRightLeft, BedDouble, BellOff, Bell, Brush, CalendarClock, CalendarRange, CheckSquare, ClipboardList, CreditCard, Crown, FileText, List, Lock, LogIn, LogOut,
+  Minus, NotebookPen, Pencil, Plus, Printer, Search, ShieldCheck, StickyNote, Tag, UserPlus, Users, Utensils, Wrench, X, XCircle,
 } from 'lucide-react';
+import { BulkChargeModal, BulkCheckoutModal, BulkNoteModal } from '../components/RackBulk';
 import { api } from '../lib/api';
 import { useRoomGroups, useRoomStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
@@ -58,6 +59,10 @@ export default function RackPage() {
   const [blockRoom, setBlockRoom] = useState<string | null>(null);
   const [taskRoom, setTaskRoom] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
+  // Çoklu seçim: Ctrl+tık tek tek, Shift+tık aralık, "Seç" menüsünden toplu (tümü, bugün çıkacaklar...).
+  const [sel, setSel] = useState<Set<string>>(() => new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [bulkDlg, setBulkDlg] = useState<'note' | 'charge' | 'checkout' | null>(null);
 
   const rooms = useMemo(() => status.data ?? [], [status.data]);
   const counts = useMemo(() => ({
@@ -86,6 +91,42 @@ export default function RackPage() {
   });
   const filtered = !!(q.trim() || filter !== 'all');
 
+  // Seçim yalnız var olan odaları tutar (oda pasife alınınca/yenilenince düşer).
+  const selRooms = rooms.filter(r => sel.has(r.id));
+  const selectWhere = (pred: (r: RoomStatus) => boolean, add = false) =>
+    setSel(prev => { const n = new Set(add ? prev : []); view.filter(pred).forEach(r => n.add(r.id)); return n; });
+  const clearSel = () => { setSel(new Set()); setAnchor(null); };
+  const toggle = (r: RoomStatus, range: boolean) => {
+    if (range && anchor) {
+      const a = view.findIndex(x => x.id === anchor), b = view.findIndex(x => x.id === r.id);
+      if (a >= 0 && b >= 0) {
+        setSel(prev => { const n = new Set(prev); view.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => n.add(x.id)); return n; });
+        return;
+      }
+    }
+    setSel(prev => { const n = new Set(prev); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); return n; });
+    setAnchor(r.id);
+  };
+  useEffect(() => {
+    if (sel.size === 0) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.overlay, .ctx')) clearSel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sel.size]);
+  const selectMenu = (e: React.MouseEvent) => menu.open(e, [
+    { label: `Tümü (ekrandaki ${view.length} oda)`, icon: <CheckSquare size={14} />, onClick: () => selectWhere(() => true) },
+    { label: 'Bugün çıkacaklar (C/Out günü gelenler)', icon: <LogOut size={14} />, onClick: () => selectWhere(r => r.departureToday) },
+    { label: 'Bugün gelecekler', icon: <LogIn size={14} />, onClick: () => selectWhere(r => !!r.arrivalReservationId && r.foStatus !== 'occupied') },
+    { label: 'Dolu odalar (konaklayan)', icon: <BedDouble size={14} />, onClick: () => selectWhere(r => r.foStatus === 'occupied') },
+    { label: 'Boş odalar', onClick: () => selectWhere(r => r.foStatus === 'vacant' && !r.blockKind) },
+    { label: 'Kirli odalar', icon: <Brush size={14} />, onClick: () => selectWhere(r => r.hkStatus === 'dirty') },
+    { label: 'Bakiyesi olan odalar', icon: <CreditCard size={14} />, onClick: () => selectWhere(r => r.inHouseBalance != null && Number(r.inHouseBalance) > 0) },
+    ...((groups.data?.length ?? 0) > 0 ? [{ label: 'Oda grubu', icon: <Tag size={14} />, children: groups.data!.map(g => ({ label: g.name, onClick: () => selectWhere(r => r.groupId === g.id) })) } as MenuItem] : []),
+    { separator: true, label: '' },
+    { label: 'Seçimi tersine çevir', disabled: sel.size === 0, onClick: () => setSel(prev => new Set(view.filter(r => !prev.has(r.id)).map(r => r.id))) },
+    { label: 'Seçimi temizle (Esc)', icon: <X size={14} />, disabled: sel.size === 0, onClick: clearSel },
+  ]);
+
   /** Konaklama penceresi (arkadaki rack yerinde kalır); pencere sistemi yoksa sayfaya gider. */
   /** Hesap hareketleri (masraf/tahsilat) ayrı pencerede açılır. */
   const openFolio = (id: string, action?: string) => (windows ? windows.open({ kind: 'folio', id, action }) : nav(`/reservations/${id}${action ? `?do=${action}` : ''}`));
@@ -95,12 +136,42 @@ export default function RackPage() {
     if (windows) windows.open({ kind: walkIn ? 'walk-in' : 'new-reservation', params });
     else nav(walkIn ? `/walk-in?room=${r.id}` : `/reservations/new?room=${r.id}&type=${r.roomTypeId}`);
   };
-  const bulk = async (r: RoomStatus, body: Record<string, unknown>, done: string) => {
+  const bulk = async (r: RoomStatus | RoomStatus[], body: Record<string, unknown>, done: string) => {
+    const list = Array.isArray(r) ? r : [r];
     try {
-      await api('POST', '/api/v1/rooms/bulk-housekeeping', { roomIds: [r.id], setNote: false, setGroup: false, ...body });
+      await api('POST', '/api/v1/rooms/bulk-housekeeping', { roomIds: list.map(x => x.id), setNote: false, setGroup: false, ...body });
       await qc.invalidateQueries({ predicate: x => ['roomStatus', 'rooms', 'rack'].includes(String(x.queryKey[0])) });
-      toast.ok(`Oda ${r.number}: ${done}`);
+      toast.ok(list.length === 1 ? `Oda ${list[0].number}: ${done}` : `${list.length} oda: ${done}`);
     } catch (e) { toast.error(e); }
+  };
+
+  /** Seçili odalar için toplu işlemler (seçim çubuğu ve seçili karta sağ tık). */
+  const bulkItems = (): MenuItem[] => {
+    const list = selRooms;
+    const inhouse = list.filter(r => r.inHouseReservationId).length;
+    return [
+      { label: `${list.length} oda seçili${inhouse ? ` · ${inhouse} konaklayan` : ''}`, disabled: true },
+      { separator: true, label: '' },
+      { label: 'Oda durumu', icon: <Brush size={14} />, disabled: !can('housekeeping.update'), children: Object.entries(HK_LABEL)
+        .filter(([k]) => k !== 'inspected' || can('housekeeping.inspect'))
+        .map(([k, l]) => ({ label: l, onClick: () => void bulk(list, { hkStatus: k }, `durum "${l}" yapıldı.`) })) },
+      { label: 'Rahatsız etmeyin (DND) işaretle', icon: <BellOff size={14} />, disabled: !can('housekeeping.update'), onClick: () => void bulk(list, { isDnd: true }, 'DND işaretlendi.') },
+      { label: 'Rahatsız etmeyin kaldır', icon: <Bell size={14} />, disabled: !can('housekeeping.update'), onClick: () => void bulk(list, { isDnd: false }, 'DND kaldırıldı.') },
+      { label: 'Oda durum notu yaz / sil', icon: <StickyNote size={14} />, disabled: !can('housekeeping.update'), onClick: () => setBulkDlg('note') },
+      ...(can('room.manage') && (groups.data?.length ?? 0) > 0 ? [{
+        label: 'Oda grubu', icon: <Tag size={14} />, children: [
+          ...groups.data!.map(g => ({ label: g.name, onClick: () => void bulk(list, { setGroup: true, groupId: g.id }, `"${g.name}" grubuna alındı.`) })),
+          { separator: true, label: '' },
+          { label: 'Gruptan çıkar', onClick: () => void bulk(list, { setGroup: true, groupId: null }, 'gruptan çıkarıldı.') },
+        ],
+      } as MenuItem] : []),
+      { separator: true, label: '' },
+      { label: 'Toplu masraf ekle', icon: <Plus size={14} />, disabled: !inhouse || !can('folio.post'), onClick: () => setBulkDlg('charge') },
+      { label: 'Toplu çıkış (bakiyesi sıfır olanlar)', icon: <LogOut size={14} />, disabled: !inhouse || !can('checkout.execute'), onClick: () => setBulkDlg('checkout') },
+      { separator: true, label: '' },
+      { label: 'Seçilenleri yazdır', icon: <Printer size={14} />, onClick: () => print() },
+      { label: 'Seçimi temizle (Esc)', icon: <X size={14} />, onClick: clearSel },
+    ];
   };
 
   const items = (r: RoomStatus): MenuItem[] => {
@@ -178,9 +249,13 @@ export default function RackPage() {
     const t = toneOf(r);
     const names = (r.inHouseGuests ?? r.inHouseGuest ?? r.arrivalGuest ?? '').split(' · ').filter(Boolean);
     return (
-      <div key={r.id} className={`room-tile tone-${t}`} title={tileTitle(r)}
+      <div key={r.id} className={`room-tile tone-${t}${sel.has(r.id) ? ' selected' : ''}`} title={tileTitle(r)} aria-selected={sel.has(r.id)}
         style={r.groupColor ? ({ '--grp': r.groupColor } as React.CSSProperties) : undefined}
-        onClick={e => menu.open(e, items(r))} onContextMenu={e => menu.open(e, items(r))}
+        onClick={e => {
+          if (e.ctrlKey || e.metaKey || e.shiftKey) { e.preventDefault(); toggle(r, e.shiftKey); return; }
+          menu.open(e, sel.has(r.id) && sel.size > 1 ? bulkItems() : items(r));
+        }}
+        onContextMenu={e => menu.open(e, sel.has(r.id) && sel.size > 1 ? bulkItems() : items(r))}
         onDoubleClick={() => { const id = r.inHouseReservationId ?? r.arrivalReservationId; if (id) openRes(id); }}>
         <div className="rt-head">
           <span className="rt-no">{r.number}</span>
@@ -220,6 +295,7 @@ export default function RackPage() {
           {q && <button className="btn sm ghost" onClick={() => setQ('')} aria-label="Aramayı temizle">×</button>}
         </div>
         <div className="seg">{F('all', 'Tümü')}{F('vacant', 'Boş')}{F('occupied', 'Dolu')}{F('arrival', 'Geliş')}{F('departure', 'Çıkış')}{F('dirty', 'Kirli')}{F('blocked', 'Bloke')}</div>
+        <button className="btn sm" onClick={selectMenu} title="Odaları toplu seç (Ctrl+tık tek tek, Shift+tık aralık)"><CheckSquare size={14} /> Seç</button>
         <span className="spacer" />
         <span className="muted" style={{ fontSize: 12 }}>{fmtDate(property?.businessDate)} · {view.length} / {rooms.length} oda</span>
         <div className="seg" title="Kart boyutu">
@@ -227,8 +303,19 @@ export default function RackPage() {
           <button className={size === 'm' ? 'active' : ''} onClick={() => setZoom('m')}>Normal</button>
           <button className={size === 'l' ? 'active' : ''} onClick={() => setZoom('l')} aria-label="Büyült"><Plus size={14} /></button>
         </div>
-        <button className="btn icon" onClick={print} disabled={view.length === 0} title="Yazdır"><Printer /></button>
+        <button className="btn icon" onClick={print} disabled={view.length === 0} title={sel.size ? 'Seçili odaları yazdır' : 'Yazdır'}><Printer /></button>
       </div>
+      {sel.size > 0 && (
+        <div className="rack-selbar">
+          <CheckSquare size={15} />
+          <b>{selRooms.length} oda seçili</b>
+          <span className="muted">{selRooms.map(r => r.number).slice(0, 12).join(', ')}{selRooms.length > 12 ? ' …' : ''}</span>
+          <span className="spacer" />
+          <span className="muted" style={{ fontSize: 12 }}>Ctrl+tık ekle/çıkar · Shift+tık aralık · Esc temizle</span>
+          <button className="btn sm primary" onClick={e => menu.open(e, bulkItems())}>Toplu işlemler</button>
+          <button className="btn sm" onClick={clearSel}><X size={14} /> Temizle</button>
+        </div>
+      )}
 
       {status.isLoading ? <Spinner /> : status.error ? <ErrorBox error={status.error} /> : rooms.length === 0 ? (
         <Empty icon={<BedDouble />} title="Henüz oda tanımlanmamış" text="Odaları Yönetim → Oda ve Oda Tipleri ekranından ekleyin." action={can('room.manage') ? <button className="btn primary" onClick={() => nav('/settings/rooms')}>Oda tanımla</button> : undefined} />
@@ -242,7 +329,10 @@ export default function RackPage() {
       {ticketRoom && <TicketModal roomId={ticketRoom} onClose={() => setTicketRoom(null)} />}
       {blockRoom && <BlockModal roomId={blockRoom} onClose={() => setBlockRoom(null)} />}
       {taskRoom && <TaskModal roomId={taskRoom} onClose={() => setTaskRoom(null)} />}
-      {printing && createPortal(<RackPrint rooms={view} filtered={filtered} />, document.getElementById('print-root')!)}
+      {bulkDlg === 'note' && <BulkNoteModal rooms={selRooms} onClose={() => setBulkDlg(null)} />}
+      {bulkDlg === 'charge' && <BulkChargeModal rooms={selRooms} onClose={() => setBulkDlg(null)} />}
+      {bulkDlg === 'checkout' && <BulkCheckoutModal rooms={selRooms} onClose={() => setBulkDlg(null)} />}
+      {printing && createPortal(<RackPrint rooms={sel.size ? selRooms : view} filtered={filtered || sel.size > 0} />, document.getElementById('print-root')!)}
     </div>
   );
 }
