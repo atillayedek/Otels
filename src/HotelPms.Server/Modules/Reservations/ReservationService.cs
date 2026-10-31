@@ -55,7 +55,9 @@ public static class ReservationService
 
     // ------------------------------------------------------------------ Fiyat
     /// <param name="guestId">Verilirse misafir kartındaki konaklama indirimi (%) gecelik fiyatlara uygulanır.</param>
-    public static async Task<RatePreview> ComputeRatesAsync(Tx tx, Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure, Guid? guestId = null)
+    /// <param name="bookedOn">Kampanya uygunluğu için rezervasyonun alındığı gün (boşsa iş günü). <paramref name="promotions"/> false ise kampanya uygulanmaz (ör. uzatma).</param>
+    public static async Task<RatePreview> ComputeRatesAsync(Tx tx, Guid roomTypeId, Guid? ratePlanId, DateOnly arrival, DateOnly departure, Guid? guestId = null,
+        DateOnly? bookedOn = null, bool promotions = true)
     {
         var defaultRate = await tx.ScalarAsync<decimal?>("SELECT default_rate FROM pms.room_types WHERE id = @roomTypeId AND is_active", new { roomTypeId })
             ?? throw PmsException.Validation("Oda tipi bulunamadı veya pasif.");
@@ -88,6 +90,11 @@ public static class ReservationService
         {
             for (var d = arrival; d < departure; d = d.AddDays(1)) nights.Add(new NightRate(d, defaultRate));
         }
+        // Aksiyon ve indirimler: plan / oda tipi fiyatına, misafir indiriminden önce uygulanır.
+        AppliedPromotion? promo = null;
+        if (promotions)
+            (nights, promo) = await PromotionEndpoints.ApplyAsync(tx, roomTypeId, ratePlanId, arrival, departure, nights,
+                bookedOn ?? await PropertyEndpoints.BusinessDateAsync(tx));
         decimal discount = 0;
         if (guestId is { } gid && await tx.ScalarAsync<decimal?>("SELECT room_discount_pct FROM pms.guests WHERE id = @gid", new { gid }) is decimal pct && pct > 0)
         {
@@ -95,7 +102,8 @@ public static class ReservationService
             nights = nights.Select(n => n with { Rate = decimal.Round(n.Rate * (100 - pct) / 100, 2, MidpointRounding.AwayFromZero) }).ToList();
         }
         var total = nights.Sum(n => n.Rate);
-        return new RatePreview(nights, total, nights.Count == 0 ? 0 : decimal.Round(total / nights.Count, 2), source, planCurrency, discount);
+        return new RatePreview(nights, total, nights.Count == 0 ? 0 : decimal.Round(total / nights.Count, 2), source, planCurrency, discount,
+            promo?.Id, promo?.Name, promo?.Saving ?? 0);
     }
 
     static async Task WriteRatesAsync(Tx tx, Guid reservationId, IEnumerable<NightRate> nights, IReadOnlyDictionary<DateOnly, decimal>? fx = null)
@@ -107,7 +115,8 @@ public static class ReservationService
     }
 
     /// <summary>Fiyat sonucu: Nights/Nightly tesis para birimindedir (dövizlide rezervasyon anı kuruyla tahmini karşılık).</summary>
-    sealed record ResolvedRates(List<NightRate> Nights, decimal Nightly, string? FxCurrency, Dictionary<DateOnly, decimal>? FxNights, decimal? FxNightly);
+    sealed record ResolvedRates(List<NightRate> Nights, decimal Nightly, string? FxCurrency, Dictionary<DateOnly, decimal>? FxNights, decimal? FxNightly,
+        Guid? PromotionId = null);
 
     /// <summary>Bilinen satış kanalları (rezervasyon formundaki liste ve kanal raporu bu kodları kullanır).</summary>
     public static readonly Dictionary<string, string> Channels = new()
@@ -270,6 +279,7 @@ public static class ReservationService
             sgl = occ?.Single, dbl = occ?.Double, trp = occ?.Triple, quad = occ?.Quad,
         });
         await WriteRatesAsync(tx, id, nights, rates.FxNights);
+        if (rates.PromotionId is { } pid) await tx.ExecAsync("UPDATE pms.reservations SET promotion_id = @pid WHERE id = @id", new { pid, id });
         await tx.ExecAsync("INSERT INTO pms.reservation_guests (reservation_id, guest_id, is_primary) VALUES (@id, @guestId, true)", new { id, guestId });
         if (req.RoomId is { } r)
             await tx.ExecAsync("INSERT INTO pms.room_assignments (reservation_id, room_id, kind, by_user) VALUES (@id, @r, 'assign', @uid)", new { id, r, uid = tx.User.Id });
@@ -326,8 +336,10 @@ public static class ReservationService
         if (rateChanged && r.RateLocked) throw PmsException.Validation("Fiyat kilitli. Tarih, plan veya fiyat değişikliği için önce folyoda \"Fiyatı Kilitle\" işaretini kaldırın.");
         if (rateChanged)
         {
-            var rates = await ResolveRatesAsync(tx, req, req.GuestId ?? r.GuestId, occTrusted);
+            // Kampanya uygunluğu rezervasyonun alındığı güne göre değerlendirilir (sonradan düzenleme erken rezervasyonu bozmaz).
+            var rates = await ResolveRatesAsync(tx, req, req.GuestId ?? r.GuestId, occTrusted, DateOnly.FromDateTime(r.CreatedAt.ToLocalTime()));
             (nightly, fxCur, fxNightly) = (rates.Nightly, rates.FxCurrency, rates.FxNightly);
+            await tx.ExecAsync("UPDATE pms.reservations SET promotion_id = @pid WHERE id = @id", new { pid = rates.PromotionId, id });
             // Postalanmış gecelerin fiyatı geçmişe dönük değişmez.
             var posted = await tx.ListAsync<DateOnly>("SELECT business_date FROM pms.room_charge_postings WHERE reservation_id = @id", new { id });
             var existing = (await tx.ListAsync<(DateOnly Date, decimal Rate, decimal? Fx)>(
@@ -379,9 +391,10 @@ public static class ReservationService
     }
 
     /// <param name="trusted">Fiyatı kullanıcı değiştirmiyor (ör. erken girişte mevcut anlaşma korunuyor); elle fiyat yetkisi aranmaz.</param>
-    async static Task<ResolvedRates> ResolveRatesAsync(Tx tx, SaveReservationRequest req, Guid? guestId, bool trusted = false)
+    async static Task<ResolvedRates> ResolveRatesAsync(Tx tx, SaveReservationRequest req, Guid? guestId, bool trusted = false, DateOnly? bookedOn = null)
     {
-        var preview = await ComputeRatesAsync(tx, req.RoomTypeId, req.RatePlanId, req.Arrival, req.Departure, guestId);
+        var preview = await ComputeRatesAsync(tx, req.RoomTypeId, req.RatePlanId, req.Arrival, req.Departure, guestId, bookedOn);
+        Guid? promotionId = preview.PromotionId;
         var cur = await NormalizeCurrencyAsync(tx, req.RateCurrency) ?? preview.Currency;
         List<NightRate> nights;
         if (req.NightlyRate is { } manual && (preview.Currency != cur || preview.Nights.Any(n => n.Rate != manual)))
@@ -389,6 +402,7 @@ public static class ReservationService
             if (!trusted) tx.Ctx.Require("rate.override");
             Validate.Money(manual, "Gecelik fiyat", allowZero: true);
             nights = preview.Nights.Select(n => n with { Rate = manual }).ToList();
+            promotionId = null;   // elle / kişi sayısına göre fiyatta kampanya uygulanmaz
         }
         else
         {
@@ -396,13 +410,13 @@ public static class ReservationService
                 throw PmsException.Validation($"{cur ?? "Tesis para birimi"} fiyatlı rezervasyonda gecelik fiyatı elle girin veya aynı para birimli fiyat planı seçin.");
             nights = preview.Nights.ToList();
         }
-        if (cur is null) return new ResolvedRates(nights, nights.Count == 0 ? 0 : decimal.Round(nights.Average(n => n.Rate), 2), null, null, null);
+        if (cur is null) return new ResolvedRates(nights, nights.Count == 0 ? 0 : decimal.Round(nights.Average(n => n.Rate), 2), null, null, null, promotionId);
 
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
         var fxRate = await ExchangeRateEndpoints.RateAsync(tx, cur, bd);
         var baseNights = nights.Select(n => n with { Rate = decimal.Round(n.Rate * fxRate, 2, MidpointRounding.AwayFromZero) }).ToList();
         return new ResolvedRates(baseNights, baseNights.Count == 0 ? 0 : decimal.Round(baseNights.Average(n => n.Rate), 2), cur,
-            nights.ToDictionary(n => n.Date, n => n.Rate), nights.Count == 0 ? 0 : decimal.Round(nights.Average(n => n.Rate), 2));
+            nights.ToDictionary(n => n.Date, n => n.Rate), nights.Count == 0 ? 0 : decimal.Round(nights.Average(n => n.Rate), 2), promotionId);
     }
 
     // ------------------------------------------------------------------ Durum geçişleri
@@ -673,7 +687,7 @@ public static class ReservationService
             }
             else
             {
-                var extra = await ComputeRatesAsync(tx, r.RoomTypeId, r.RatePlanId, r.Departure, req.Departure, r.GuestId);
+                var extra = await ComputeRatesAsync(tx, r.RoomTypeId, r.RatePlanId, r.Departure, req.Departure, r.GuestId, promotions: false);
                 var lastRate = await tx.ScalarAsync<decimal?>("SELECT rate FROM pms.reservation_rates WHERE reservation_id = @id ORDER BY stay_date DESC LIMIT 1", new { id });
                 // Uzatmada mevcut anlaşmalı fiyat korunur (fiyat planı yoksa).
                 foreach (var n in extra.Nights)

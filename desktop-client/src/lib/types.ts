@@ -71,7 +71,12 @@ export interface ReservationListItem {
   channel?: string; channelRef?: string;
 }
 export interface AvailabilityDay { date: DateStr; roomTypeId: string; roomTypeCode: string; total: number; blocked: number; sold: number; held: number; available: number }
-export interface RatePreview { nights: { date: DateStr; rate: Money }[]; total: Money; average: Money; source: string; currency?: string; discountPct: Money }
+export interface RatePreview { nights: { date: DateStr; rate: Money }[]; total: Money; average: Money; source: string; currency?: string; discountPct: Money; promotionId?: string; promotionName?: string; promotionSaving: Money }
+export interface Promotion {
+  id: string; code: string; name: string; kind: 'discount' | 'early_booking' | 'stay_pay'; discountPct?: string; stayNights?: number; payNights?: number; minDaysBefore?: number;
+  minNights: number; stayFrom: DateStr; stayTo: DateStr; bookFrom?: DateStr; bookTo?: DateStr; roomTypeId?: string; roomTypeCode?: string; ratePlanId?: string; ratePlanCode?: string;
+  isActive: boolean; usedCount: number; version: number;
+}
 export interface RackRoom { id: string; number: string; floor?: string; roomTypeId: string; roomTypeCode: string; hkStatus: string; isDnd: boolean; sortOrder: number }
 export interface RackBar { reservationId: string; reservationNumber: string; roomId?: string; roomTypeId: string; status: string; guestName: string; isVip: boolean; arrival: DateStr; departure: DateStr; adults: number; children: number; companyName?: string; agencyName?: string; balance: Money }
 export interface RackBlock { id: string; roomId: string; kind: string; dateFrom: DateStr; dateTo: DateStr; reason: string }

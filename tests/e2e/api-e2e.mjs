@@ -1529,6 +1529,52 @@ try {
     await api('POST', '/api/v1/cashier/transfer', { toShiftId: recepShift.id, amount: '10.00', description: 'geç' }, { ...k(), expect: 422 });
   });
 
+  await step('Aksiyon ve indirimler: % indirim, erken rezervasyon, kal/öde; en çok indirim sağlayan tek kampanya, elle fiyatta uygulanmaz', async () => {
+    const k = () => ({ key: randomUUID() });
+    const a = addDays(state.bd, 60), d3 = addDays(state.bd, 63);
+    const prev = async (arr, dep) => api('GET', `/api/v1/rates/preview?roomTypeId=${state.std}&arrival=${arr}&departure=${dep}`);
+    const base = await prev(a, d3);
+    assert.equal(base.promotionId ?? null, null);
+    const night = Number(base.nights[0].rate);
+    const p = { stayFrom: a, stayTo: addDays(state.bd, 90), roomTypeId: state.std, isActive: true };
+    await api('POST', '/api/v1/promotions', { ...p, code: 'X', name: 'kısa kod', kind: 'discount', discountPct: 10 }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/promotions', { ...p, code: 'KAL', name: 'x', kind: 'stay_pay', stayNights: 3, payNights: 3 }, { ...k(), expect: 422 });
+    const disc = await api('POST', '/api/v1/promotions', { ...p, code: 'KIS10', name: 'Kış %10', kind: 'discount', discountPct: 10 }, k());
+    let pv = await prev(a, d3);
+    assert.equal(pv.promotionName, 'Kış %10'); assert.equal(Number(pv.total), Math.round(night * 3 * 0.9 * 100) / 100);
+    // Erken rezervasyon %15 (en az 30 gün önce): 60 gün sonrası için uyar, daha iyi olduğu için seçilir
+    await api('POST', '/api/v1/promotions', { ...p, code: 'ERKEN15', name: 'Erken %15', kind: 'early_booking', discountPct: 15, minDaysBefore: 30 }, k());
+    pv = await prev(a, d3);
+    assert.equal(pv.promotionName, 'Erken %15');
+    // 3 kal 2 öde: bir gece ücretsiz (%33) en iyisi
+    const sp = await api('POST', '/api/v1/promotions', { ...p, code: '3KAL2', name: '3 kal 2 öde', kind: 'stay_pay', stayNights: 3, payNights: 2 }, k());
+    pv = await prev(a, d3);
+    assert.equal(pv.promotionName, '3 kal 2 öde'); assert.equal(Number(pv.total), night * 2);
+    assert.equal(pv.nights.filter(n => Number(n.rate) === 0).length, 1);
+    // 2 gece: kal/öde uymaz (en az 3 gece), erken rezervasyon uygulanır
+    assert.equal((await prev(a, addDays(state.bd, 62))).promotionName, 'Erken %15');
+    // Rezervasyon kampanyalı fiyatla kaydedilir; elle fiyatta kampanya yok
+    const body = { guestId: state.guest, roomTypeId: state.std, arrival: a, departure: d3, adults: 1, children: 0, status: 'confirmed', depositRequired: '0' };
+    const r1 = await api('POST', '/api/v1/reservations', body, k());
+    assert.equal(Number((await api('GET', `/api/v1/reservations/${r1.id}`)).nightlyRate), Math.round(night * 2 / 3 * 100) / 100);
+    const r2 = await api('POST', '/api/v1/reservations', { ...body, nightlyRate: '1000.00' }, k());
+    assert.equal(Number((await api('GET', `/api/v1/reservations/${r2.id}`)).nightlyRate), 1000);
+    const list = await api('GET', '/api/v1/promotions');
+    assert.equal(list.find(x => x.id === sp.id).usedCount, 1);
+    // Pasif kampanya uygulanmaz
+    const spd = list.find(x => x.id === sp.id);
+    await api('PUT', `/api/v1/promotions/${sp.id}`, { ...spd, isActive: false });
+    assert.equal((await prev(a, d3)).promotionName, 'Erken %15');
+    // Resepsiyon kampanya tanımlayamaz
+    const adminToken = token;
+    token = state.recepToken ?? token;
+    await api('POST', '/api/v1/promotions', { ...p, code: 'RCP', name: 'x', kind: 'discount', discountPct: 5 }, { ...k(), expect: 403 });
+    token = adminToken;
+    for (const id of [r1.id, r2.id]) await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${id}`)).version }, k());
+    for (const x of (await api('GET', '/api/v1/promotions')).filter(x => x.isActive)) await api('PUT', `/api/v1/promotions/${x.id}`, { ...x, isActive: false });
+    void disc;
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);
