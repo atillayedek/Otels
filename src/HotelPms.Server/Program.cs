@@ -178,7 +178,6 @@ try
     GroupEndpoints.Map(app);
     TraceEndpoints.Map(app);
     SalesCalendarEndpoints.Map(app);
-    PromotionEndpoints.Map(app);
     FeedbackEndpoints.Map(app);
     LostFoundEndpoints.Map(app);
     AllotmentEndpoints.Map(app);

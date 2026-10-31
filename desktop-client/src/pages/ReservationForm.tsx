@@ -201,9 +201,6 @@ export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mo
                 </select>
               </Field>
             )}
-            {preview.data && !d.overrideRate && !needsManual && !occ && preview.data.promotionName && (
-              <div className="info-box">Kampanya uygulandı: <b>{preview.data.promotionName}</b> · {fmtMoney(preview.data.promotionSaving, preview.data.currency ?? property?.currency)} indirim.</div>
-            )}
             {preview.data && !d.overrideRate && !needsManual && Number(preview.data.discountPct) > 0 && (
               <div className="info-box">Misafir kartındaki %{fmtQty(preview.data.discountPct)} konaklama indirimi gecelik fiyatlara uygulandı.</div>
             )}

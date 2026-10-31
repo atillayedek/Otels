@@ -64,7 +64,6 @@ const SetWifi = lazy(() => import('./pages/settings/Wifi'));
 const LostFoundPage = lazy(() => import('./pages/LostFound'));
 const TracesPage = lazy(() => import('./pages/Traces'));
 const SalesCalendarPage = lazy(() => import('./pages/SalesCalendar'));
-const PromotionsPage = lazy(() => import('./pages/Promotions'));
 const FeedbackPage = lazy(() => import('./pages/Feedback'));
 const KeyCardsPage = lazy(() => import('./pages/Feedback').then(m => ({ default: m.KeyCardsPage })));
 
@@ -195,7 +194,6 @@ export function App() {
           <Route path="/lost-found" element={<LostFoundPage />} />
           <Route path="/traces" element={<TracesPage />} />
           <Route path="/sales-calendar" element={<SalesCalendarPage />} />
-          <Route path="/promotions" element={<PromotionsPage />} />
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/key-cards" element={<KeyCardsPage />} />
           <Route path="/settings/connection" element={<ConnectionSettingsPage />} />

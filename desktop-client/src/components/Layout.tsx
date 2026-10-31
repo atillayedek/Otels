@@ -27,7 +27,6 @@ export const NAV: NavGroup[] = [
       { to: '/groups', label: 'Grup Rezervasyonları', perm: 'reservation.view' },
       { to: '/allotments', label: 'Acente Kontenjanları', perm: 'reservation.view' },
       { to: '/sales-calendar', label: 'Stop Sale ve Satış Takvimi', perm: 'reservation.view' },
-      { to: '/promotions', label: 'Aksiyon ve İndirimler', perm: 'reservation.view' },
       { to: '/availability', label: 'Fiyat ve Doluluk', perm: 'reservation.view' },
       { to: '/companies', label: 'Şirketler', perm: 'reservation.view' },
       { to: '/agencies', label: 'Acenteler', perm: 'reservation.view' },
