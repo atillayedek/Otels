@@ -98,7 +98,9 @@ export interface TransactionCode { id: string; code: string; name: string; categ
 export interface PaymentMethod { id: string; code: string; name: string; kind: string; requiresReference: boolean; isSystem: boolean; isActive: boolean }
 export interface Shift { id: string; shiftNo: number; userId: string; username: string; businessDate: DateStr; openedAt: string; openingFloat: Money; closedAt?: string; countedCash?: Money; expectedCash?: Money; difference?: Money; closeNote?: string; status: string }
 export interface ShiftCash { currency: string; expected: Money; counted?: Money; difference?: Money }
-export interface ShiftReport { shift: Shift; totals: { paymentMethod: string; kind: string; currency: string; collected: Money; refunded: Money; net: Money; count: number }[]; expectedCash: Money; cash: ShiftCash[] }
+export interface ShiftReport { shift: Shift; totals: { paymentMethod: string; kind: string; currency: string; collected: Money; refunded: Money; net: Money; count: number }[]; expectedCash: Money; cash: ShiftCash[]; movements: CashMovement[] }
+export interface CashMovement { id: string; shiftId: string; kind: 'cash_in' | 'cash_out' | 'exchange' | 'transfer'; currency: string; amount: Money; groupId?: string; exchangeRate?: string; counterpart?: string; description: string; reference?: string; createdAt: string; createdBy?: string }
+export interface OpenShiftBrief { id: string; shiftNo: number; userId: string; username: string; fullName?: string; openedAt: string }
 export interface ExchangeRate { currency: string; rateDate: DateStr; rate: string; source: 'manual' | 'tcmb'; username?: string; createdAt: string }
 export interface ExchangeRatesView { baseCurrency: string; businessDate: DateStr; currencies: string[]; rates: ExchangeRate[]; tcmbAvailable: boolean }
 export interface TcmbImportResult { rateDate: DateStr; bulletinDate: string; rateType: string; rates: ExchangeRate[]; missing: string[] }

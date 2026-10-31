@@ -10,7 +10,8 @@ public sealed record ShiftDto(Guid Id, long ShiftNo, Guid UserId, string Usernam
 /// <summary>Ödeme tipi ve alınan para birimi bazında toplam. Dövizli satırlarda tutarlar döviz cinsindendir.</summary>
 public sealed record ShiftTotalDto(string PaymentMethod, string Kind, string Currency, decimal Collected, decimal Refunded, decimal Net, int Count);
 public sealed record ShiftCashDto(string Currency, decimal Expected, decimal? Counted, decimal? Difference);
-public sealed record ShiftReport(ShiftDto Shift, IReadOnlyList<ShiftTotalDto> Totals, decimal ExpectedCash, IReadOnlyList<ShiftCashDto> Cash);
+public sealed record ShiftReport(ShiftDto Shift, IReadOnlyList<ShiftTotalDto> Totals, decimal ExpectedCash, IReadOnlyList<ShiftCashDto> Cash,
+    IReadOnlyList<CashMovementDto> Movements);
 public sealed record OpenShiftRequest(decimal OpeningFloat);
 public sealed record BulkChargeRequest(Guid[]? ReservationIds, Guid TransactionCodeId, string? Description, decimal Quantity, decimal UnitPrice, string? Reference);
 /// <summary>CountedCash tesis para birimindeki nakit; CountedForeign kasadaki dövizlerin sayımı (para birimi → tutar).</summary>
@@ -294,13 +295,13 @@ public static class FolioEndpoints
         return new MethodP(code, Validate.Required(r.Name, "Ad", 100), r.Kind, r.RequiresReference, r.IsActive);
     }
 
-    const string ShiftSelect = """
+    internal const string ShiftSelect = """
         SELECT s.id, s.shift_no, s.user_id, u.username, s.business_date, s.opened_at, s.opening_float, s.closed_at, s.counted_cash, s.expected_cash,
                s.difference, s.close_note, s.status
         FROM pms.cashier_shifts s JOIN pms.users u ON u.id = s.user_id
         """;
 
-    static async Task<ShiftReport> ShiftReportAsync(Tx tx, ShiftDto s)
+    internal static async Task<ShiftReport> ShiftReportAsync(Tx tx, ShiftDto s)
     {
         // Dövizli satırlarda misafirden alınan döviz tutarı esas alınır (kasada fiziksel olarak o para durur).
         // Restoranda doğrudan ödenen adisyonlar (pos_payments) da aynı kasaya dahildir; işaretleri tahsilat pozitif olacak şekilde birleştirilir.
@@ -324,11 +325,14 @@ public static class FolioEndpoints
             "SELECT currency::text AS currency, expected, counted, difference FROM pms.cashier_shift_counts WHERE shift_id = @id", new { id = s.Id });
         var expected = totals.Where(t => t.Kind == "cash").GroupBy(t => t.Currency).ToDictionary(g => g.Key, g => g.Sum(t => t.Net));
         expected[baseCur] = s.OpeningFloat + expected.GetValueOrDefault(baseCur);
+        // Folyoya bağlı olmayan kasa hareketleri (giriş/çıkış, döviz bozdurma, kasa transferi) beklenen nakde eklenir.
+        var movements = await tx.ListAsync<CashMovementDto>(CashierMovementEndpoints.Select + " WHERE m.shift_id = @id ORDER BY m.created_at", new { id = s.Id });
+        foreach (var m in movements) expected[m.Currency] = expected.GetValueOrDefault(m.Currency) + m.Amount;
         var cash = expected.OrderBy(kv => kv.Key == baseCur ? 0 : 1).ThenBy(kv => kv.Key)
             .Select(kv => stored.FirstOrDefault(c => c.Currency == kv.Key) ?? new ShiftCashDto(kv.Key, kv.Value, null, null))
             .Concat(stored.Where(c => !expected.ContainsKey(c.Currency))).ToList();
         if (s.Status == "closed" && stored.Count == 0)
             cash = [new ShiftCashDto(baseCur, s.ExpectedCash ?? expected[baseCur], s.CountedCash, s.Difference)];
-        return new ShiftReport(s, totals, expected[baseCur], cash);
+        return new ShiftReport(s, totals, expected[baseCur], cash, movements);
     }
 }

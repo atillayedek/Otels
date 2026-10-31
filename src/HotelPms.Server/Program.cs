@@ -183,6 +183,7 @@ try
     AllotmentEndpoints.Map(app);
     FolioEndpoints.Map(app);
     CashSaleEndpoints.Map(app);
+    CashierMovementEndpoints.Map(app);
     ExchangeRateEndpoints.Map(app);
     StockEndpoints.Map(app);
     PosEndpoints.Map(app);

@@ -1485,6 +1485,44 @@ try {
     assert.ok(cards.some(c => c.keyCardNo === 'E2E-KART-1' && c.roomNumber === '201'));
   });
 
+  await step('Kasa hareketleri: giriş/çıkış, döviz bozdurma, kasa transferi; beklenen nakde eklenir, eksi kasa reddedilir', async () => {
+    const k = () => ({ key: randomUUID() });
+    let shift = await api('GET', '/api/v1/cashier/current');
+    if (!shift) { await api('POST', '/api/v1/cashier/open', { openingFloat: '0' }, k()); shift = await api('GET', '/api/v1/cashier/current'); }
+    const cashOf = async (id, cur) => Number((await api('GET', `/api/v1/cashier/shifts/${id}`)).cash.find(x => x.currency === cur)?.expected ?? 0);
+    const try0 = await cashOf(shift.id, 'TRY'), usd0 = await cashOf(shift.id, 'USD');
+    await api('POST', '/api/v1/cashier/movements', { kind: 'cash_out', amount: String(try0 + 1000), description: 'fazla' }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/cashier/movements', { kind: 'cash_in', amount: '1000.00', description: '' }, { ...k(), expect: 422 });
+    const inn = await api('POST', '/api/v1/cashier/movements', { kind: 'cash_in', amount: '1000.00', description: 'Bozuk para alındı' }, k());
+    assert.equal(inn.amount, '1000.00');
+    await api('POST', '/api/v1/cashier/movements', { kind: 'cash_out', amount: '150.00', description: 'Kargo ödemesi', counterpart: 'Yurtiçi', reference: 'FT-1' }, k());
+    // Döviz bozdurma: 20 USD alındı (kur 30) → 600 TL verildi; sonra 30 USD satış reddedilir (kasada 20 USD var)
+    const ex = await api('POST', '/api/v1/cashier/exchange', { direction: 'buy', currency: 'USD', foreignAmount: '20.00', rate: '30', counterpart: 'Misafir 201' }, k());
+    assert.equal(ex.localAmount, '600.00');
+    await api('POST', '/api/v1/cashier/exchange', { direction: 'sell', currency: 'USD', foreignAmount: String(usd0 + 30), rate: '30' }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/cashier/exchange', { direction: 'buy', currency: 'TRY', foreignAmount: '10', rate: '1' }, { ...k(), expect: 422 });
+    assert.equal(await cashOf(shift.id, 'TRY'), try0 + 1000 - 150 - 600);
+    assert.equal(await cashOf(shift.id, 'USD'), usd0 + 20);
+    // Kasa transferi: resepsiyonun açık vardiyasına 100 TL
+    const adminToken = token;
+    token = state.recepToken ?? token;
+    if (!(await api('GET', '/api/v1/cashier/current'))) await api('POST', '/api/v1/cashier/open', { openingFloat: '0' }, k());
+    const recepShift = await api('GET', '/api/v1/cashier/current');
+    token = adminToken;
+    assert.ok((await api('GET', '/api/v1/cashier/open-shifts')).some(s => s.id === recepShift.id));
+    await api('POST', '/api/v1/cashier/transfer', { toShiftId: shift.id, amount: '10', description: 'x' }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/cashier/transfer', { toShiftId: recepShift.id, amount: '100.00', description: 'Vardiya devri' }, k());
+    assert.equal(await cashOf(shift.id, 'TRY'), try0 + 1000 - 150 - 600 - 100);
+    const rr = await api('GET', `/api/v1/cashier/shifts/${recepShift.id}`);
+    assert.equal(Number(rr.cash.find(x => x.currency === 'TRY').expected), 100);
+    assert.equal(rr.movements.length, 1); assert.equal(rr.movements[0].kind, 'transfer');
+    // Resepsiyon vardiyasını kapatır; kapanmış vardiyaya transfer yapılamaz
+    token = state.recepToken ?? token;
+    await api('POST', '/api/v1/cashier/close', { countedCash: '100.00' }, k());
+    token = adminToken;
+    await api('POST', '/api/v1/cashier/transfer', { toShiftId: recepShift.id, amount: '10.00', description: 'geç' }, { ...k(), expect: 422 });
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);
