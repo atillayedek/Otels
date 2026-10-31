@@ -107,10 +107,15 @@ public static class RoomEndpoints
             return new { id };
         }, requireKey: false)).RequirePermission("room.manage");
 
-        rooms.MapGet("/status", async (Db db, RequestContext ctx) =>
+        // date verilirse ileri tarihin durumu: o gece odasında kalacak (odası atanmış) rezervasyonlar dolu, o gün gelenler geliş,
+        // o tarihteki blokajlar bloke görünür. Geçmiş tarih desteklenmez (konaklama durumları değişmiştir).
+        rooms.MapGet("/status", async (Db db, RequestContext ctx, DateOnly? date) =>
         {
             var bd = await db.ScalarAsync<DateOnly>("SELECT business_date FROM pms.property LIMIT 1");
-            var list = await db.QueryAsync<RoomStatusDto>(StatusSql, new { bd });
+            var day = date ?? bd;
+            if (day < bd) throw PmsException.Validation("Rack geçmiş tarih için gösterilemez; iş gününden itibaren bir tarih seçin.");
+            if (day > bd.AddYears(3)) throw PmsException.Validation("Rack en fazla 3 yıl ilerisi için gösterilebilir.");
+            var list = await db.QueryAsync<RoomStatusDto>(StatusSql, new { bd, day });
             // Folyo bakiyesi yalnız folyo görme yetkisi olanlara (ör. kat hizmetleri görmez).
             return ctx.RequireUser().Has("folio.view") ? list : list.Select(x => x with { InHouseBalance = null }).ToList();
         });
@@ -292,7 +297,7 @@ public static class RoomEndpoints
                ih.id AS in_house_reservation_id, ihg.first_name || ' ' || ihg.last_name AS in_house_guest, ih.departure AS in_house_departure,
                COALESCE(ihg.is_vip, arg.is_vip, false) AS is_vip,
                ar.id AS arrival_reservation_id, arg.first_name || ' ' || arg.last_name AS arrival_guest,
-               (ih.departure IS NOT NULL AND ih.departure <= @bd) AS departure_today,
+               (ih.departure IS NOT NULL AND ih.departure <= @day) AS departure_today,
                (SELECT count(*)::int FROM pms.hk_tasks k WHERE k.room_id = r.id AND k.status IN ('open','in_progress')) AS open_tasks,
                (SELECT count(*)::int FROM pms.maintenance_tickets m WHERE m.room_id = r.id AND m.status IN ('open','in_progress')) AS open_tickets,
                ih.checked_in_at AS in_house_checked_in_at, COALESCE(ihc.name, iha.name) AS in_house_account,
@@ -310,17 +315,21 @@ public static class RoomEndpoints
         FROM pms.rooms r
         JOIN pms.room_types t ON t.id = r.room_type_id
         LEFT JOIN pms.room_groups rgp ON rgp.id = r.group_id
-        LEFT JOIN pms.reservations ih ON ih.room_id = r.id AND ih.status = 'checked_in'
+        -- Bugün: konaklayan. İleri tarih: o gün odada sabahlayan (girişi daha önce, çıkışı o gün veya sonra) odası atanmış rezervasyon.
+        LEFT JOIN LATERAL (SELECT x.* FROM pms.reservations x WHERE x.room_id = r.id
+                            AND ((@day = @bd AND x.status = 'checked_in')
+                              OR (@day > @bd AND x.status IN ('tentative','confirmed','checked_in') AND x.arrival < @day AND x.departure >= @day))
+                            ORDER BY x.departure DESC LIMIT 1) ih ON true
         LEFT JOIN pms.guests ihg ON ihg.id = ih.guest_id
         LEFT JOIN pms.companies ihc ON ihc.id = ih.company_id
         LEFT JOIN pms.agencies iha ON iha.id = ih.agency_id
         LEFT JOIN LATERAL (SELECT x.id, x.guest_id, x.eta, x.notes, x.special_requests, x.company_id, x.agency_id, x.departure FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative')
-                            AND x.arrival = @bd ORDER BY x.created_at LIMIT 1) ar ON true
+                            AND x.arrival = @day ORDER BY x.created_at LIMIT 1) ar ON true
         LEFT JOIN pms.guests arg ON arg.id = ar.guest_id
         LEFT JOIN pms.companies arc ON arc.id = ar.company_id
         LEFT JOIN pms.agencies ara ON ara.id = ar.agency_id
         LEFT JOIN LATERAL (SELECT kind, reason FROM pms.room_blocks bb WHERE bb.room_id = r.id AND bb.is_active
-                            AND bb.date_from <= @bd AND bb.date_to > @bd LIMIT 1) b ON true
+                            AND bb.date_from <= @day AND bb.date_to > @day LIMIT 1) b ON true
         WHERE r.is_active
         ORDER BY r.sort_order, r.number
         """;

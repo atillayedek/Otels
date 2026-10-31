@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlarmClock, ArrowRightLeft, BedDouble, BellOff, Bell, Brush, CalendarClock, CalendarRange, CheckSquare, ClipboardList, CreditCard, Crown, FileText, List, Lock, LogIn, LogOut,
   Minus, NotebookPen, Pencil, Plus, Printer, Search, ShieldCheck, StickyNote, Tag, UserPlus, Users, Utensils, Wrench, X, XCircle,
 } from 'lucide-react';
 import { BulkChargeModal, BulkCheckoutModal, BulkNoteModal } from '../components/RackBulk';
-import { api } from '../lib/api';
-import { useRoomGroups, useRoomStatus } from '../lib/queries';
+import { api, get } from '../lib/api';
+import { useRoomGroups } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { BLOCK_LABEL, fmtDate, fmtDateTime, fmtMoney, HK_LABEL } from '../lib/format';
 import type { RoomStatus } from '../lib/types';
@@ -49,7 +49,12 @@ export default function RackPage() {
   const toast = useToast();
   const windows = useWindows();
   const { can, property } = useSession();
-  const status = useRoomStatus();
+  // Rack tarihi: boş = iş günü (canlı durum); ileri tarih seçilince o günün doluluğu (odası atanmış rezervasyonlar ve blokajlar).
+  const [day, setDay] = useState('');
+  const bd = property?.businessDate ?? '';
+  const future = !!day && !!bd && day > bd;
+  const status = useQuery({ queryKey: ['roomStatus', future ? day : 'today'],
+    queryFn: () => get<RoomStatus[]>(`/api/v1/rooms/status${future ? `?date=${day}` : ''}`) });
   const groups = useRoomGroups();
   const menu = useContextMenu();
   const [filter, setFilter] = useState<Filter>('all');
@@ -141,10 +146,10 @@ export default function RackPage() {
   /** Hesap hareketleri (masraf/tahsilat) ayrı pencerede açılır. */
   const openFolio = (id: string, action?: string) => (windows ? windows.open({ kind: 'folio', id, action }) : nav(`/reservations/${id}${action ? `?do=${action}` : ''}`));
   const openRes = (id: string, action?: string) => (windows ? windows.open({ kind: 'reservation', id, action }) : nav(`/reservations/${id}${action ? `?do=${action}` : ''}`));
-  const newRes = (r: RoomStatus, walkIn: boolean) => {
-    const params: Record<string, string> = walkIn ? { room: r.id } : { room: r.id, type: r.roomTypeId };
+  const newRes = (r: RoomStatus, walkIn: boolean, arrival?: string) => {
+    const params: Record<string, string> = walkIn ? { room: r.id } : { room: r.id, type: r.roomTypeId, ...(arrival ? { arrival } : {}) };
     if (windows) windows.open({ kind: walkIn ? 'walk-in' : 'new-reservation', params });
-    else nav(walkIn ? `/walk-in?room=${r.id}` : `/reservations/new?room=${r.id}&type=${r.roomTypeId}`);
+    else nav(walkIn ? `/walk-in?room=${r.id}` : `/reservations/new?room=${r.id}&type=${r.roomTypeId}${arrival ? `&arrival=${arrival}` : ''}`);
   };
   const bulk = async (r: RoomStatus | RoomStatus[], body: Record<string, unknown>, done: string) => {
     const list = Array.isArray(r) ? r : [r];
@@ -192,6 +197,12 @@ export default function RackPage() {
     const hkItems: MenuItem[] = Object.entries(HK_LABEL)
       .filter(([k]) => k !== 'inspected' || can('housekeeping.inspect') || r.hkStatus === 'inspected')
       .map(([k, l]) => ({ label: l, checked: r.hkStatus === k, disabled: r.hkStatus === k, onClick: () => void bulk(r, { hkStatus: k }, `durum "${l}" yapıldı.`) }));
+    // İleri tarih görünümünde yalnız o tarihe uygun işlemler: rezervasyonu açma, o tarihten başlayan rezervasyon, blokaj.
+    if (future) return [
+      { label: ih ? `Rezervasyon · ${r.inHouseGuest}` : ar ? `Rezervasyon · ${r.arrivalGuest}` : 'Rezervasyon yok', icon: <FileText size={14} />, disabled: !res, onClick: () => res && openRes(res) },
+      { label: `${fmtDate(day)} girişli rezervasyon`, icon: <ClipboardList size={14} />, disabled: !!r.blockKind || !!ar || !can('reservation.create'), onClick: () => newRes(r, false, day) },
+      { label: 'Odayı satışa kapat (blokaj)', icon: <Lock size={14} />, disabled: !can('maintenance.manage'), onClick: () => setBlockRoom(r.id) },
+    ];
     return [
       { label: ih ? `Folyo · ${r.inHouseGuest}` : ar ? `Rezervasyon · ${r.arrivalGuest}` : 'Folyo', icon: <FileText size={14} />, disabled: !res, onClick: () => res && openRes(res) },
       { label: 'Giriş yap (check-in)', icon: <LogIn size={14} />, disabled: !ar || !!ih || !can('checkin.execute'), onClick: () => ar && openRes(ar, 'checkin') },
@@ -323,7 +334,11 @@ export default function RackPage() {
         <div className="seg">{F('all', 'Tümü')}{F('vacant', 'Boş')}{F('occupied', 'Dolu')}{F('arrival', 'Geliş')}{F('departure', 'Çıkış')}{F('dirty', 'Kirli')}{F('blocked', 'Bloke')}</div>
         <button className="btn sm" onClick={selectMenu} title="Odaları toplu seç (Ctrl+tık tek tek, Shift+tık aralık)"><CheckSquare size={14} /> Seç</button>
         <span className="spacer" />
-        <span className="muted" style={{ fontSize: 12 }}>{fmtDate(property?.businessDate)} · {view.length} / {rooms.length} oda</span>
+        <span className="rack-day" title="Rack tarihi: ileri bir tarih seçince o günün doluluğu görünür">
+          <input type="date" className="input sm" min={bd} value={day || bd} onChange={e => setDay(e.target.value > bd ? e.target.value : '')} />
+          {future && <button className="btn sm ghost" onClick={() => setDay('')}>Bugün</button>}
+        </span>
+        <span className="muted" style={{ fontSize: 12 }}>{view.length} / {rooms.length} oda</span>
         <div className="seg" title="Kart boyutu">
           <button className={size === 's' ? 'active' : ''} onClick={() => setZoom('s')} aria-label="Küçült"><Minus size={14} /></button>
           <button className={size === 'm' ? 'active' : ''} onClick={() => setZoom('m')}>Normal</button>
@@ -331,6 +346,7 @@ export default function RackPage() {
         </div>
         <button className="btn icon" onClick={printMenu} disabled={view.length === 0} title="Önizle / yazdır: oda listesi, isim listesi, dosyaya aktar"><Printer /></button>
       </div>
+      {future && <div className="info-box rack-future"><b>{fmtDate(day)}</b> tarihli görünüm: o gece odasında kalacak (odası atanmış) rezervasyonlar dolu, o gün gelecekler geliş, blokajlar bloke görünür. Giriş/çıkış ve tahsilat işlemleri yalnız bugünün görünümünde yapılır.</div>}
       {sel.size > 0 && (
         <div className="rack-selbar">
           <CheckSquare size={15} />

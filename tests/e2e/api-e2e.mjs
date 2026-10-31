@@ -1532,6 +1532,27 @@ try {
     await api('POST', '/api/v1/cashier/transfer', { toShiftId: recepShift.id, amount: '10.00', description: 'geç' }, { ...k(), expect: 422 });
   });
 
+  await step('İleri tarihli rack: odası atanmış rezervasyon o gece dolu, o gün geliş, çıkış günü çıkış; blokaj o tarihte bloke; geçmiş tarih reddedilir', async () => {
+    const k = () => ({ key: randomUUID() });
+    const a = addDays(state.bd, 20), d = addDays(state.bd, 23);
+    const res = await api('POST', '/api/v1/reservations', { guestId: state.guest, roomTypeId: state.std, roomId: state.room101, arrival: a, departure: d, adults: 1, children: 0, status: 'confirmed', depositRequired: '0' }, k());
+    const blk = await api('POST', '/api/v1/room-blocks', { roomId: state.room102, kind: 'out_of_order', dateFrom: addDays(state.bd, 21), dateTo: addDays(state.bd, 22), reason: 'Boya' }, k());
+    const at = async day => Object.fromEntries((await api('GET', `/api/v1/rooms/status?date=${day}`)).map(r => [r.number, r]));
+    let s = await at(a);
+    assert.equal(s['101'].arrivalReservationId, res.id); assert.equal(s['101'].foStatus, 'vacant');
+    s = await at(addDays(state.bd, 21));
+    assert.equal(s['101'].foStatus, 'occupied'); assert.equal(s['101'].inHouseReservationId, res.id); assert.equal(s['101'].departureToday, false);
+    assert.equal(s['102'].blockKind, 'out_of_order');
+    s = await at(d);
+    assert.equal(s['101'].departureToday, true); assert.equal(s['102'].blockKind ?? null, null);
+    assert.equal((await at(addDays(state.bd, 24)))['101'].foStatus, 'vacant');
+    await api('GET', `/api/v1/rooms/status?date=${addDays(state.bd, -1)}`, undefined, { expect: 422 });
+    // Bugünün görünümü değişmedi (ileri tarihli rezervasyon bugün dolu göstermez)
+    assert.equal((await at(state.bd))['101'].inHouseReservationId ?? null, null);
+    await api('POST', `/api/v1/room-blocks/${blk.id}/release`);
+    await api('POST', `/api/v1/reservations/${res.id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${res.id}`)).version }, k());
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);
