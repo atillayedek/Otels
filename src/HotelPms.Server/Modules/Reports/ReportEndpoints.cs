@@ -125,6 +125,24 @@ public static class ReportEndpoints
         },
         new()
         {
+            // Kesilen faturalar: folyoya işlenen fatura numaraları (e-Fatura/e-Arşiv programında kesilen belgenin PMS'teki karşılığı).
+            Name = "invoices", Title = "Kesilen Faturalar", Category = "Finans", Permission = "financial_report.view", Params = [From, To],
+            Columns = [new("invoiceDate", "Fatura Tarihi", "date"), new("invoiceNumber", "Fatura No", "text"), new("folioNumber", "Folyo No", "text"),
+                new("name", "Folyo Adı", "text"), new("account", "Şirket/Acente", "text"), new("room", "Oda", "text"), new("currency", "Döviz", "text"),
+                new("charges", "Net Tutar", "money"), new("status", "Durum", "text")],
+            SumColumns = ["charges"],
+            Sql = """
+                SELECT f.invoice_date, f.invoice_number, f.folio_number, f.name, COALESCE(c.name, a.name) AS account, rm.number AS room, f.currency::text AS currency,
+                       COALESCE((SELECT sum(l.amount) FROM pms.folio_lines l WHERE l.folio_id = f.id AND l.payment_method_id IS NULL), 0) AS charges,
+                       CASE f.status WHEN 'open' THEN 'Açık' ELSE 'Kapalı' END AS status
+                FROM pms.folios f LEFT JOIN pms.companies c ON c.id = f.company_id LEFT JOIN pms.agencies a ON a.id = f.agency_id
+                LEFT JOIN pms.reservations r ON r.id = f.reservation_id LEFT JOIN pms.rooms rm ON rm.id = r.room_id
+                WHERE f.invoice_number IS NOT NULL AND COALESCE(f.invoice_date, f.closed_at::date) BETWEEN @from AND @to
+                ORDER BY COALESCE(f.invoice_date, f.closed_at::date), f.invoice_number
+                """,
+        },
+        new()
+        {
             Name = "guest-list", Title = "Misafir Listesi (Konaklayan + Ek Misafirler)", Category = "Ön Büro", Permission = "report.view",
             Columns = [new("room", "Oda", "text"), new("guestName", "Misafir", "text"), new("nationality", "Uyruk", "text"), new("birthDate", "Doğum Tarihi", "date"),
                 new("primary", "Ana Misafir", "bool"), new("arrival", "Giriş", "date"), new("departure", "Çıkış", "date")],

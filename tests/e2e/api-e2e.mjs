@@ -1478,6 +1478,12 @@ try {
     assert.ok((await api('GET', `/api/v1/guest-feedback?guestId=${state.guest}`)).some(x => x.id === fb.id));
     assert.equal((await api('GET', '/api/v1/guest-feedback?status=open')).some(x => x.id === fb.id), false);
 
+    // Kesilen faturalar raporu: fatura numarası işlenen folyo listelenir
+    const inv = (await api('GET', `/api/v1/folios?reservationId=${state.inhouse}`))[0];
+    await api('POST', `/api/v1/folios/${inv.id}/invoice-reference`, { invoiceNumber: 'GIB2030000000001', invoiceDate: state.bd });
+    const invRep = await api('GET', `/api/v1/reports/invoices?from=${state.bd}&to=${state.bd}`);
+    assert.ok(invRep.rows.some(x => x.invoiceNumber === 'GIB2030000000001' && x.folioNumber === inv.folioNumber));
+
     // Kullanımdaki kartlar
     const g = (await api('GET', `/api/v1/reservations/${state.inhouse}/guests`)).find(x => x.isPrimary);
     await api('PUT', `/api/v1/reservations/${state.inhouse}/guests/${g.id}`, { setKeyCard: true, keyCardNo: 'E2E-KART-1' });
