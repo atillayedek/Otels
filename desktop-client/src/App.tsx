@@ -63,6 +63,9 @@ const SetLicense = lazy(() => import('./pages/settings/License'));
 const SetWifi = lazy(() => import('./pages/settings/Wifi'));
 const LostFoundPage = lazy(() => import('./pages/LostFound'));
 const TracesPage = lazy(() => import('./pages/Traces'));
+const SalesCalendarPage = lazy(() => import('./pages/SalesCalendar'));
+const FeedbackPage = lazy(() => import('./pages/Feedback'));
+const KeyCardsPage = lazy(() => import('./pages/Feedback').then(m => ({ default: m.KeyCardsPage })));
 
 type Stage = 'loading' | 'no-server' | 'unreachable' | 'setup' | 'ready';
 
@@ -190,6 +193,9 @@ export function App() {
           <Route path="/settings/wifi" element={<SetWifi />} />
           <Route path="/lost-found" element={<LostFoundPage />} />
           <Route path="/traces" element={<TracesPage />} />
+          <Route path="/sales-calendar" element={<SalesCalendarPage />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
+          <Route path="/key-cards" element={<KeyCardsPage />} />
           <Route path="/settings/connection" element={<ConnectionSettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

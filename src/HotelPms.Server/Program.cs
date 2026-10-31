@@ -177,6 +177,8 @@ try
     ReservationEndpoints.Map(app);
     GroupEndpoints.Map(app);
     TraceEndpoints.Map(app);
+    SalesCalendarEndpoints.Map(app);
+    FeedbackEndpoints.Map(app);
     LostFoundEndpoints.Map(app);
     AllotmentEndpoints.Map(app);
     FolioEndpoints.Map(app);

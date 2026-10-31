@@ -26,6 +26,7 @@ export const NAV: NavGroup[] = [
       { to: '/reservations?view=all', label: 'Rezervasyon Listesi', perm: 'reservation.view' },
       { to: '/groups', label: 'Grup Rezervasyonları', perm: 'reservation.view' },
       { to: '/allotments', label: 'Acente Kontenjanları', perm: 'reservation.view' },
+      { to: '/sales-calendar', label: 'Stop Sale ve Satış Takvimi', perm: 'reservation.view' },
       { to: '/availability', label: 'Fiyat ve Doluluk', perm: 'reservation.view' },
       { to: '/companies', label: 'Şirketler', perm: 'reservation.view' },
       { to: '/agencies', label: 'Acenteler', perm: 'reservation.view' },
@@ -42,10 +43,11 @@ export const NAV: NavGroup[] = [
       { to: '/walk-in', label: 'Walk-in', perm: ['checkin.execute', 'reservation.create'] },
       { to: '/wakeups', label: 'Uyandırmalar', perm: 'reservation.view' },
       { to: '/traces', label: 'Misafir Hatırlatmaları', perm: 'trace.manage' },
+      { to: '/key-cards', label: 'Kullanımdaki Kartlar', perm: 'reservation.view' },
       { to: '/kbs', label: 'Kimlik Bildirimi (KBS)', perm: 'kbs.manage' },
     ],
   },
-  { label: 'Misafirler', icon: <Users size={17} />, items: [{ to: '/guests', label: 'Misafir Kartları', perm: 'guest.view' }] },
+  { label: 'Misafirler', icon: <Users size={17} />, items: [{ to: '/guests', label: 'Misafir Kartları', perm: 'guest.view' }, { to: '/feedback', label: 'Misafir Yorumları', perm: 'feedback.manage' }] },
   {
     label: 'Ön Kasa', icon: <Wallet size={17} />, items: [
       { to: '/cashier', label: 'Kasa Vardiyası', perm: 'cashier.manage' },

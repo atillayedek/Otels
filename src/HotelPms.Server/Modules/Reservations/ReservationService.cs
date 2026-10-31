@@ -186,6 +186,28 @@ public static class ReservationService
             "no_availability");
     }
 
+    /// <summary>
+    /// Stop sale denetimi: [from, to) gecelerinden biri, oda tipi (veya tüm tipler) için satışa kapalıysa yeni satış reddedilir.
+    /// <paramref name="already"/> verilirse (aynı tipte önceden satılmış geceler) yalnız yeni eklenen geceler denetlenir; mevcut satış korunur.
+    /// stop_sale.manage yetkisi olan kullanıcı kapalı tarihe de satış yapabilir.
+    /// </summary>
+    public static async Task EnsureNotStoppedAsync(Tx tx, Guid roomTypeId, DateOnly from, DateOnly to, (DateOnly From, DateOnly To)? already = null)
+    {
+        if (to <= from || tx.User.Has("stop_sale.manage")) return;
+        var stops = await tx.ListAsync<(DateOnly From, DateOnly To, string Reason, string? TypeCode)>("""
+            SELECT s.date_from, s.date_to, s.reason, t.code FROM pms.stop_sales s LEFT JOIN pms.room_types t ON t.id = s.room_type_id
+            WHERE s.is_active AND (s.room_type_id IS NULL OR s.room_type_id = @roomTypeId) AND s.date_from < @to AND s.date_to > @from
+            ORDER BY s.date_from
+            """, new { roomTypeId, from, to });
+        foreach (var st in stops)
+            for (var d = from; d < to; d = d.AddDays(1))
+            {
+                if (d < st.From || d >= st.To) continue;
+                if (already is { } a && d >= a.From && d < a.To) continue;
+                throw PmsException.Conflict($"{d:dd.MM.yyyy} tarihi {(st.TypeCode is null ? "tüm oda tiplerinde" : st.TypeCode + " oda tipinde")} satışa kapalı (stop sale): {st.Reason}", "stop_sale");
+            }
+    }
+
     static async Task EnsureRoomUsableAsync(Tx tx, Guid roomId, Guid roomTypeId, DateOnly arrival, DateOnly departure, Guid? exclude, bool allowOtherType)
     {
         var room = await tx.OneOrNullAsync<(Guid RoomTypeId, bool IsActive, string Number)>(
@@ -219,6 +241,7 @@ public static class ReservationService
         var guestId = req.GuestId ?? (req.NewGuest is { } ng ? await GuestEndpoints.CreateGuestAsync(tx, ng) : throw PmsException.Validation("Misafir seçilmelidir."));
         await EnsureGuestAllowedAsync(tx, guestId);
         await EnsureCapacityAsync(tx, req.RoomTypeId, req.Adults, req.Children);
+        await EnsureNotStoppedAsync(tx, req.RoomTypeId, req.Arrival, req.Departure);
         await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, null, req.AgencyId, req.AllowOverbook);
         if (req.RoomId is { } roomId) await EnsureRoomUsableAsync(tx, roomId, req.RoomTypeId, req.Arrival, req.Departure, null, false);
 
@@ -279,6 +302,8 @@ public static class ReservationService
 
         var datesChanged = req.Arrival != r.Arrival || req.Departure != r.Departure || req.RoomTypeId != r.RoomTypeId;
         // Acente değişirse kontenjan dağılımı değişir; müsaitlik yeniden doğrulanır.
+        if (datesChanged)
+            await EnsureNotStoppedAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, req.RoomTypeId == r.RoomTypeId ? (r.Arrival, r.Departure) : null);
         if (datesChanged || req.AgencyId != r.AgencyId)
             await EnsureAvailabilityAsync(tx, req.RoomTypeId, req.Arrival, req.Departure, id, req.AgencyId, req.AllowOverbook);
         if (req.RoomId is { } roomId && (datesChanged || roomId != r.RoomId))

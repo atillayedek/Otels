@@ -58,7 +58,7 @@ export default function RackPage() {
   const [ticketRoom, setTicketRoom] = useState<string | null>(null);
   const [blockRoom, setBlockRoom] = useState<string | null>(null);
   const [taskRoom, setTaskRoom] = useState<string | null>(null);
-  const [printing, setPrinting] = useState(false);
+  const [printing, setPrinting] = useState<false | 'rooms' | 'names'>(false);
   // Çoklu seçim: Ctrl+tık tek tek, Shift+tık aralık, "Seç" menüsünden toplu (tümü, bugün çıkacaklar...).
   const [sel, setSel] = useState<Set<string>>(() => new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -240,7 +240,13 @@ export default function RackPage() {
   };
 
   const setZoom = (s: Size) => { setSize(s); savePref(SIZE_KEY, s); };
-  const print = () => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
+  const print = (mode: 'rooms' | 'names' = 'rooms') => { setPrinting(mode); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
+  const printMenu = (e: React.MouseEvent) => menu.open(e, [
+    { label: sel.size ? `Oda listesi (seçili ${sel.size} oda)` : 'Oda listesi', icon: <Printer size={14} />, onClick: () => print('rooms') },
+    { label: sel.size ? `İsim listesi (seçili ${sel.size} oda)` : 'İsim listesi (konaklayanlar, soyada göre)', icon: <Users size={14} />, onClick: () => print('names') },
+    { separator: true, label: '' },
+    { label: 'Dosyaya aktar (Excel / CSV)', icon: <FileText size={14} />, disabled: !can('report.view'), onClick: () => nav('/reports/inhouse') },
+  ]);
   // Süzgeç düğmelerindeki renk noktası kart rengini gösterir (ayrı açıklama şeridi yok).
   const DOT: Partial<Record<Filter, string>> = { vacant: 'vacant', occupied: 'occupied', arrival: 'arrival', departure: 'departure', dirty: 'dirty', blocked: 'blocked' };
   const F = (k: Filter, label: string) => <button className={filter === k ? 'active' : ''} onClick={() => setFilter(k)}>{DOT[k] && <i className={`fdot tone-${DOT[k]}`} />}{label} ({counts[k]})</button>;
@@ -303,7 +309,7 @@ export default function RackPage() {
           <button className={size === 'm' ? 'active' : ''} onClick={() => setZoom('m')}>Normal</button>
           <button className={size === 'l' ? 'active' : ''} onClick={() => setZoom('l')} aria-label="Büyült"><Plus size={14} /></button>
         </div>
-        <button className="btn icon" onClick={print} disabled={view.length === 0} title={sel.size ? 'Seçili odaları yazdır' : 'Yazdır'}><Printer /></button>
+        <button className="btn icon" onClick={printMenu} disabled={view.length === 0} title="Önizle / yazdır: oda listesi, isim listesi, dosyaya aktar"><Printer /></button>
       </div>
       {sel.size > 0 && (
         <div className="rack-selbar">
@@ -332,7 +338,9 @@ export default function RackPage() {
       {bulkDlg === 'note' && <BulkNoteModal rooms={selRooms} onClose={() => setBulkDlg(null)} />}
       {bulkDlg === 'charge' && <BulkChargeModal rooms={selRooms} onClose={() => setBulkDlg(null)} />}
       {bulkDlg === 'checkout' && <BulkCheckoutModal rooms={selRooms} onClose={() => setBulkDlg(null)} />}
-      {printing && createPortal(<RackPrint rooms={sel.size ? selRooms : view} filtered={filtered || sel.size > 0} />, document.getElementById('print-root')!)}
+      {printing && createPortal(printing === 'names'
+        ? <NamePrint rooms={sel.size ? selRooms : view} filtered={filtered || sel.size > 0} />
+        : <RackPrint rooms={sel.size ? selRooms : view} filtered={filtered || sel.size > 0} />, document.getElementById('print-root')!)}
     </div>
   );
 }
@@ -369,6 +377,30 @@ function RackPrint({ rooms, filtered }: { rooms: RoomStatus[]; filtered: boolean
         </tbody>
       </table>
       <DocFooter note={`${rooms.length} oda listelendi.`} />
+    </div>
+  );
+}
+
+/** İsim listesi: odadaki herkes (ana ve ek misafirler) soyada göre sıralı; resepsiyonda misafir aramak için basılı liste. */
+function NamePrint({ rooms, filtered }: { rooms: RoomStatus[]; filtered: boolean }) {
+  const { property } = useSession();
+  const people = rooms.filter(r => r.inHouseReservationId)
+    .flatMap(r => (r.inHouseGuests ?? r.inHouseGuest ?? '').split(' · ').filter(Boolean).map(name => {
+      const parts = name.trim().split(/\s+/);
+      return { last: parts.length > 1 ? parts[parts.length - 1] : name, first: parts.slice(0, -1).join(' '), room: r };
+    }))
+    .sort((a, b) => a.last.localeCompare(b.last, 'tr') || a.first.localeCompare(b.first, 'tr'));
+  return (
+    <div className="doc folio-doc report-doc dense">
+      <DocHeader kind="İsim Listesi" no={`İş günü ${fmtDate(property?.businessDate)}`} lines={[`${people.length} kişi${filtered ? ' · filtre uygulandı' : ''}`]} />
+      <table className="fd-table">
+        <thead><tr><th>Soyadı</th><th>Adı</th><th>Oda</th><th>Tip</th><th>Firma / acente</th><th>Çıkış</th></tr></thead>
+        <tbody>{people.map((p, i) => (
+          <tr key={i}><td><b>{p.last}</b></td><td>{p.first}</td><td>{p.room.number}</td><td>{p.room.roomTypeCode}</td>
+            <td>{p.room.inHouseAccount ?? ''}</td><td>{fmtDate(p.room.inHouseDeparture)}</td></tr>
+        ))}</tbody>
+      </table>
+      <DocFooter note={`${people.length} kişi listelendi.`} />
     </div>
   );
 }

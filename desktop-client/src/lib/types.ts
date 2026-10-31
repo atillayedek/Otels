@@ -183,3 +183,12 @@ export interface InHouseRoom { reservationId: string; roomNumber: string; guestN
 // ---- Acente kontenjanı
 export interface Allotment { id: string; agencyId: string; agencyName: string; roomTypeId: string; roomTypeCode: string; dateFrom: DateStr; dateTo: DateStr; rooms: number; releaseDays: number; notes?: string; isActive: boolean; usedRoomNights: number; totalRoomNights: number; createdBy?: string; createdAt: string; version: number }
 export interface AllotmentDay { date: DateStr; rooms: number; used: number; remaining: number; releaseDate: DateStr; released: boolean }
+export interface StopSale { id: string; roomTypeId?: string; roomTypeCode?: string; dateFrom: DateStr; dateTo: DateStr; reason: string; isActive: boolean; createdAt: string; createdBy?: string; closedAt?: string; closedBy?: string }
+export type CalendarNoteKind = 'special_day' | 'sales_note';
+export interface CalendarNote { id: string; kind: CalendarNoteKind; dateFrom: DateStr; dateTo: DateStr; title: string; note?: string; color: string; createdAt: string; createdBy?: string; version: number }
+export interface GuestFeedback {
+  id: string; feedbackNo: number; guestId: string; guestName: string; reservationId?: string; reservationNumber?: string; roomNumber?: string;
+  kind: 'compliment' | 'complaint' | 'suggestion' | 'other'; department: string; rating?: number; source: string; comment: string;
+  status: 'open' | 'resolved' | 'closed'; resolution?: string; createdAt: string; createdBy?: string; resolvedAt?: string; resolvedBy?: string;
+}
+export interface KeyCardInUse { reservationId: string; reservationNumber: string; roomNumber?: string; guestName: string; isPrimary: boolean; keyCardNo: string; departure: DateStr; isActive: boolean }

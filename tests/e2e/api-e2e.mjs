@@ -1425,6 +1425,66 @@ try {
     assert.deepEqual([await bal(fa), await bal(fb)], [ba, bb]);
   });
 
+  await step('Stop sale, özel gün / satış notu, misafir yorumu ve kullanımdaki kartlar', async () => {
+    const k = () => ({ key: randomUUID() });
+    const from = addDays(state.bd, 40), to = addDays(state.bd, 43);
+    // Stop sale: STD tipi 40-43. gün kapalı
+    await api('POST', '/api/v1/stop-sales', { roomTypeId: state.std, dateFrom: to, dateTo: from, reason: 'ters' }, { ...k(), expect: 422 });
+    const ss = await api('POST', '/api/v1/stop-sales', { roomTypeId: state.std, dateFrom: from, dateTo: to, reason: 'Fuar bloğu' }, k());
+    assert.equal(ss.roomTypeCode, 'STD'); assert.equal(ss.isActive, true);
+    assert.ok((await api('GET', `/api/v1/stop-sales?from=${from}&to=${to}`)).some(x => x.id === ss.id));
+    const body = { guestId: state.guest, roomTypeId: state.std, arrival: addDays(state.bd, 42), departure: addDays(state.bd, 45), adults: 1, children: 0, status: 'confirmed', depositRequired: '0' };
+    // Resepsiyon (stop_sale.manage yok) kapalı tarihe satış yapamaz; yönetici yapabilir
+    const adminToken = token;
+    token = state.recepToken ?? token;
+    if (!state.recepToken) await api('POST', '/api/v1/auth/login', { username: 'e2erecep', password: 'Resepsiyon456', deviceId, deviceKind: 'browser' });
+    const e = await api('POST', '/api/v1/reservations', body, { ...k(), expect: 409 });
+    assert.equal(e.code, 'stop_sale'); assert.match(e.message, /satışa kapalı/);
+    const ok = await api('POST', '/api/v1/reservations', { ...body, arrival: to, departure: addDays(state.bd, 45) }, k());   // kapalı aralık dışı serbest
+    // Mevcut rezervasyonu kapalı gecelere uzatmak (tarih değişikliği) da reddedilir
+    const okr = await api('GET', `/api/v1/reservations/${ok.id}`);
+    await api('PUT', `/api/v1/reservations/${ok.id}`, { ...body, arrival: addDays(state.bd, 42), departure: addDays(state.bd, 45), version: okr.version }, { ...k(), expect: 409 });
+    await api('POST', '/api/v1/stop-sales', { roomTypeId: null, dateFrom: from, dateTo: to, reason: 'x' }, { ...k(), expect: 403 });
+    token = adminToken;
+    const mgr = await api('POST', '/api/v1/reservations', body, k());   // stop_sale.manage olan kullanıcı satabilir
+    const lifted = await api('POST', `/api/v1/stop-sales/${ss.id}/lift`);
+    assert.equal(lifted.isActive, false); assert.ok(lifted.closedBy);
+    await api('POST', `/api/v1/stop-sales/${ss.id}/lift`, undefined, { expect: 422 });
+    for (const id of [ok.id, mgr.id]) await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${id}`)).version }, k());
+
+    // Özel gün ve satış notu
+    const sd = await api('POST', '/api/v1/calendar-notes', { kind: 'special_day', dateFrom: from, dateTo: from, title: 'Cumhuriyet Bayramı' }, k());
+    assert.equal(sd.color, '#d97706');
+    await api('POST', '/api/v1/calendar-notes', { kind: 'bogus', dateFrom: from, dateTo: from, title: 'x' }, { ...k(), expect: 422 });
+    const sn = await api('POST', '/api/v1/calendar-notes', { kind: 'sales_note', dateFrom: from, dateTo: to, title: 'Tek gece satılmaz', note: 'Grup bloğu' }, k());
+    const notes = await api('GET', `/api/v1/calendar-notes?from=${addDays(state.bd, 41)}&to=${addDays(state.bd, 41)}`);
+    assert.deepEqual(notes.map(n => n.id).sort(), [sn.id].sort(), 'yalnız 41. günü kapsayan not');
+    const upd = await api('PUT', `/api/v1/calendar-notes/${sn.id}`, { kind: 'sales_note', dateFrom: from, dateTo: to, title: 'Min 2 gece', note: null, version: sn.version });
+    await api('PUT', `/api/v1/calendar-notes/${sn.id}`, { kind: 'sales_note', dateFrom: from, dateTo: to, title: 'eski', version: sn.version }, { expect: 409 });
+    assert.equal(upd.title, 'Min 2 gece');
+    for (const id of [sd.id, sn.id]) await api('DELETE', `/api/v1/calendar-notes/${id}`);
+    assert.equal((await api('GET', `/api/v1/calendar-notes?from=${from}&to=${to}`)).length, 0);
+
+    // Misafir yorumu: konaklama misafire ait olmalı; çözüm açıklaması zorunlu
+    const other = await api('POST', '/api/v1/guests', { firstName: 'Yorum', lastName: 'Başkası', nationality: 'TR', isVip: false, kvkkConsent: false, marketingConsent: false }, k());
+    await api('POST', '/api/v1/guest-feedback', { guestId: other.id, reservationId: state.inhouse, kind: 'complaint', department: 'housekeeping', comment: 'x' }, { ...k(), expect: 422 });
+    await api('POST', '/api/v1/guest-feedback', { guestId: state.guest, kind: 'complaint', department: 'housekeeping', rating: 9, comment: 'x' }, { ...k(), expect: 422 });
+    const fb = await api('POST', '/api/v1/guest-feedback', { guestId: state.guest, reservationId: state.inhouse, kind: 'complaint', department: 'housekeeping', rating: 2, source: 'phone', comment: 'Havlu eksik' }, k());
+    assert.equal(fb.status, 'open'); assert.equal(fb.roomNumber, '201');
+    await api('POST', `/api/v1/guest-feedback/${fb.id}/resolve`, { status: 'resolved', resolution: '' }, { expect: 422 });
+    const res = await api('POST', `/api/v1/guest-feedback/${fb.id}/resolve`, { status: 'resolved', resolution: 'Havlu verildi' });
+    assert.equal(res.status, 'resolved'); assert.ok(res.resolvedBy);
+    await api('POST', `/api/v1/guest-feedback/${fb.id}/resolve`, { status: 'closed' }, { expect: 422 });
+    assert.ok((await api('GET', `/api/v1/guest-feedback?guestId=${state.guest}`)).some(x => x.id === fb.id));
+    assert.equal((await api('GET', '/api/v1/guest-feedback?status=open')).some(x => x.id === fb.id), false);
+
+    // Kullanımdaki kartlar
+    const g = (await api('GET', `/api/v1/reservations/${state.inhouse}/guests`)).find(x => x.isPrimary);
+    await api('PUT', `/api/v1/reservations/${state.inhouse}/guests/${g.id}`, { setKeyCard: true, keyCardNo: 'E2E-KART-1' });
+    const cards = await api('GET', '/api/v1/key-cards/in-use');
+    assert.ok(cards.some(c => c.keyCardNo === 'E2E-KART-1' && c.roomNumber === '201'));
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

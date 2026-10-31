@@ -12,6 +12,7 @@ import { ErrorBox, Field, Modal, MoneyInput, useConfirm } from '../components/ui
 import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../components/GuestFields';
 import { GuestSearch } from '../components/GuestSearch';
 import { useWinSelf, useWindows } from '../components/Windows';
+import { DateNotices } from './SalesCalendar';
 
 type Mode = 'new' | 'walkin' | 'edit';
 
@@ -159,6 +160,7 @@ export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mo
                 {rooms.map(r => <option key={r.id} value={r.id}>{r.number}{r.foStatus === 'occupied' ? ' (dolu)' : ''}</option>)}
               </select>
             </Field>
+            <div className="span-4"><DateNotices roomTypeId={d.roomTypeId} arrival={d.arrival} departure={d.departure} /></div>
             <Field label="Tahmini geliş saati"><input type="time" className="input" value={d.eta} onChange={e => set('eta', e.target.value)} /></Field>
             <Field label="Tahmini çıkış saati"><input type="time" className="input" value={d.etd} onChange={e => set('etd', e.target.value)} /></Field>
             {mode !== 'walkin' && <Field label="Durum"><select className="input" value={d.status} disabled={mode === 'edit' && !['tentative', 'confirmed'].includes(d.status)} onChange={e => set('status', e.target.value)}>
