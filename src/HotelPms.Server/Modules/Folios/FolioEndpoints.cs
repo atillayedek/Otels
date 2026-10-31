@@ -13,6 +13,7 @@ public sealed record ShiftCashDto(string Currency, decimal Expected, decimal? Co
 public sealed record ShiftReport(ShiftDto Shift, IReadOnlyList<ShiftTotalDto> Totals, decimal ExpectedCash, IReadOnlyList<ShiftCashDto> Cash,
     IReadOnlyList<CashMovementDto> Movements);
 public sealed record OpenShiftRequest(decimal OpeningFloat);
+public sealed record AccountFolioRequest(string PayerKind, Guid AccountId);
 public sealed record BulkChargeRequest(Guid[]? ReservationIds, Guid TransactionCodeId, string? Description, decimal Quantity, decimal UnitPrice, string? Reference);
 /// <summary>CountedCash tesis para birimindeki nakit; CountedForeign kasadaki dövizlerin sayımı (para birimi → tutar).</summary>
 public sealed record CloseShiftRequest(decimal CountedCash, string? Note, Dictionary<string, decimal>? CountedForeign = null);
@@ -88,6 +89,18 @@ public static class FolioEndpoints
             }
             return new { count = lines.Count, lineIds = lines };
         })).RequirePermission("folio.post");
+
+        // Cari tahsilat: şirket / acentenin açık cari folyosu (yoksa açılır); tahsilat ve ekstre bu folyo üzerinden yapılır.
+        g.MapPost("/account", (AccountFolioRequest req, CommandRunner cmd) => cmd.RunAsync("folio.account_open", req, async tx =>
+        {
+            if (req.PayerKind is not ("company" or "agency")) throw PmsException.Validation("Cari türü şirket veya acente olmalıdır.");
+            var table = req.PayerKind == "company" ? "companies" : "agencies";
+            if (!await tx.ScalarAsync<bool>($"SELECT EXISTS (SELECT 1 FROM pms.{table} WHERE id = @AccountId)", req))
+                throw PmsException.NotFound(req.PayerKind == "company" ? "Şirket" : "Acente");
+            var id = await FolioService.GetOrCreateAccountFolioAsync(tx, req.PayerKind, req.AccountId);
+            tx.Publish("folios", id);
+            return new { id };
+        }, requireKey: false)).RequirePermission("folio.view");
 
         g.MapPost("/{id:guid}/payments",(Guid id, PostPaymentRequest req, CommandRunner cmd) => cmd.RunAsync("folio.payment", new { id, req }, async tx =>
             new { id = await FolioService.PostPaymentAsync(tx, id, req) })).RequirePermission("payment.create");

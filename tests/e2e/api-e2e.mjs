@@ -1553,6 +1553,23 @@ try {
     await api('POST', `/api/v1/reservations/${res.id}/cancel`, { reason: 'test', version: (await api('GET', `/api/v1/reservations/${res.id}`)).version }, k());
   });
 
+  await step('Cari tahsilat: şirketin cari folyosu açılır (tek), tahsilat cari bakiyeyi düşürür', async () => {
+    const k = () => ({ key: randomUUID() });
+    const comp = await api('POST', '/api/v1/companies', { code: 'CARI1', name: 'Cari Deneme A.Ş.', isActive: true, isCityLedger: true, creditLimit: '0' }, k());
+    const f1 = await api('POST', '/api/v1/folios/account', { payerKind: 'company', accountId: comp.id });
+    const f2 = await api('POST', '/api/v1/folios/account', { payerKind: 'company', accountId: comp.id });
+    assert.equal(f1.id, f2.id, 'aynı firma için tek açık cari folyo');
+    await api('POST', '/api/v1/folios/account', { payerKind: 'company', accountId: randomUUID() }, { expect: 404 });
+    await api('POST', '/api/v1/folios/account', { payerKind: 'guest', accountId: comp.id }, { expect: 422 });
+    const spa = (await api('GET', '/api/v1/finance/transaction-codes')).find(c => c.code === 'SPA20').id;
+    await api('POST', `/api/v1/folios/${f1.id}/charges`, { transactionCodeId: spa, quantity: '1', unitPrice: '500.00' }, k());
+    if (!(await api('GET', '/api/v1/cashier/current'))) await api('POST', '/api/v1/cashier/open', { openingFloat: '0' }, k());
+    await api('POST', `/api/v1/folios/${f1.id}/payments`, { paymentMethodId: state.cash, amount: '200.00' }, k());
+    assert.equal(Number((await api('GET', `/api/v1/folios/${f1.id}`)).folio.balance), 300);
+    const led = await api('GET', '/api/v1/reports/company-ledger');
+    assert.equal(Number(led.rows.find(x => x.code === 'CARI1').balance), 300);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

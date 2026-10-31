@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, Search } from 'lucide-react';
-import { api, get, qs } from '../lib/api';
+import { BookOpen, Building2, Plus, Search } from 'lucide-react';
+import { api, get, post, qs } from '../lib/api';
 import type { Account } from '../lib/types';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
-import { DataTable, Empty, ErrorBox, Field, Modal, Money, MoneyInput, type Column } from '../components/ui';
+import { DataTable, Empty, ErrorBox, Field, Modal, Money, MoneyInput, Spinner, type Column } from '../components/ui';
+import { FolioPanel } from '../components/FolioPanel';
 
 export default function AccountsPage({ kind }: { kind: 'companies' | 'agencies' }) {
   const nav = useNavigate();
@@ -14,6 +15,7 @@ export default function AccountsPage({ kind }: { kind: 'companies' | 'agencies' 
   const [q, setQ] = useState('');
   const [inactive, setInactive] = useState(false);
   const [edit, setEdit] = useState<Account | 'new' | null>(null);
+  const [ledger, setLedger] = useState<Account | null>(null);
   const label = kind === 'companies' ? 'Şirket' : 'Acente';
   const list = useQuery({ queryKey: ['accounts', kind, 'all', inactive], queryFn: () => get<Account[]>(`/api/v1/${kind}${qs({ active: inactive ? null : true })}`) });
   const rows = (list.data ?? []).filter(a => !q.trim() || `${a.name} ${a.code ?? ''} ${a.taxNumber ?? ''}`.toLocaleLowerCase('tr-TR').includes(q.trim().toLocaleLowerCase('tr-TR')));
@@ -27,6 +29,8 @@ export default function AccountsPage({ kind }: { kind: 'companies' | 'agencies' 
     { key: 'phone', header: 'Telefon' },
     ...(kind === 'agencies' ? [{ key: 'commissionRate', header: 'Komisyon %', align: 'right' as const, width: 100 }] : [{ key: 'creditLimit', header: 'Kredi limiti', align: 'right' as const, width: 120, render: (a: Account) => <Money value={a.creditLimit} /> }]),
     { key: 'balance', header: 'Cari bakiye', align: 'right', width: 130, render: a => <Money value={a.balance} colored /> },
+    ...(can('folio.view') ? [{ key: 'ledger', header: '', width: 120, render: (a: Account) =>
+      <button className="btn sm" onClick={e => { e.stopPropagation(); setLedger(a); }} title="Cari folyo: tahsilat ve hareketler"><BookOpen size={14} /> Cari hesap</button> }] : []),
   ];
 
   return (
@@ -45,6 +49,7 @@ export default function AccountsPage({ kind }: { kind: 'companies' | 'agencies' 
           empty={<Empty icon={<Building2 />} title={list.isLoading ? 'Yükleniyor…' : `Henüz ${label.toLocaleLowerCase('tr-TR')} kaydı bulunmuyor.`} text="Eski programınızdaki cari kartları Veri Aktarım Merkezi'nden alabilirsiniz." />} />
       )}
       {edit && <AccountModal kind={kind} account={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} />}
+      {ledger && <LedgerModal kind={kind} account={ledger} onClose={() => setLedger(null)} />}
     </div>
   );
 }
@@ -89,6 +94,17 @@ function AccountModal({ kind, account: a, onClose }: { kind: 'companies' | 'agen
         <Field label="Notlar" className="span-4"><textarea className="input" rows={2} value={f.notes} onChange={set('notes')} /></Field>
       </div>
       <ErrorBox error={save.error} />
+    </Modal>
+  );
+}
+
+/** Cari hesap (city ledger): firmanın açık cari folyosu; tahsilat (cari tahsilat), masraf ve hareketler buradan. */
+function LedgerModal({ kind, account, onClose }: { kind: 'companies' | 'agencies'; account: Account; onClose: () => void }) {
+  const folio = useQuery({ queryKey: ['folio', 'account', account.id],
+    queryFn: () => post<{ id: string }>('/api/v1/folios/account', { payerKind: kind === 'companies' ? 'company' : 'agency', accountId: account.id }) });
+  return (
+    <Modal title={`Cari hesap · ${account.name}`} size="xl" onClose={onClose} footer={<button className="btn" onClick={onClose}>Kapat</button>}>
+      {folio.isLoading ? <Spinner /> : folio.error ? <ErrorBox error={folio.error} /> : <FolioPanel folioId={folio.data!.id} />}
     </Modal>
   );
 }
