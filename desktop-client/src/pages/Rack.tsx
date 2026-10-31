@@ -35,6 +35,7 @@ function toneOf(r: RoomStatus): Tone {
 }
 
 const SIZE_KEY = 'pms-rack-size';
+const LAYOUT_KEY = 'pms-rack-layout';
 const readPref = <T extends string>(key: string, allowed: T[], d: T): T => { try { const v = localStorage.getItem(key) as T | null; return v && allowed.includes(v) ? v : d; } catch { return d; } };
 const savePref = (key: string, v: string) => { try { localStorage.setItem(key, v); } catch { /* tarayıcı depolaması kapalı olabilir */ } };
 
@@ -57,6 +58,8 @@ export default function RackPage() {
   const [acc, setAcc] = useState('');
   const [dep, setDep] = useState('');
   const [size, setSize] = useState<Size>(() => readPref(SIZE_KEY, ['s', 'm', 'l'], 'm'));
+  // Rack: odalar sıralı tek akış; Otel Planı: odalar kat kat (kat bilgisi olmayanlar en sonda).
+  const [layout, setLayout] = useState<'rack' | 'plan'>(() => readPref(LAYOUT_KEY, ['rack', 'plan'], 'rack'));
   const [hkRoom, setHkRoom] = useState<string | null>(null);
   const [ticketRoom, setTicketRoom] = useState<string | null>(null);
   const [blockRoom, setBlockRoom] = useState<string | null>(null);
@@ -302,6 +305,10 @@ export default function RackPage() {
   return (
     <div className="page rack-page">
       <div className="rack-tools">
+        <div className="seg" title="Görünüm">
+          <button className={layout === 'rack' ? 'active' : ''} onClick={() => { setLayout('rack'); savePref(LAYOUT_KEY, 'rack'); }}>Rack</button>
+          <button className={layout === 'plan' ? 'active' : ''} onClick={() => { setLayout('plan'); savePref(LAYOUT_KEY, 'plan'); }}>Otel Planı</button>
+        </div>
         <div className="rack-search">
           <Search size={15} />
           <input className="input" placeholder="Kişi ara: ad soyad, oda no, firma" value={q} onChange={e => setQ(e.target.value)} autoFocus data-enter="keep" />
@@ -339,7 +346,8 @@ export default function RackPage() {
       {status.isLoading ? <Spinner /> : status.error ? <ErrorBox error={status.error} /> : rooms.length === 0 ? (
         <Empty icon={<BedDouble />} title="Henüz oda tanımlanmamış" text="Odaları Yönetim → Oda ve Oda Tipleri ekranından ekleyin." action={can('room.manage') ? <button className="btn primary" onClick={() => nav('/settings/rooms')}>Oda tanımla</button> : undefined} />
       ) : view.length === 0 ? <Empty title={needle ? `"${q.trim()}" ile eşleşen oda veya misafir yok` : 'Bu filtreye uyan oda yok'} /> : (
-        <div className={`rack-grid size-${size}`}>{view.map(tile)}</div>
+        layout === 'plan' ? <FloorPlan rooms={view} size={size} tile={tile} />
+          : <div className={`rack-grid size-${size}`}>{view.map(tile)}</div>
       )}
 
 
@@ -414,6 +422,31 @@ function NamePrint({ rooms, filtered }: { rooms: RoomStatus[]; filtered: boolean
         ))}</tbody>
       </table>
       <DocFooter note={`${people.length} kişi listelendi.`} />
+    </div>
+  );
+}
+
+/** Otel planı: odalar katlarına göre satır satır; her katın doluluk özeti başlıkta. */
+function FloorPlan({ rooms, size, tile }: { rooms: RoomStatus[]; size: Size; tile: (r: RoomStatus) => React.ReactNode }) {
+  const floors = new Map<string, RoomStatus[]>();
+  for (const r of rooms) {
+    const k = r.floor?.trim() || '';
+    if (!floors.has(k)) floors.set(k, []);
+    floors.get(k)!.push(r);
+  }
+  const keys = [...floors.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, 'tr', { numeric: true })));
+  return (
+    <div className="floor-plan">
+      {keys.map(k => {
+        const list = floors.get(k)!;
+        const occ = list.filter(r => r.foStatus === 'occupied').length;
+        return (
+          <section key={k || '-'} className="fp-floor">
+            <header><b>{k ? `${k}. kat` : 'Kat bilgisi yok'}</b><span className="muted">{list.length} oda · {occ} dolu · {list.length - occ} boş</span></header>
+            <div className={`rack-grid size-${size}`}>{list.map(tile)}</div>
+          </section>
+        );
+      })}
     </div>
   );
 }
