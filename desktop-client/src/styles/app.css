@@ -893,3 +893,4 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .stars.pick button { border: 0; background: transparent; padding: 2px; cursor: pointer; color: var(--border-strong); }
 .dt td.nowrap, .dt .nowrap { white-space: nowrap; }
 .dt tr.muted td { color: var(--muted); }
+.rack-sel { width: auto; max-width: 180px; }

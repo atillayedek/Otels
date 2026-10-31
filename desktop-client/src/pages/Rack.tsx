@@ -53,6 +53,9 @@ export default function RackPage() {
   const menu = useContextMenu();
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
+  // AmonRa rack süzgeçleri: firma/acente ve çıkış tarihi (boş = hepsi)
+  const [acc, setAcc] = useState('');
+  const [dep, setDep] = useState('');
   const [size, setSize] = useState<Size>(() => readPref(SIZE_KEY, ['s', 'm', 'l'], 'm'));
   const [hkRoom, setHkRoom] = useState<string | null>(null);
   const [ticketRoom, setTicketRoom] = useState<string | null>(null);
@@ -79,6 +82,8 @@ export default function RackPage() {
   const needle = lc(q.trim());
   const view = rooms.filter(r => {
     if (needle && ![r.number, r.inHouseGuest, r.arrivalGuest, r.inHouseGuests, r.inHouseAccount, r.arrivalAccount].some(x => lc(x).includes(needle))) return false;
+    if (acc && (r.inHouseAccount ?? r.arrivalAccount) !== acc) return false;
+    if (dep && (r.inHouseDeparture ?? r.arrivalDeparture) !== dep) return false;
     switch (filter) {
       case 'vacant': return r.foStatus === 'vacant' && !r.blockKind;
       case 'occupied': return r.foStatus === 'occupied';
@@ -89,7 +94,9 @@ export default function RackPage() {
       default: return true;
     }
   });
-  const filtered = !!(q.trim() || filter !== 'all');
+  const filtered = !!(q.trim() || filter !== 'all' || acc || dep);
+  const accounts = useMemo(() => [...new Set(rooms.map(r => r.inHouseAccount ?? r.arrivalAccount).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'tr')), [rooms]);
+  const departures = useMemo(() => [...new Set(rooms.map(r => r.inHouseDeparture ?? r.arrivalDeparture).filter((x): x is string => !!x))].sort(), [rooms]);
 
   // Seçim yalnız var olan odaları tutar (oda pasife alınınca/yenilenince düşer).
   const selRooms = rooms.filter(r => sel.has(r.id));
@@ -300,6 +307,12 @@ export default function RackPage() {
           <input className="input" placeholder="Kişi ara: ad soyad, oda no, firma" value={q} onChange={e => setQ(e.target.value)} autoFocus data-enter="keep" />
           {q && <button className="btn sm ghost" onClick={() => setQ('')} aria-label="Aramayı temizle">×</button>}
         </div>
+        <select className="input sm rack-sel" value={acc} onChange={e => setAcc(e.target.value)} title="Firma / acente">
+          <option value="">Tüm firmalar</option>{accounts.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select className="input sm rack-sel" value={dep} onChange={e => setDep(e.target.value)} title="Çıkış tarihi">
+          <option value="">Tüm çıkışlar</option>{departures.map(d => <option key={d} value={d}>Çıkış {fmtDate(d)}</option>)}
+        </select>
         <div className="seg">{F('all', 'Tümü')}{F('vacant', 'Boş')}{F('occupied', 'Dolu')}{F('arrival', 'Geliş')}{F('departure', 'Çıkış')}{F('dirty', 'Kirli')}{F('blocked', 'Bloke')}</div>
         <button className="btn sm" onClick={selectMenu} title="Odaları toplu seç (Ctrl+tık tek tek, Shift+tık aralık)"><CheckSquare size={14} /> Seç</button>
         <span className="spacer" />
