@@ -1518,6 +1518,9 @@ try {
     assert.ok((await api('GET', '/api/v1/cashier/open-shifts')).some(s => s.id === recepShift.id));
     await api('POST', '/api/v1/cashier/transfer', { toShiftId: shift.id, amount: '10', description: 'x' }, { ...k(), expect: 422 });
     await api('POST', '/api/v1/cashier/transfer', { toShiftId: recepShift.id, amount: '100.00', description: 'Vardiya devri' }, k());
+    // Gün sonu muhasebe fişi kasa hareketleriyle dengeli kurulabilmeli (giriş 649, çıkış 770, döviz bozdurma döviz/TL kasası)
+    const pva = await api('GET', '/api/v1/night-audit/preview');
+    assert.equal(pva.blockers.some(b => b.code === 'accounting'), false, JSON.stringify(pva.blockers));
     assert.equal(await cashOf(shift.id, 'TRY'), try0 + 1000 - 150 - 600 - 100);
     const rr = await api('GET', `/api/v1/cashier/shifts/${recepShift.id}`);
     assert.equal(Number(rr.cash.find(x => x.currency === 'TRY').expected), 100);

@@ -43,8 +43,11 @@ public static class CashierMovementEndpoints
             var cur = await CurrencyAsync(tx, req.Currency);
             var amount = req.Kind == "cash_out" ? -req.Amount : req.Amount;
             if (amount < 0) await EnsureCashAsync(tx, shift, cur, -amount);
-            var id = await InsertAsync(tx, shift.Id, req.Kind, cur, amount, null, null, Validate.Optional(req.Counterpart, 120, "Kişi / firma"),
-                Validate.Required(req.Description, "Açıklama", 300), Validate.Optional(req.Reference, 100, "Belge no"));
+            var baseCur = await PropertyEndpoints.CurrencyAsync(tx);
+            var fx = cur == baseCur ? 1m : await ExchangeRateEndpoints.RateAsync(tx, cur, await PropertyEndpoints.BusinessDateAsync(tx));
+            var id = await InsertAsync(tx, shift.Id, req.Kind, cur, amount, null, cur == baseCur ? null : fx, Validate.Optional(req.Counterpart, 120, "Kişi / firma"),
+                Validate.Required(req.Description, "Açıklama", 300), Validate.Optional(req.Reference, 100, "Belge no"),
+                decimal.Round(amount * fx, 2, MidpointRounding.AwayFromZero));
             await tx.AuditAsync("cashier." + req.Kind, "cashier_shift", shift.Id, null, new { id, cur, amount, req.Description });
             tx.Publish("cashier");
             return await tx.OneAsync<CashMovementDto>(Select + " WHERE m.id = @id", new { id });
@@ -70,7 +73,7 @@ public static class CashierMovementEndpoints
             var gid = Guid.NewGuid();
             var who = Validate.Optional(req.Counterpart, 120, "Kişi");
             var desc = Validate.Optional(req.Note, 300, "Not") ?? (req.Direction == "buy" ? $"Döviz alış {req.ForeignAmount:N2} {cur}" : $"Döviz satış {req.ForeignAmount:N2} {cur}");
-            await InsertAsync(tx, shift.Id, "exchange", cur, foreignSigned, gid, rate, who, desc, null);
+            await InsertAsync(tx, shift.Id, "exchange", cur, foreignSigned, gid, rate, who, desc, null, -localSigned);
             await InsertAsync(tx, shift.Id, "exchange", baseCur, localSigned, gid, rate, who, desc, null);
             await tx.AuditAsync("cashier.exchange", "cashier_shift", shift.Id, null, new { gid, req.Direction, cur, req.ForeignAmount, rate, local });
             tx.Publish("cashier");
@@ -91,8 +94,10 @@ public static class CashierMovementEndpoints
             await EnsureCashAsync(tx, shift, cur, req.Amount);
             var desc = Validate.Required(req.Description, "Açıklama", 300);
             var gid = Guid.NewGuid();
-            await InsertAsync(tx, shift.Id, "transfer", cur, -req.Amount, gid, null, target.Username, desc, null);
-            await InsertAsync(tx, target.Id, "transfer", cur, req.Amount, gid, null, tx.User.Username, desc, null);
+            var fx = cur == await PropertyEndpoints.CurrencyAsync(tx) ? 1m : await ExchangeRateEndpoints.RateAsync(tx, cur, await PropertyEndpoints.BusinessDateAsync(tx));
+            var baseValue = decimal.Round(req.Amount * fx, 2, MidpointRounding.AwayFromZero);
+            await InsertAsync(tx, shift.Id, "transfer", cur, -req.Amount, gid, null, target.Username, desc, null, -baseValue);
+            await InsertAsync(tx, target.Id, "transfer", cur, req.Amount, gid, null, tx.User.Username, desc, null, baseValue);
             await tx.AuditAsync("cashier.transfer", "cashier_shift", shift.Id, null, new { gid, to = target.Id, cur, req.Amount, desc });
             tx.Publish("cashier");
             return new { groupId = gid };
@@ -119,10 +124,14 @@ public static class CashierMovementEndpoints
         if (have < outgoing) throw PmsException.Validation($"Kasada yeterli {currency} yok: beklenen {have:N2}, çıkacak {outgoing:N2}.");
     }
 
-    static Task<Guid> InsertAsync(Tx tx, Guid shiftId, string kind, string currency, decimal amount, Guid? groupId, decimal? rate, string? counterpart,
-        string description, string? reference) =>
-        tx.ScalarAsync<Guid>("""
-            INSERT INTO pms.cashier_movements (shift_id, kind, currency, amount, group_id, exchange_rate, counterpart, description, reference, created_by)
-            VALUES (@shiftId, @kind, @currency, @amount, @groupId, @rate, @counterpart, @description, @reference, @uid) RETURNING id
-            """, new { shiftId, kind, currency, amount, groupId, rate, counterpart, description, reference, uid = tx.User.Id });
+    /// <param name="baseAmount">Yerel para karşılığı (yerel parada tutarın kendisi).</param>
+    static async Task<Guid> InsertAsync(Tx tx, Guid shiftId, string kind, string currency, decimal amount, Guid? groupId, decimal? rate, string? counterpart,
+        string description, string? reference, decimal? baseAmount = null)
+    {
+        var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+        return await tx.ScalarAsync<Guid>("""
+            INSERT INTO pms.cashier_movements (shift_id, kind, currency, amount, base_amount, business_date, group_id, exchange_rate, counterpart, description, reference, created_by)
+            VALUES (@shiftId, @kind, @currency, @amount, @baseAmount, @bd, @groupId, @rate, @counterpart, @description, @reference, @uid) RETURNING id
+            """, new { shiftId, kind, currency, amount, baseAmount = baseAmount ?? amount, bd, groupId, rate, counterpart, description, reference, uid = tx.User.Id });
+    }
 }

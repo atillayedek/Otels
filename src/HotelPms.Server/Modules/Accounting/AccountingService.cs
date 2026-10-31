@@ -210,6 +210,19 @@ public static class AccountingService
             else b.Add(b.Map("stock.consumption"), -v, m.Kind == "pos" ? "Satış tüketimi" : m.Kind == "count" ? "Sayım farkı" : "Bölüm çıkışları");
         }
 
+        // ---- Kasa hareketleri (folyoya bağlı olmayan): giriş/çıkış karşı hesaba, döviz bozdurma TL ve döviz kasası arasında.
+        // Kasa transferi aynı kasa hesabı içinde kaldığından fiş üretmez.
+        var cm = await tx.ListAsync<(string Kind, bool Foreign, decimal Base)>("""
+            SELECT m.kind, m.currency::text <> (SELECT currency::text FROM pms.property LIMIT 1), sum(m.base_amount)
+            FROM pms.cashier_movements m WHERE m.business_date = @bd AND m.kind <> 'transfer' GROUP BY 1, 2
+            """, new { bd });
+        foreach (var m in cm)
+        {
+            b.Add(b.Map(CashKey("cash", m.Foreign)), m.Base, m.Kind == "exchange" ? "Döviz bozdurma" : "Kasa hareketleri");
+            if (m.Kind == "cash_in") b.Add(b.Map("cash.in"), -m.Base, "Kasa girişleri");
+            else if (m.Kind == "cash_out") b.Add(b.Map("cash.out"), -m.Base, "Kasa çıkışları");
+        }
+
         // ---- Restoran tahsilatındaki kuruş farkları
         // Adisyon kapanışında ödemeler toplamla en fazla 0,05 farklı olabilir (dövizle ödemede kurdan doğan kuruş). Bu fark kambiyo
         // kâr/zarar hesabına yazılır. Fişte başka bir fark kalırsa (hatalı eşleme veya hesaplama) fiş kesilmez; fark gizlenmez.
