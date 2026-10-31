@@ -899,3 +899,7 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .rack-day { display: inline-flex; align-items: center; gap: 4px; }
 .rack-day .input { width: auto; }
 .rack-future { margin: -2px 0 8px; }
+.count-sheet { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.count-sheet summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.count-sheet .dt { margin: 8px 0; }
+.count-sheet .input.sm { width: 80px; }

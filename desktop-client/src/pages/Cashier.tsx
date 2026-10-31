@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Lock, Repeat, Unlock, Wallet } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
@@ -6,6 +7,7 @@ import type { CashMovement, ExchangeRatesView, OpenShiftBrief, Shift, ShiftCash,
 import { fmtDate, fmtDateTime, fmtMoney } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
+import { DocFooter, DocHeader } from '../components/PrintDoc';
 import { Badge, Empty, ErrorBox, Field, Modal, MoneyInput, Spinner } from '../components/ui';
 
 export default function CashierPage() {
@@ -123,18 +125,60 @@ function CloseShiftModal({ cash, base, onClose, onDone }: { cash: ShiftCash[]; b
     await onDone();
   }, { success: 'Vardiya kapatıldı.' });
   const ready = !!v && foreign.every(c => !!fv[c.currency]);
+  // Kasa sayım föyü: TL küpürleri adetle girilir, toplam sayılan nakde yazılır ve föy yazdırılabilir.
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [printing, setPrinting] = useState(false);
+  const countTotal = TRY_DENOMS.reduce((t, d) => t + d * (Number(counts[d]) || 0), 0);
+  const setCount = (d: number, x: string) => {
+    const next: Record<string, string> = { ...counts, [d]: x.replace(/[^0-9]/g, '') };
+    setCounts(next);
+    const total = TRY_DENOMS.reduce((t, k) => t + k * (Number(next[k]) || 0), 0);
+    setV(total > 0 ? total.toFixed(2) : '');
+  };
+  const printSheet = () => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
   return (
     <Modal title="Vardiyayı kapat" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn danger" disabled={!ready || act.busy} onClick={async () => { if (await act.run() !== undefined) onClose(); }}>Kapat</button></>}>
       <div className="stack">
         {expected && <div className="info-box">Sisteme göre beklenen nakit: <b>{[fmtMoney(expected, base), ...foreign.map(c => fmtMoney(c.expected, c.currency))].join(' · ')}</b></div>}
-        <Field label={`Sayılan nakit (${base})`} required><MoneyInput value={v} onChange={setV} autoFocus /></Field>
+        {base === 'TRY' && (
+          <details className="count-sheet">
+            <summary>Kasa sayım föyü (küpür küpür say)</summary>
+            <table className="dt">
+              <thead><tr><th>Küpür</th><th style={{ width: 90 }}>Adet</th><th style={{ textAlign: 'right' }}>Tutar</th></tr></thead>
+              <tbody>{TRY_DENOMS.map(d => (
+                <tr key={d}><td>{fmtMoney(d.toFixed(2), 'TRY')}</td>
+                  <td><input className="input sm" inputMode="numeric" value={counts[d] ?? ''} onChange={e => setCount(d, e.target.value)} /></td>
+                  <td className="num">{fmtMoney((d * (Number(counts[d]) || 0)).toFixed(2))}</td></tr>
+              ))}</tbody>
+              <tfoot><tr><td colSpan={2}><b>Toplam</b></td><td className="num"><b>{fmtMoney(countTotal.toFixed(2), 'TRY')}</b></td></tr></tfoot>
+            </table>
+            <button className="btn sm" type="button" disabled={countTotal === 0} onClick={printSheet}>Sayım föyünü yazdır</button>
+          </details>
+        )}
+        <Field label={`Sayılan nakit (${base})`} required hint={base === 'TRY' ? 'Küpür sayımı yapılırsa toplam buraya yazılır' : undefined}><MoneyInput value={v} onChange={setV} autoFocus /></Field>
         {foreign.map(c => <Field key={c.currency} label={`Sayılan ${c.currency}`} required><MoneyInput value={fv[c.currency] ?? ''} onChange={x => setFv(s => ({ ...s, [c.currency]: x }))} /></Field>)}
         <Field label="Not"><input className="input" value={note} onChange={e => setNote(e.target.value)} /></Field>
         <ErrorBox error={act.error} />
       </div>
+      {printing && createPortal(
+        <div className="doc folio-doc report-doc">
+          <DocHeader kind="Kasa Sayım Föyü" no={new Date().toLocaleString('tr-TR')} lines={[`Beklenen nakit: ${expected ? fmtMoney(expected, base) : '—'}`]} />
+          <table className="fd-table">
+            <thead><tr><th>Küpür</th><th className="r">Adet</th><th className="r">Tutar</th></tr></thead>
+            <tbody>{TRY_DENOMS.filter(d => Number(counts[d]) > 0).map(d => (
+              <tr key={d}><td>{fmtMoney(d.toFixed(2), 'TRY')}</td><td className="r">{counts[d]}</td><td className="r">{fmtMoney((d * Number(counts[d])).toFixed(2))}</td></tr>
+            ))}</tbody>
+            <tfoot><tr><td colSpan={2}><b>Sayılan toplam</b></td><td className="r"><b>{fmtMoney(countTotal.toFixed(2), 'TRY')}</b></td></tr>
+              {expected && <tr><td colSpan={2}>Fark (sayılan − beklenen)</td><td className="r">{fmtMoney((countTotal - Number(expected)).toFixed(2), 'TRY')}</td></tr>}</tfoot>
+          </table>
+          {foreign.length > 0 && <p>Döviz sayımı: {foreign.map(c => `${c.currency} ${fv[c.currency] ?? '—'}`).join(' · ')}</p>}
+          <DocFooter note="Sayan: ____________________    Teslim alan: ____________________" />
+        </div>, document.getElementById('print-root')!)}
     </Modal>
   );
 }
+
+const TRY_DENOMS = [200, 100, 50, 20, 10, 5, 1, 0.5, 0.25, 0.1, 0.05];
 
 const MOVE_LABEL: Record<CashMovement['kind'], string> = { cash_in: 'Kasa girişi', cash_out: 'Kasa çıkışı', exchange: 'Döviz bozdurma', transfer: 'Kasa transfer' };
 const FOREIGN = ['EUR', 'USD', 'GBP', 'CHF', 'RUB', 'SAR'];
