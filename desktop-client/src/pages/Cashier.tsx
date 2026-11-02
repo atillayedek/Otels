@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Lock, Repeat, Unlock, Wallet } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, ClipboardList, Lock, Printer, Repeat, Unlock, Wallet } from 'lucide-react';
 import { get, post, qs } from '../lib/api';
-import type { CashMovement, ExchangeRatesView, OpenShiftBrief, Shift, ShiftCash, ShiftReport } from '../lib/types';
+import type { CashMovement, Dashboard, ExchangeRatesView, OpenShiftBrief, Paged, ReservationListItem, Shift, ShiftCash, ShiftReport } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
@@ -21,18 +21,22 @@ export default function CashierPage() {
   const [openDlg, setOpenDlg] = useState(false);
   const [closeDlg, setCloseDlg] = useState(false);
   const [moveDlg, setMoveDlg] = useState<CashMovement['kind'] | null>(null);
+  const [handover, setHandover] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: ['cashier'] });
 
   return (
     <div className="page">
-      <PageHead title="Kasa Vardiyası" sub="Nakit ve kart tahsilatları açık vardiyaya yazılır" actions={
-        cur.data ? <>
+      <PageHead title="Kasa Vardiyası" sub="Nakit ve kart tahsilatları açık vardiyaya yazılır" actions={<>
+        <button className="btn" onClick={() => setHandover(true)}><ClipboardList /> Devir özeti</button>
+        {cur.data ? <>
           <button className="btn" onClick={() => setMoveDlg('cash_in')}><ArrowDownToLine /> Kasa girişi</button>
           <button className="btn" onClick={() => setMoveDlg('cash_out')}><ArrowUpFromLine /> Kasa çıkışı</button>
           <button className="btn" onClick={() => setMoveDlg('exchange')}><Repeat /> Döviz bozdurma</button>
           <button className="btn" onClick={() => setMoveDlg('transfer')}><ArrowLeftRight /> Kasa transfer</button>
           <button className="btn danger" onClick={() => setCloseDlg(true)}><Lock /> Vardiyayı kapat</button>
-        </> : <button className="btn primary" onClick={() => setOpenDlg(true)}><Unlock /> Vardiya aç</button>} />
+        </> : <button className="btn primary" onClick={() => setOpenDlg(true)}><Unlock /> Vardiya aç</button>}
+      </>} />
+      {handover && <HandoverModal shift={cur.data ? report.data : undefined} onClose={() => setHandover(false)} />}
       {cur.isLoading ? <Spinner /> : (
         <div className="split wide">
           <div className="stack">
@@ -240,6 +244,61 @@ function MovementModal({ kind, base, cash, onClose, onDone }: { kind: CashMoveme
           placeholder={kind === 'cash_out' ? 'Ör. kargo ödemesi' : kind === 'cash_in' ? 'Ör. merkez kasadan bozuk para' : kind === 'transfer' ? 'Ör. vardiya devri' : ''} /></Field>
         {(kind === 'cash_in' || kind === 'cash_out') && <Field label="Belge no"><input className="input" maxLength={100} value={ref} onChange={e => setRef(e.target.value)} /></Field>}
       </div>
+    </Modal>
+  );
+}
+
+/**
+ * Vardiya devir özeti: bir sonraki vardiyaya kalan işler tek sayfada. Bekleyen girişler, çıkış yapmamış misafirler ve bakiyeleri,
+ * kasa durumu, açık görev/arıza/uyandırma sayıları ve elle yazılan devir notu. Veriler o anki kayıtlardan okunur.
+ */
+function HandoverModal({ shift, onClose }: { shift?: ShiftReport; onClose: () => void }) {
+  const { property, me } = useSession();
+  const dash = useQuery({ queryKey: ['dashboard'], queryFn: () => get<Dashboard>('/api/v1/dashboard') });
+  const arr = useQuery({ queryKey: ['reservations', 'handover', 'arrivals'], queryFn: () => get<Paged<ReservationListItem>>(`/api/v1/reservations${qs({ view: 'arrivals', pageSize: 300 })}`) });
+  const dep = useQuery({ queryKey: ['reservations', 'handover', 'departures'], queryFn: () => get<Paged<ReservationListItem>>(`/api/v1/reservations${qs({ view: 'departures', pageSize: 300 })}`) });
+  const [note, setNote] = useState('');
+  const [printing, setPrinting] = useState(false);
+  const pendingArr = (arr.data?.items ?? []).filter(r => r.status === 'tentative' || r.status === 'confirmed');
+  const pendingDep = (dep.data?.items ?? []).filter(r => r.status === 'checked_in');
+  const d = dash.data;
+  const facts: [string, React.ReactNode][] = d ? [
+    ['İş günü', fmtDate(d.businessDate)], ['Konaklayan oda / kişi', `${d.occupied} / ${d.guestsInHouse}`],
+    ['Bekleyen giriş', `${pendingArr.length}`], ['Çıkış yapmamış', `${pendingDep.length}`],
+    ['Boş kirli oda', d.vacantDirty], ['Açık kat görevi', d.openHkTasks], ['Açık arıza', d.openTickets], ['Bekleyen uyandırma', d.pendingWakeups],
+    ['KBS bildirimi bekleyen', d.kbsPending], ['Açık folyo bakiyesi', fmtMoney(d.openBalance, d.currency)],
+  ] : [];
+  const cash = shift ? shift.cash.filter(c => c.currency === property?.currency || Number(c.expected) !== 0).map(c => fmtMoney(c.expected, c.currency)).join(' · ') : 'Açık vardiya yok';
+  const print = () => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
+  const loading = dash.isLoading || arr.isLoading || dep.isLoading;
+  const resTable = (rows: ReservationListItem[], withBalance: boolean) => (
+    <table className="fd-table"><thead><tr><th>Oda</th><th>Misafir</th><th>Firma</th>{withBalance ? <th className="r">Bakiye</th> : <th>Çıkış</th>}</tr></thead>
+      <tbody>{rows.map(r => <tr key={r.id}><td>{r.roomNumber ?? '—'}</td><td>{r.guestName}</td><td>{r.companyName ?? r.agencyName ?? ''}</td>
+        {withBalance ? <td className="r">{fmtMoney(r.balance, r.currency)}</td> : <td>{fmtDate(r.departure)}</td>}</tr>)}</tbody></table>
+  );
+  return (
+    <Modal title="Vardiya devir özeti" size="lg" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Kapat</button>
+      <button className="btn primary" disabled={loading} onClick={print}><Printer /> Yazdır</button>
+    </>}>
+      {(dash.error || arr.error || dep.error) && <ErrorBox error={dash.error ?? arr.error ?? dep.error} />}
+      {loading ? <Spinner /> : <>
+        <Kv items={[...facts, ['Kasada beklenen nakit', cash]]} />
+        <h4 style={{ margin: '12px 0 6px' }}>Bekleyen girişler ({pendingArr.length})</h4>
+        {pendingArr.length ? resTable(pendingArr, false) : <p className="muted">Yok.</p>}
+        <h4 style={{ margin: '12px 0 6px' }}>Çıkış yapmamış misafirler ({pendingDep.length})</h4>
+        {pendingDep.length ? resTable(pendingDep, true) : <p className="muted">Yok.</p>}
+        <Field label="Devir notu (sonraki vardiyaya)"><textarea className="input" rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="Ör. 305 geç çıkış istedi, 412 kartı yeniden basılacak" /></Field>
+      </>}
+      {printing && createPortal(
+        <div className="doc folio-doc report-doc">
+          <DocHeader kind="Vardiya Devir Özeti" no={new Date().toLocaleString('tr-TR')} lines={[`Devreden: ${me?.fullName ?? me?.username ?? ''}`]} />
+          <table className="fd-table"><tbody>{[...facts, ['Kasada beklenen nakit', cash] as [string, React.ReactNode]].map(([k, v]) => <tr key={k}><td>{k}</td><td className="r">{v}</td></tr>)}</tbody></table>
+          <h4>Bekleyen girişler ({pendingArr.length})</h4>{pendingArr.length > 0 && resTable(pendingArr, false)}
+          <h4>Çıkış yapmamış misafirler ({pendingDep.length})</h4>{pendingDep.length > 0 && resTable(pendingDep, true)}
+          {note.trim() && <><h4>Devir notu</h4><p style={{ whiteSpace: 'pre-wrap' }}>{note}</p></>}
+          <DocFooter note="Devreden: ____________________    Devralan: ____________________" />
+        </div>, document.getElementById('print-root')!)}
     </Modal>
   );
 }

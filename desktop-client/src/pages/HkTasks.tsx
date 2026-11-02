@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Lightbulb, Plus } from 'lucide-react';
 import { api, get, qs } from '../lib/api';
 import type { HkTask } from '../lib/types';
 import { fmtDateTime, TASK_LABEL, TASK_STATUS } from '../lib/format';
@@ -17,6 +17,7 @@ export default function HkTasksPage() {
   const [status, setStatus] = useState('');
   const [assignee, setAssignee] = useState('');
   const [edit, setEdit] = useState<HkTask | 'new' | null>(null);
+  const [suggest, setSuggest] = useState(false);
   const staff = useStaff();
   const tasks = useQuery({ queryKey: ['hk', 'tasks', date, status, assignee], queryFn: () => get<HkTask[]>(`/api/v1/housekeeping/tasks${qs({ date, status, assignee })}`) });
 
@@ -33,7 +34,11 @@ export default function HkTasksPage() {
 
   return (
     <div className="page">
-      <PageHead title="Kat Hizmetleri Görevleri" actions={can('housekeeping.assign') && <button className="btn primary" onClick={() => setEdit('new')}><Plus /> Görev oluştur</button>} />
+      <PageHead title="Kat Hizmetleri Görevleri" actions={can('housekeeping.assign') && <>
+        <button className="btn" onClick={() => setSuggest(true)}><Lightbulb /> Önerilen görevler</button>
+        <button className="btn primary" onClick={() => setEdit('new')}><Plus /> Görev oluştur</button>
+      </>} />
+      {suggest && <SuggestionsModal onClose={() => setSuggest(false)} />}
       <div className="toolbar">
         <input type="date" className="input" style={{ width: 150 }} value={date} onChange={e => setDate(e.target.value)} />
         <select className="input" style={{ width: 140 }} value={status} onChange={e => setStatus(e.target.value)}><option value="">Tüm durumlar</option>{Object.entries(TASK_STATUS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
@@ -77,6 +82,44 @@ export function TaskModal({ task, onClose, roomId }: { task?: HkTask; onClose: (
         <Field label="Görevli" className="span-2"><select className="input" value={f.assignedUserId} onChange={set('assignedUserId')} disabled={!can('housekeeping.assign')}><option value="">Atanmadı</option>{staff.data?.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}</select></Field>
         <Field label="Not" className="span-4"><input className="input" value={f.notes} onChange={set('notes')} /></Field>
       </div>
+      <ErrorBox error={save.error} />
+    </Modal>
+  );
+}
+
+interface HkSuggestion { roomId: string; roomNumber: string; floor?: string; taskType: string; reason: string }
+
+/** Bugünkü çıkış, konaklama, giriş ve kirli boş odalardan çıkarılan görev önerileri; seçilenler tek seferde oluşturulur. */
+function SuggestionsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const staff = useStaff();
+  const list = useQuery({ queryKey: ['hk', 'suggestions'], queryFn: () => get<HkSuggestion[]>('/api/v1/housekeeping/suggestions') });
+  const [off, setOff] = useState<Set<string>>(new Set());
+  const [assignee, setAssignee] = useState('');
+  const rows = list.data ?? [];
+  const picked = rows.filter(r => !off.has(r.roomId));
+  const toggle = (id: string) => setOff(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const save = useAction(async (key: string) => {
+    const r = await api<{ created: number }>('POST', '/api/v1/housekeeping/suggestions/apply',
+      { items: picked.map(p => ({ roomId: p.roomId, taskType: p.taskType, assignedUserId: assignee || null, notes: p.reason })) }, { key });
+    await qc.invalidateQueries({ queryKey: ['hk'] });
+    return r;
+  }, { success: r => `${r.created} görev oluşturuldu.` });
+  return (
+    <Modal title="Önerilen görevler" size="lg" onClose={onClose} footer={<>
+      <select className="input" style={{ width: 200, marginRight: 'auto' }} value={assignee} onChange={e => setAssignee(e.target.value)}>
+        <option value="">Görevli atanmasın</option>{staff.data?.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
+      </select>
+      <button className="btn" onClick={onClose}>Vazgeç</button>
+      <button className="btn primary" disabled={picked.length === 0 || save.busy} onClick={async () => { if (await save.run() !== undefined) onClose(); }}>{picked.length} görev oluştur</button>
+    </>}>
+      <p className="muted" style={{ marginTop: 0 }}>Bugünkü çıkışlar, konaklayan odalar, girişi olup hazır olmayan ve boş-kirli odalar listelenir. Bugün görevi olan ve arızalı odalar gösterilmez.</p>
+      {list.error ? <ErrorBox error={list.error} /> : rows.length === 0 ? <Empty title={list.isLoading ? 'Yükleniyor…' : 'Öneri yok: tüm odaların bugünkü görevi var.'} /> : (
+        <table className="table"><thead><tr><th style={{ width: 30 }}></th><th>Oda</th><th>Kat</th><th>Görev</th><th>Neden</th></tr></thead>
+          <tbody>{rows.map(r => <tr key={r.roomId} onClick={() => toggle(r.roomId)} style={{ cursor: 'pointer' }}>
+            <td><input type="checkbox" checked={!off.has(r.roomId)} readOnly /></td><td><b>{r.roomNumber}</b></td><td>{r.floor}</td>
+            <td>{TASK_LABEL[r.taskType] ?? r.taskType}</td><td>{r.reason}</td></tr>)}</tbody></table>
+      )}
       <ErrorBox error={save.error} />
     </Modal>
   );

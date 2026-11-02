@@ -793,6 +793,15 @@ try {
     await api('PUT', `/api/v1/reservations/${res.id}`, { guestId: other, newGuest: null, companyId: null, agencyId: null, groupId: grp, roomTypeId: res.roomTypeId, roomId: null, arrival: res.arrival, departure: res.departure, adults: 1, children: 0, ratePlanId: null, nightlyRate: null, mealPlan: res.mealPlan, status: 'confirmed', source: res.source, market: null, segment: null, eta: null, etd: null, notes: res.notes, specialRequests: null, depositRequired: '0', optionUntil: null, version: res.version }, { key: randomUUID() });
     const sharers = await api('GET', `/api/v1/reservations/${res.id}/guests`);
     assert.deepEqual(sharers.map(s => s.id), [other]);
+    // Oda listesi yapıştırma: odadan fazla isim reddedilir; isimler girişi yapılmamış odalara sırayla yazılır.
+    const lines3 = [{ firstName: 'Liste', lastName: 'Bir', nationality: 'TR' }, { firstName: 'Liste', lastName: 'İki', nationality: null }, { firstName: 'Liste', lastName: 'Üç', nationality: null }];
+    await api('POST', `/api/v1/groups/${grp}/rooming-list`, { lines: lines3 }, { key: randomUUID(), expect: 422 });
+    await api('POST', `/api/v1/groups/${grp}/rooming-list`, { lines: [{ firstName: 'X', lastName: 'Y', nationality: 'TUR' }] }, { key: randomUUID(), expect: 422 });
+    const rl = await api('POST', `/api/v1/groups/${grp}/rooming-list`, { lines: lines3.slice(0, 2) }, { key: randomUUID() });
+    assert.deepEqual([rl.applied, rl.remaining], [2, 0]);
+    const named = (await api('GET', `/api/v1/reservations?groupId=${grp}&view=all`)).items.map(x => x.guestName).sort();
+    assert.deepEqual(named, ['Liste Bir', 'Liste İki']);
+    for (const id of r.ids) assert.equal((await api('GET', `/api/v1/reservations/${id}/guests`)).length, 1, 'eski ana misafir odadan çıkmalı');
     // Overbooking yalnız açık onayla: yönetici bile onaysız aşım yapamaz.
     const ob = { guestId: state.guest, roomTypeId: state.std, arrival: a, departure: d, adults: 1, children: 0, status: 'confirmed', depositRequired: '0' };
     await api('POST', '/api/v1/reservations', ob, { key: randomUUID(), expect: 409 });
@@ -1568,6 +1577,36 @@ try {
     assert.equal(Number((await api('GET', `/api/v1/folios/${f1.id}`)).folio.balance), 300);
     const led = await api('GET', '/api/v1/reports/company-ledger');
     assert.equal(Number(led.rows.find(x => x.code === 'CARI1').balance), 300);
+  });
+
+  await step('Folyo yönlendirme şablonu (oda ücreti şirkete/misafire) ve kat görevi önerileri', async () => {
+    const k = () => ({ key: randomUUID() });
+    const comp = (await api('POST', '/api/v1/companies', { code: 'YONL1', name: 'Yönlendirme A.Ş.', isActive: true, isCityLedger: true, creditLimit: '0' }, k())).id;
+    const a = addDays(state.bd, 60), d = addDays(state.bd, 61);
+    const id = (await api('POST', '/api/v1/reservations', { guestId: state.guest, companyId: comp, roomTypeId: state.std, arrival: a, departure: d, adults: 1, children: 0, status: 'confirmed', depositRequired: '0' }, k())).id;
+    const t1 = await api('POST', `/api/v1/reservations/${id}/routing-template`, { template: 'room_to_company' }, k());
+    assert.equal(t1.window, 2);
+    let fol = await api('GET', `/api/v1/folios?reservationId=${id}`);
+    const w2 = fol.find(f => f.windowNo === 2);
+    assert.ok(w2 && w2.payerKind === 'company' && w2.companyId === comp, 'şirket penceresi açılmalı');
+    assert.equal((await api('GET', `/api/v1/reservations/${id}`)).roomChargeWindow, 2);
+    // Aynı şablon ikinci kez yeni pencere açmaz.
+    assert.equal((await api('POST', `/api/v1/reservations/${id}/routing-template`, { template: 'room_to_company' }, k())).window, 2);
+    assert.equal((await api('GET', `/api/v1/folios?reservationId=${id}`)).length, 2);
+    await api('POST', `/api/v1/reservations/${id}/routing-template`, { template: 'room_to_agency' }, { ...k(), expect: 422 });
+    assert.equal((await api('POST', `/api/v1/reservations/${id}/routing-template`, { template: 'room_to_guest' }, k())).window, 1);
+    const x = await api('GET', `/api/v1/reservations/${id}`);
+    await api('POST', `/api/v1/reservations/${id}/cancel`, { reason: 'test temizliği', version: x.version }, k());
+    // Kat görevi önerileri: öneri onaylanınca görev açılır ve aynı oda tekrar önerilmez; ikinci onay çift görev açmaz.
+    const sug = await api('GET', '/api/v1/housekeeping/suggestions');
+    assert.ok(Array.isArray(sug));
+    if (sug.length > 0) {
+      const one = sug[0];
+      const ap = await api('POST', '/api/v1/housekeeping/suggestions/apply', { items: [{ roomId: one.roomId, taskType: one.taskType, assignedUserId: null, notes: one.reason }] }, k());
+      assert.equal(ap.created, 1);
+      assert.ok(!(await api('GET', '/api/v1/housekeeping/suggestions')).some(x => x.roomId === one.roomId));
+      assert.equal((await api('POST', '/api/v1/housekeeping/suggestions/apply', { items: [{ roomId: one.roomId, taskType: one.taskType, assignedUserId: null, notes: null }] }, k())).created, 0);
+    }
   });
 
   await step('Raporlarda ham kod kalmaz (durum, kayıt türü, işlem); Uyuşmazlık ve Kat Görevlisi raporları çalışır; sağlık durumu tek anlık görüntüden', async () => {

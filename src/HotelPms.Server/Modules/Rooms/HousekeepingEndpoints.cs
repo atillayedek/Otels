@@ -9,6 +9,8 @@ public sealed record HkTaskDto(Guid Id, Guid RoomId, string RoomNumber, string? 
 public sealed record CreateHkTaskRequest(Guid RoomId, string TaskType, Guid? AssignedUserId, string? Notes);
 public sealed record UpdateHkTaskRequest(string Status, Guid? AssignedUserId, string? Notes, int Version);
 public sealed record StaffDto(Guid Id, string Username, string FullName);
+public sealed record HkSuggestionDto(Guid RoomId, string RoomNumber, string? Floor, string TaskType, string Reason);
+public sealed record ApplyHkSuggestionsRequest(List<CreateHkTaskRequest> Items);
 
 public sealed record TicketDto(Guid Id, long TicketNo, Guid? RoomId, string? RoomNumber, string? Location, string Issue, string? Description,
     string Priority, string Status, Guid? AssignedUserId, string? AssignedTo, DateTime OpenedAt, string? OpenedBy, DateTime? ResolvedAt,
@@ -48,6 +50,62 @@ public static class HousekeepingEndpoints
             JOIN pms.role_permissions rp ON rp.role_code = ur.role_code
             WHERE u.is_active AND rp.permission_code IN ('housekeeping.update','maintenance.manage') ORDER BY u.full_name
             """)).RequirePermission("housekeeping.view");
+
+        // Görev önerileri: bugünkü oda hareketlerinden çıkarılır (çıkış, konaklayan, boş-kirli, bugün giriş ama hazır değil).
+        // O gün aynı oda için açık/yapılan/biten görev varsa önerilmez; hiçbir şey otomatik oluşturulmaz, kullanıcı seçip onaylar.
+        hk.MapGet("/suggestions", async (Db db) =>
+        {
+            await using var c = await db.OpenAsync();
+            return await Dapper.SqlMapper.QueryAsync<HkSuggestionDto>(c, """
+                WITH bd AS (SELECT business_date AS d FROM pms.property LIMIT 1),
+                s AS (
+                  SELECT r.id AS room_id, 'departure_clean' AS task_type, 'Bugün çıkış' AS reason, 1 AS prio FROM pms.rooms r
+                   WHERE r.is_active AND EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status = 'checked_in' AND x.departure <= (SELECT d FROM bd))
+                  UNION ALL
+                  SELECT r.id, 'stayover_clean', 'Konaklayan oda', 3 FROM pms.rooms r
+                   WHERE r.is_active AND EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status = 'checked_in' AND x.departure > (SELECT d FROM bd))
+                  UNION ALL
+                  SELECT r.id, 'inspection', 'Bugün giriş var, oda hazır değil', 0 FROM pms.rooms r
+                   WHERE r.is_active AND r.hk_status IN ('dirty','cleaning')
+                     AND EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative') AND x.arrival = (SELECT d FROM bd))
+                  UNION ALL
+                  SELECT r.id, 'departure_clean', 'Boş ve kirli', 2 FROM pms.rooms r
+                   WHERE r.is_active AND r.hk_status = 'dirty'
+                     AND NOT EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status = 'checked_in')
+                     AND NOT EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative') AND x.arrival = (SELECT d FROM bd))
+                )
+                SELECT DISTINCT ON (s.room_id) s.room_id, r.number AS room_number, r.floor, s.task_type, s.reason
+                FROM s JOIN pms.rooms r ON r.id = s.room_id
+                WHERE NOT EXISTS (SELECT 1 FROM pms.hk_tasks k WHERE k.room_id = s.room_id AND k.business_date = (SELECT d FROM bd) AND k.status <> 'cancelled')
+                  AND NOT EXISTS (SELECT 1 FROM pms.room_blocks b WHERE b.room_id = s.room_id AND b.is_active AND b.kind = 'out_of_order'
+                                  AND b.date_from <= (SELECT d FROM bd) AND b.date_to > (SELECT d FROM bd))
+                ORDER BY s.room_id, s.prio
+                """);
+        }).RequirePermission("housekeeping.view");
+
+        hk.MapPost("/suggestions/apply", (ApplyHkSuggestionsRequest req, CommandRunner cmd) => cmd.RunAsync("hk_task.suggestions", req, async tx =>
+        {
+            var items = req.Items ?? [];
+            if (items.Count is 0 or > 500) throw PmsException.Validation("En az bir, en fazla 500 görev seçilmelidir.");
+            var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+            var created = 0;
+            foreach (var it in items)
+            {
+                if (it.TaskType is not ("departure_clean" or "stayover_clean" or "inspection" or "turndown" or "deep_clean" or "other"))
+                    throw PmsException.Validation("Geçersiz görev türü.");
+                // Aynı gün aynı odaya ikinci görev açılmaz (iki kişinin aynı anda öneriyi onaylaması gibi durumlar).
+                var exists = await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.hk_tasks WHERE room_id = @RoomId AND business_date = @bd AND status <> 'cancelled')", new { it.RoomId, bd });
+                if (exists) continue;
+                var id = await tx.ScalarAsync<Guid>("""
+                    INSERT INTO pms.hk_tasks (room_id, task_type, business_date, assigned_user_id, notes, created_by)
+                    VALUES (@RoomId, @TaskType, @bd, @AssignedUserId, @notes, @uid) RETURNING id
+                    """, new { it.RoomId, it.TaskType, bd, it.AssignedUserId, notes = Validate.Optional(it.Notes, 500), uid = tx.User.Id });
+                await tx.AuditAsync("hk_task.create", "hk_task", id, null, it);
+                created++;
+            }
+            tx.Publish("housekeeping");
+            return new { created };
+        })).RequirePermission("housekeeping.assign");
 
         hk.MapPost("/tasks", (CreateHkTaskRequest req, CommandRunner cmd) => cmd.RunAsync("hk_task.create", req, async tx =>
         {

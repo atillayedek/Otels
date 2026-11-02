@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Pencil, Plus, Search, Users } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Pencil, Plus, Search, Users } from 'lucide-react';
 import { api, get, qs } from '../lib/api';
 import type { Paged, ReservationListItem } from '../lib/types';
 import { addDays, fmtDate, fmtMoney, MEAL_LABEL, nightsBetween, STATUS_BADGE, STATUS_LABEL } from '../lib/format';
@@ -89,6 +89,7 @@ function GroupDetail({ id }: { id: string }) {
   const { can } = useSession();
   const [edit, setEdit] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [rooming, setRooming] = useState(false);
   const grp = useQuery({ queryKey: ['reservations', 'group', id], queryFn: () => get<Group>(`/api/v1/groups/${id}`) });
   const res = useQuery({ queryKey: ['reservations', 'group', id, 'list'], queryFn: () => get<Paged<ReservationListItem & { groupId?: string }>>(`/api/v1/reservations${qs({ groupId: id, view: 'all', pageSize: 500 })}`) });
   if (grp.isLoading) return <div className="page"><Spinner /></div>;
@@ -113,6 +114,7 @@ function GroupDetail({ id }: { id: string }) {
       <PageHead title={g.name} sub={<span className="mono">{g.groupNumber}</span>} actions={<>
         <button className="btn ghost" onClick={() => nav('/groups')}><ArrowLeft /> Gruplar</button>
         {can('reservation.edit') && <button className="btn" onClick={() => setEdit(true)}><Pencil /> Düzenle</button>}
+        {can('reservation.create') && <button className="btn" onClick={() => setRooming(true)}><ClipboardList /> Oda listesi yapıştır</button>}
         {can('reservation.create') && <button className="btn primary" onClick={() => setAdding(true)}><Plus /> Oda ekle</button>}
       </>} />
       <div className="grid cols-3" style={{ marginBottom: 14 }}>
@@ -120,11 +122,49 @@ function GroupDetail({ id }: { id: string }) {
         <div className="card"><div className="card-body"><Kv items={[['Oda', active.length], ['Konaklayan', rows.filter(r => r.status === 'checked_in').length], ['İptal / no-show', rows.length - active.length]]} /></div></div>
         <div className="card"><div className="card-body"><Kv items={[['Notlar', g.notes], ['Oluşturma', fmtDate(g.createdAt)]]} /></div></div>
       </div>
-      <div className="info-box" style={{ marginBottom: 10 }}>Oda listesi gelince her rezervasyonu açıp <b>Düzenle</b> ile misafirini gerçek kişiyle değiştirin; girişten önce yapılan değişiklikte sorumlu kişi o odadan çıkarılır. Ek kişiler "Ek misafirler" sekmesinden eklenir.</div>
+      <div className="info-box" style={{ marginBottom: 10 }}>Oda listesi gelince <b>Oda listesi yapıştır</b> ile isimleri (Excel'den kopyalayarak) tek seferde girin; girişi yapılmamış odalar sırayla doldurulur, sorumlu kişi o odalardan çıkarılır. Tek tek değiştirmek için rezervasyonu açıp <b>Düzenle</b>'yi kullanın. Ek kişiler "Ek misafirler" sekmesinden eklenir.</div>
       {res.error ? <ErrorBox error={res.error} /> : <DataTable rows={rows} columns={cols} rowKey={r => r.id} onRowClick={r => openRes(r.id)} maxHeight="calc(100vh - 380px)" empty={<Empty title={res.isLoading ? 'Yükleniyor…' : 'Bu gruba henüz oda eklenmedi.'} />} />}
       {edit && <GroupModal group={g} onClose={() => setEdit(false)} />}
       {adding && <AddRoomsModal group={g} onClose={() => setAdding(false)} />}
+      {rooming && <RoomingListModal group={g} open={rows.filter(r => r.status === 'tentative' || r.status === 'confirmed').length} onClose={() => setRooming(false)} />}
     </div>
+  );
+}
+
+/** Excel'den kopyalanan satırlar: "Ad<TAB>Soyad<TAB>Uyruk", "Ad;Soyad;Uyruk" veya yalnız "Ad Soyad" (son kelime soyad). */
+export function parseRoomingList(text: string) {
+  return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const parts = l.includes('\t') ? l.split('\t') : l.includes(';') ? l.split(';') : null;
+    if (parts) { const [firstName = '', lastName = '', nationality = ''] = parts.map(x => x.trim()); return { firstName, lastName, nationality }; }
+    const w = l.split(/\s+/);
+    return { firstName: w.slice(0, -1).join(' ') || w[0], lastName: w.length > 1 ? w[w.length - 1] : '', nationality: '' };
+  });
+}
+
+function RoomingListModal({ group, open, onClose }: { group: Group; open: number; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState('');
+  const lines = parseRoomingList(text);
+  const bad = lines.findIndex(l => !l.firstName || !l.lastName || (l.nationality && l.nationality.length !== 2));
+  const save = useAction(async (key: string) => {
+    const r = await api<{ applied: number; remaining: number }>('POST', `/api/v1/groups/${group.id}/rooming-list`,
+      { lines: lines.map(l => ({ firstName: l.firstName, lastName: l.lastName, nationality: l.nationality || null })) }, { key });
+    await qc.invalidateQueries({ predicate: x => ['reservations', 'rack', 'guests', 'dashboard'].includes(String(x.queryKey[0])) });
+    return r;
+  }, { success: r => `${r.applied} odaya misafir yazıldı${r.remaining ? `, ${r.remaining} oda hâlâ isimsiz` : ''}.` });
+  return (
+    <Modal title={`Oda listesi · ${group.name}`} size="lg" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Vazgeç</button>
+      <button className="btn primary" disabled={lines.length === 0 || bad >= 0 || lines.length > open || save.busy} onClick={async () => { if (await save.run() !== undefined) onClose(); }}>{lines.length} misafiri odalara yaz</button>
+    </>}>
+      <p className="muted" style={{ marginTop: 0 }}>Her satıra bir misafir: Excel'den <b>Ad · Soyad · Uyruk</b> sütunlarını kopyalayıp yapıştırın ya da "Ad Soyad" yazın. Girişi yapılmamış {open} oda, oda numarası sırasıyla doldurulur.</p>
+      <textarea className="input" rows={10} value={text} onChange={e => setText(e.target.value)} placeholder={'Ahmet\tYılmaz\tTR\nAyşe Demir'} autoFocus />
+      {lines.length > open && <div className="error-box">Listede {lines.length} misafir var, girişi yapılmamış {open} oda var.</div>}
+      {bad >= 0 && <div className="error-box">{bad + 1}. satırda ad veya soyad eksik ya da uyruk iki harfli değil.</div>}
+      {lines.length > 0 && <table className="table" style={{ marginTop: 8 }}><thead><tr><th>#</th><th>Ad</th><th>Soyad</th><th>Uyruk</th></tr></thead>
+        <tbody>{lines.slice(0, 200).map((l, i) => <tr key={i}><td>{i + 1}</td><td>{l.firstName}</td><td>{l.lastName}</td><td>{l.nationality}</td></tr>)}</tbody></table>}
+      <ErrorBox error={save.error} />
+    </Modal>
   );
 }
 

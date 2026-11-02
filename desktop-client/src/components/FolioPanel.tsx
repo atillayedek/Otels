@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRightLeft, Ban, CreditCard, FilePlus2, Lock, Percent, Plus, Printer, Receipt, RotateCcw, Undo2, Unlock } from 'lucide-react';
-import { get, post, qs } from '../lib/api';
+import { get, post, qs, api } from '../lib/api';
 import type { ExchangeRatesView, Folio, FolioDetail, FolioLine, Reservation } from '../lib/types';
 import { fmtDate, fmtDateTime, fmtMoney, fmtQty, fmtRate, isZero, LINE_LABEL, parseRate } from '../lib/format';
 import { defaultPaymentMethodId, useAgencies, useCompanies, usePaymentMethods, useTransactionCodes } from '../lib/queries';
@@ -44,6 +44,9 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
   const credit = lines.reduce((a, l) => a + Math.max(0, -cents(l.amount)), 0) / 100;
 
   const close = useAction(async (key: string) => { await post(`/api/v1/folios/${f!.id}/close`, { version: f!.version }, key); await refresh(); }, { success: 'Folyo kapatıldı.' });
+  // Hazır yönlendirme: oda ücreti şirkete/acenteye (gerekirse yeni pencere açılır) ya da yeniden misafire.
+  const routeTpl = useAction(async (key: string, template: string) => { const r = await api<{ window: number }>('POST', `/api/v1/reservations/${reservation!.id}/routing-template`, { template }, { key }); await refresh(); return r; },
+    { success: r => `Oda ücreti ${r.window}. pencereye yönlendirildi.` });
   const routing = useAction(async (key: string, w: number) => { await post(`/api/v1/reservations/${reservation!.id}/routing`, { roomChargeWindow: w }, key); await refresh(); }, { success: 'Oda ücreti yönlendirmesi güncellendi.' });
 
   const lineMenu = (e: React.MouseEvent, l: FolioLine) => {
@@ -82,6 +85,13 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
             {editable && can('folio.transfer') && !isZero(f.balance) && <button className="btn sm" onClick={() => setDlg({ kind: 'balance' })}><ArrowRightLeft /> Bakiye aktar</button>}
             {reservation && can('folio.transfer') && reservation.roomChargeWindow !== f.windowNo && reservation.status !== 'checked_out' &&
               <button className="btn sm" disabled={routing.busy} onClick={() => void routing.run(f.windowNo)}>Oda ücretini bu pencereye yönlendir</button>}
+            {reservation && can('folio.transfer') && !['checked_out', 'cancelled', 'no_show'].includes(reservation.status) && (reservation.companyId || reservation.agencyId) &&
+              <select className="input sm" style={{ width: 190 }} value="" disabled={routeTpl.busy} title="Hazır yönlendirme şablonu" onChange={e => { if (e.target.value) void routeTpl.run(e.target.value); }}>
+                <option value="">Hazır yönlendirme…</option>
+                {reservation.companyId && <option value="room_to_company">Oda ücreti şirkete</option>}
+                {reservation.agencyId && <option value="room_to_agency">Oda ücreti acenteye</option>}
+                <option value="room_to_guest">Oda ücreti misafire</option>
+              </select>}
             <span className="spacer" />
             <button className="btn sm" onClick={() => { setPrinting(true); setTimeout(() => { window.print(); setPrinting(false); }, 50); }}><Printer /> Yazdır</button>
             {can('folio.close') && (f.invoiceNumber ? <span className="muted">Fatura: {f.invoiceNumber} · {fmtDate(f.invoiceDate)}</span> : <button className="btn sm" onClick={() => setDlg({ kind: 'invoice' })}>Fatura no gir</button>)}

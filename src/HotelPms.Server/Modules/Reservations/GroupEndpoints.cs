@@ -12,6 +12,8 @@ public sealed record SaveGroupRequest(string Name, Guid? CompanyId, Guid? Agency
 /// Gruba oda ekleme: aynı tarih ve oda tipinde <see cref="Count"/> rezervasyon tek işlemde oluşturulur. Her oda başlangıçta
 /// grubun sorumlu misafirine (GuestId) yazılır; oda listesi geldikçe rezervasyonun misafiri gerçek kişiyle değiştirilir.
 /// </summary>
+public sealed record RoomingLine(string FirstName, string LastName, string? Nationality);
+public sealed record RoomingListRequest(List<RoomingLine> Lines);
 public sealed record AddGroupRoomsRequest(Guid GuestId, Guid RoomTypeId, int Count, DateOnly Arrival, DateOnly Departure, int Adults, int Children,
     Guid? RatePlanId, decimal? NightlyRate, string? MealPlan, string Status, decimal DepositRequired, DateOnly? OptionUntil);
 
@@ -95,6 +97,45 @@ public static class GroupEndpoints
             }
             await tx.AuditAsync("group.add_rooms", "reservation_group", id, null, new { req.Count, req.RoomTypeId, req.Arrival, req.Departure });
             return new { ids };
+        })).RequirePermission("reservation.create");
+
+        // Oda listesi (rooming list): grup odalarına sırayla gerçek misafir adları yazılır. Yalnız girişi yapılmamış odalar,
+        // oda numarası ve rezervasyon sırasına göre doldurulur; her satır yeni misafir kartı açar, eski ana misafir odadan çıkar.
+        g.MapPost("/{id:guid}/rooming-list", (Guid id, RoomingListRequest req, CommandRunner cmd) => cmd.RunAsync("group.rooming_list", new { id, req }, async tx =>
+        {
+            _ = await tx.OneOrNullAsync<Guid?>("SELECT id FROM pms.reservation_groups WHERE id = @id FOR UPDATE", new { id }) ?? throw PmsException.NotFound("Grup");
+            var lines = (req.Lines ?? []).Where(l => !string.IsNullOrWhiteSpace(l.FirstName) || !string.IsNullOrWhiteSpace(l.LastName)).ToList();
+            if (lines.Count == 0) throw PmsException.Validation("Oda listesinde en az bir misafir adı olmalıdır.");
+            var targets = (await tx.ListAsync<(Guid Id, Guid GuestId)>("""
+                SELECT r.id, r.guest_id FROM pms.reservations r LEFT JOIN pms.rooms rm ON rm.id = r.room_id
+                WHERE r.group_id = @id AND r.status IN ('tentative','confirmed')
+                ORDER BY rm.sort_order NULLS LAST, rm.number NULLS LAST, r.reservation_number FOR UPDATE OF r
+                """, new { id })).ToList();
+            if (lines.Count > targets.Count)
+                throw PmsException.Validation($"Listede {lines.Count} misafir var, grupta girişi yapılmamış {targets.Count} oda var. Önce grup odası ekleyin.");
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var l = lines[i];
+                var first = Validate.Required(l.FirstName, $"{i + 1}. satır ad", 100);
+                var last = Validate.Required(l.LastName, $"{i + 1}. satır soyad", 100);
+                var nat = string.IsNullOrWhiteSpace(l.Nationality) ? null : l.Nationality.Trim().ToUpperInvariant();
+                if (nat is not null && nat.Length != 2) throw PmsException.Validation($"{i + 1}. satır: uyruk iki harfli ülke kodu olmalıdır (TR, DE…).");
+                var guestId = await tx.ScalarAsync<Guid>(
+                    "INSERT INTO pms.guests (first_name, last_name, nationality, created_by) VALUES (@first, @last, @nat, @uid) RETURNING id",
+                    new { first, last, nat, uid = tx.User.Id });
+                await tx.AuditAsync("guest.create", "guest", guestId, null, new { first, last, nat, source = "rooming_list" });
+                var (resId, oldGuest) = targets[i];
+                await tx.ExecAsync("UPDATE pms.reservations SET guest_id = @guestId, version = version + 1, updated_at = now() WHERE id = @resId", new { guestId, resId });
+                await tx.ExecAsync("DELETE FROM pms.reservation_guests WHERE reservation_id = @resId AND guest_id = @oldGuest", new { resId, oldGuest });
+                await tx.ExecAsync("""
+                    INSERT INTO pms.reservation_guests (reservation_id, guest_id, is_primary) VALUES (@resId, @guestId, true)
+                    ON CONFLICT (reservation_id, guest_id) DO UPDATE SET is_primary = true
+                    """, new { resId, guestId });
+                await tx.AuditAsync("reservation.update", "reservation", resId, new { guestId = oldGuest }, new { guestId, source = "rooming_list" });
+                tx.Publish("reservations", resId);
+            }
+            await tx.AuditAsync("group.rooming_list", "reservation_group", id, null, new { count = lines.Count });
+            return new { applied = lines.Count, remaining = targets.Count - lines.Count };
         })).RequirePermission("reservation.create");
     }
 }

@@ -18,6 +18,8 @@ public sealed record BulkChargeRequest(Guid[]? ReservationIds, Guid TransactionC
 /// <summary>CountedCash tesis para birimindeki nakit; CountedForeign kasadaki dövizlerin sayımı (para birimi → tutar).</summary>
 public sealed record CloseShiftRequest(decimal CountedCash, string? Note, Dictionary<string, decimal>? CountedForeign = null);
 
+public sealed record RoutingTemplateRequest(string Template);
+sealed record RoutingTarget(Guid? CompanyId, Guid? AgencyId, string Status, string Currency);
 public static class FolioEndpoints
 {
     public static void Map(WebApplication app)
@@ -166,6 +168,44 @@ public static class FolioEndpoints
             await tx.AuditAsync("reservation.routing", "reservation", id, null, req);
             tx.Publish("reservations", id);
             return new { id };
+        }, requireKey: false)).WithTags("Folios").RequirePermission("folio.transfer");
+
+        // Hazır yönlendirme şablonu: oda ücreti rezervasyonun şirketine veya acentesine. O cari için açık pencere yoksa yeni pencere açılır;
+        // ekstralar misafir penceresinde kalır. Geçmiş satırlar taşınmaz (gerekirse "Başka folyoya aktar" ile taşınır).
+        app.MapPost("/api/v1/reservations/{id:guid}/routing-template", (Guid id, RoutingTemplateRequest req, CommandRunner cmd) => cmd.RunAsync("reservation.routing", new { id, req }, async tx =>
+        {
+            var r = await tx.OneOrNullAsync<RoutingTarget>(
+                "SELECT company_id, agency_id, status, currency::text FROM pms.reservations WHERE id = @id FOR UPDATE", new { id }) ?? throw PmsException.NotFound("Rezervasyon");
+            if (r.Status is "cancelled" or "no_show" or "checked_out") throw PmsException.Validation("Bu rezervasyonun yönlendirmesi değiştirilemez.");
+            (string kind, Guid accountId) = req.Template switch
+            {
+                "room_to_company" => ("company", r.CompanyId ?? throw PmsException.Validation("Rezervasyonda şirket seçili değil.")),
+                "room_to_agency" => ("agency", r.AgencyId ?? throw PmsException.Validation("Rezervasyonda acente seçili değil.")),
+                "room_to_guest" => ("guest", Guid.Empty),
+                _ => throw PmsException.Validation("Geçersiz yönlendirme şablonu."),
+            };
+            int window;
+            if (kind == "guest")
+                window = await tx.ScalarAsync<int?>("SELECT min(window_no) FROM pms.folios WHERE reservation_id = @id AND payer_kind = 'guest' AND status = 'open'", new { id })
+                    ?? throw PmsException.Validation("Misafirin açık folyo penceresi yok.");
+            else
+            {
+                var col = kind == "company" ? "company_id" : "agency_id";
+                var existing = await tx.ScalarAsync<int?>($"SELECT min(window_no) FROM pms.folios WHERE reservation_id = @id AND payer_kind = @kind AND {col} = @accountId AND status = 'open'",
+                    new { id, kind, accountId });
+                if (existing is { } w) window = w;
+                else
+                {
+                    window = await tx.ScalarAsync<int>("SELECT COALESCE(max(window_no), 0) + 1 FROM pms.folios WHERE reservation_id = @id", new { id });
+                    if (window > 9) throw PmsException.Validation("Bu rezervasyonda en fazla 9 folyo penceresi açılabilir.");
+                    await FolioService.CreateReservationFolioAsync(tx, id, window, kind, null, kind == "company" ? accountId : null, kind == "agency" ? accountId : null, r.Currency);
+                }
+            }
+            await tx.ExecAsync("UPDATE pms.reservations SET room_charge_window = @window, version = version + 1 WHERE id = @id", new { id, window });
+            await tx.AuditAsync("reservation.routing", "reservation", id, null, new { req.Template, window });
+            tx.Publish("reservations", id);
+            tx.Publish("folios");
+            return new { window };
         }, requireKey: false)).WithTags("Folios").RequirePermission("folio.transfer");
 
         // ---- Kasa

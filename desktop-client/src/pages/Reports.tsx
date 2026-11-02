@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { save } from '@tauri-apps/plugin-dialog';
-import { Columns3, FileSpreadsheet, FileText, Filter, Play, Printer } from 'lucide-react';
+import { Bookmark, Columns3, FileSpreadsheet, FileText, Filter, Play, Printer, Trash2 } from 'lucide-react';
 import { download, get, qs } from '../lib/api';
 import type { ReportInfo, ReportResult } from '../lib/types';
 
@@ -45,6 +45,26 @@ export default function ReportsPage() {
     try { setHidden(JSON.parse(localStorage.getItem(colKey) ?? '[]')); } catch { setHidden([]); }
     setFilters({}); setColMenu(false);
   }, [colKey]);
+  // Kayıtlı görünümler: tarih dışındaki parametreler (firma, hesap vb.), gizlenen sütunlar ve sütun aramaları bir adla saklanır.
+  // Tarihler kaydedilmez; görünüm açıldığında güncel iş gününe göre kalır.
+  type Preset = { name: string; params: Record<string, string>; hidden: string[]; filters: Record<string, string> };
+  const presetKey = `pms-report-presets-${name}`;
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [presetName, setPresetName] = useState<string | null>(null);
+  useEffect(() => { try { setPresets(JSON.parse(localStorage.getItem(presetKey) ?? '[]')); } catch { setPresets([]); } }, [presetKey]);
+  const storePresets = (next: Preset[]) => { setPresets(next); try { localStorage.setItem(presetKey, JSON.stringify(next)); } catch { /* depolama kapalı */ } };
+  const savePreset = () => {
+    const n = presetName?.trim(); if (!n || !def) return;
+    const keep = Object.fromEntries(Object.entries(params).filter(([k]) => def.params.find(x => x.key === k)?.type !== 'date'));
+    storePresets([...presets.filter(x => x.name !== n), { name: n, params: keep, hidden, filters }]);
+    setPresetName(null); toast.ok(`"${n}" görünümü kaydedildi.`);
+  };
+  const applyPreset = (n: string) => {
+    const x = presets.find(p => p.name === n); if (!x) return;
+    setParams(s => ({ ...s, ...x.params })); setHidden(x.hidden);
+    try { localStorage.setItem(colKey, JSON.stringify(x.hidden)); } catch { /* yok say */ }
+    setFilters(x.filters ?? {}); setShowFilters(Object.values(x.filters ?? {}).some(Boolean)); setRunKey(k => k + 1);
+  };
   const toggleCol = (k: string) => setHidden(h => {
     const next = h.includes(k) ? h.filter(x => x !== k) : [...h, k];
     try { localStorage.setItem(colKey, JSON.stringify(next)); } catch { /* tarayıcı depolaması kapalı olabilir */ }
@@ -132,6 +152,17 @@ export default function ReportsPage() {
                   </>}
                 </span>
                 <button className={`btn ${showFilters ? 'active' : ''}`} disabled={!result.data} onClick={() => { setShowFilters(f => !f); setFilters({}); }} title="Sütunlarda ara"><Filter /> Ara</button>
+                {presets.length > 0 && <select className="input" style={{ width: 170 }} value="" onChange={e => { if (e.target.value) applyPreset(e.target.value); }} title="Kayıtlı görünüm">
+                  <option value="">Kayıtlı görünümler…</option>{presets.map(x => <option key={x.name} value={x.name}>{x.name}</option>)}
+                </select>}
+                {presetName === null
+                  ? <button className="btn" onClick={() => setPresetName('')} title="Süzgeç, sütun ve aramaları bir adla kaydet"><Bookmark /> Görünümü kaydet</button>
+                  : <span className="row" style={{ gap: 4 }}>
+                      <input className="input" style={{ width: 150 }} autoFocus placeholder="Görünüm adı" value={presetName} onChange={e => setPresetName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') savePreset(); if (e.key === 'Escape') setPresetName(null); }} />
+                      <button className="btn primary sm" disabled={!presetName.trim()} onClick={savePreset}>Kaydet</button>
+                      {presets.some(x => x.name === presetName.trim()) && <button className="btn sm danger" title="Bu adlı görünümü sil" onClick={() => { storePresets(presets.filter(x => x.name !== presetName.trim())); setPresetName(null); }}><Trash2 /></button>}
+                      <button className="btn sm ghost" onClick={() => setPresetName(null)}>Vazgeç</button>
+                    </span>}
                 <button className="btn" onClick={() => void exportAs('xlsx')}><FileSpreadsheet /> Excel</button>
                 <button className="btn" onClick={() => void exportAs('csv')}>CSV</button>
               </div></div>
