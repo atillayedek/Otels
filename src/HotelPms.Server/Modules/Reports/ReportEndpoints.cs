@@ -168,6 +168,87 @@ public static class ReportEndpoints
         },
         new()
         {
+            // Boş oda listesi: bu gece satılabilir odalar (konaklayan yok, blokaj yok), temizlik durumu ve bugünkü geliş bilgisiyle.
+            Name = "vacant-rooms", Title = "Boş Oda Listesi", Category = "Kat Hizmetleri", Permission = "report.view",
+            Columns = [new("room", "Oda", "text"), new("floor", "Kat", "text"), new("roomType", "Tip", "text"), new("hkStatus", "Temizlik", "text"),
+                new("arrival", "Bugün Gelecek", "text"), new("note", "Not", "text")],
+            Sql = """
+                SELECT r.number AS room, r.floor, t.code AS room_type,
+                       CASE r.hk_status WHEN 'clean' THEN 'Temiz' WHEN 'dirty' THEN 'Kirli' WHEN 'inspected' THEN 'Kontrol Edildi' ELSE 'Temizleniyor' END AS hk_status,
+                       (SELECT g.first_name || ' ' || g.last_name FROM pms.reservations a JOIN pms.guests g ON g.id = a.guest_id
+                         WHERE a.room_id = r.id AND a.status IN ('confirmed','tentative') AND a.arrival = p.business_date LIMIT 1) AS arrival,
+                       r.hk_note AS note
+                FROM pms.rooms r CROSS JOIN (SELECT business_date FROM pms.property LIMIT 1) p JOIN pms.room_types t ON t.id = r.room_type_id
+                WHERE r.is_active
+                  AND NOT EXISTS (SELECT 1 FROM pms.reservations x WHERE x.room_id = r.id AND x.status = 'checked_in')
+                  AND NOT EXISTS (SELECT 1 FROM pms.room_blocks b WHERE b.room_id = r.id AND b.is_active AND b.date_from <= p.business_date AND b.date_to > p.business_date)
+                ORDER BY r.floor NULLS LAST, r.sort_order, r.number
+                """,
+        },
+        new()
+        {
+            Name = "room-moves", Title = "Oda Değişim Raporu", Category = "Kat Hizmetleri", Permission = "report.view", Params = [From, To],
+            Columns = [new("at", "Tarih", "datetime"), new("reservationNumber", "Rez. No", "text"), new("guest", "Misafir", "text"), new("fromRoom", "Eski Oda", "text"),
+                new("toRoom", "Yeni Oda", "text"), new("kind", "Tür", "text"), new("reason", "Gerekçe", "text"), new("user", "Kullanıcı", "text")],
+            Sql = """
+                SELECT a.at, r.reservation_number, g.first_name || ' ' || g.last_name AS guest, fr.number AS from_room, tr.number AS to_room,
+                       CASE a.kind WHEN 'move' THEN 'Oda değişimi' WHEN 'upgrade' THEN 'Üst kategori' WHEN 'downgrade' THEN 'Alt kategori' ELSE a.kind END AS kind,
+                       a.reason, u.username AS user
+                FROM pms.room_assignments a JOIN pms.reservations r ON r.id = a.reservation_id JOIN pms.guests g ON g.id = r.guest_id
+                JOIN pms.rooms tr ON tr.id = a.room_id LEFT JOIN pms.rooms fr ON fr.id = a.from_room_id LEFT JOIN pms.users u ON u.id = a.by_user
+                WHERE a.kind IN ('move', 'upgrade', 'downgrade') AND a.at::date BETWEEN @from AND @to
+                ORDER BY a.at
+                """,
+        },
+        new()
+        {
+            Name = "lost-found", Title = "Kayıp Bulundu Raporu", Category = "Kat Hizmetleri", Permission = "report.view", Params = [From, To],
+            Columns = [new("itemNo", "No", "text"), new("foundDate", "Bulunma", "date"), new("location", "Yer", "text"), new("room", "Oda", "text"),
+                new("description", "Eşya", "text"), new("status", "Durum", "text"), new("returnedTo", "Teslim Alan", "text"), new("storage", "Saklama Yeri", "text")],
+            Sql = """
+                SELECT i.item_no::text AS item_no, i.found_date, i.location, rm.number AS room, i.description,
+                       CASE i.status WHEN 'stored' THEN 'Saklanıyor' WHEN 'returned' THEN 'Teslim edildi' ELSE 'İmha edildi' END AS status,
+                       i.returned_to, i.storage
+                FROM pms.lost_items i LEFT JOIN pms.rooms rm ON rm.id = i.room_id
+                WHERE i.found_date BETWEEN @from AND @to ORDER BY i.found_date, i.item_no
+                """,
+        },
+        new()
+        {
+            Name = "pending-tasks", Title = "Bekleyen Görevler Raporu", Category = "Kat Hizmetleri", Permission = "report.view",
+            Columns = [new("kind", "Bölüm", "text"), new("room", "Oda", "text"), new("task", "Görev", "text"), new("status", "Durum", "text"),
+                new("detail", "Ayrıntı", "text"), new("since", "Açılış", "datetime")],
+            Sql = """
+                SELECT 'Kat hizmetleri' AS kind, rm.number AS room,
+                       CASE k.task_type WHEN 'departure_clean' THEN 'Çıkış temizliği' WHEN 'stayover_clean' THEN 'Konaklayan temizliği' WHEN 'inspection' THEN 'Kontrol'
+                         WHEN 'turndown' THEN 'Akşam hazırlığı' WHEN 'deep_clean' THEN 'Detaylı temizlik' ELSE 'Diğer' END AS task,
+                       CASE k.status WHEN 'open' THEN 'Bekliyor' ELSE 'Yapılıyor' END AS status, k.notes AS detail, k.created_at AS since
+                FROM pms.hk_tasks k JOIN pms.rooms rm ON rm.id = k.room_id WHERE k.status IN ('open', 'in_progress')
+                UNION ALL
+                SELECT 'Teknik servis', rm.number, m.issue, CASE m.status WHEN 'open' THEN 'Bekliyor' ELSE 'Yapılıyor' END,
+                       CASE m.priority WHEN 'urgent' THEN 'Acil' WHEN 'high' THEN 'Yüksek' WHEN 'low' THEN 'Düşük' ELSE 'Normal' END || COALESCE(' · ' || m.description, ''), m.opened_at
+                FROM pms.maintenance_tickets m LEFT JOIN pms.rooms rm ON rm.id = m.room_id WHERE m.status IN ('open', 'in_progress')
+                ORDER BY 6
+                """,
+        },
+        new()
+        {
+            Name = "cash-movements", Title = "Kasa Hareketleri (giriş, çıkış, döviz bozdurma, transfer)", Category = "Finans", Permission = "financial_report.view",
+            Params = [From, To],
+            Columns = [new("at", "Tarih", "datetime"), new("shiftNo", "Vardiya", "text"), new("cashier", "Kasiyer", "text"), new("kind", "İşlem", "text"),
+                new("description", "Açıklama", "text"), new("counterpart", "Kişi / Firma", "text"), new("currency", "Döviz", "text"), new("amount", "Tutar", "money"),
+                new("rate", "Kur", "text"), new("baseAmount", "TL Karşılığı", "money")],
+            SumColumns = ["baseAmount"],
+            Sql = """
+                SELECT m.created_at AS at, s.shift_no::text AS shift_no, u.username AS cashier,
+                       CASE m.kind WHEN 'cash_in' THEN 'Kasa girişi' WHEN 'cash_out' THEN 'Kasa çıkışı' WHEN 'exchange' THEN 'Döviz bozdurma' ELSE 'Kasa transfer' END AS kind,
+                       m.description, m.counterpart, m.currency::text AS currency, m.amount, m.exchange_rate::text AS rate, m.base_amount
+                FROM pms.cashier_movements m JOIN pms.cashier_shifts s ON s.id = m.shift_id JOIN pms.users u ON u.id = s.user_id
+                WHERE m.business_date BETWEEN @from AND @to ORDER BY m.created_at
+                """,
+        },
+        new()
+        {
             Name = "room-status", Title = "Oda Durum Raporu", Category = "Kat Hizmetleri", Permission = "report.view",
             Columns = [new("room", "Oda", "text"), new("floor", "Kat", "text"), new("roomType", "Tip", "text"), new("hkStatus", "Temizlik", "text"),
                 new("foStatus", "Ön Büro", "text"), new("block", "Blokaj", "text"), new("guest", "Misafir", "text"), new("note", "Not", "text")],

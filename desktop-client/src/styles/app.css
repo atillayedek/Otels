@@ -609,7 +609,19 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .rf-label { display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text-2); font-weight: 700; font-size: 17px; writing-mode: horizontal-tb; }
 .rf-label small { font-size: 10px; font-weight: 500; color: var(--muted); }
 .rack-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.rack-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Rack: sütun sayısı sabit, kutular pencere genişliğine göre büyür/küçülür (pencere daralınca kutular da küçülür). */
+.rack-grid { --cols: 10; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: clamp(3px, .5vw, 8px); container-type: inline-size; }
+.rack-grid.size-s { --cols: 14; }
+.rack-grid.size-l { --cols: 7; }
+@media (max-width: 1500px) { .rack-grid { --cols: 9; } .rack-grid.size-s { --cols: 12; } .rack-grid.size-l { --cols: 6; } }
+@media (max-width: 1100px) { .rack-grid { --cols: 7; } .rack-grid.size-s { --cols: 10; } .rack-grid.size-l { --cols: 5; } }
+@media (max-width: 800px) { .rack-grid { --cols: 6; } .rack-grid.size-s { --cols: 8; } .rack-grid.size-l { --cols: 4; } }
+.rack-grid .room-tile { width: auto !important; min-height: 0 !important; aspect-ratio: 118 / 150; font-size: clamp(10px, calc(100cqi / var(--cols) / 10), 13.5px); }
+.rack-grid .room-tile .rt-no { font-size: clamp(13px, calc(100cqi / var(--cols) / 5.4), 28px); }
+.rack-grid .room-tile .rt-body, .rack-grid .room-tile .rt-guest, .rack-grid .room-tile .rt-type { font-size: 1em; }
+.rack-grid .room-tile .rt-dates, .rack-grid .room-tile .rt-bal, .rack-grid .room-tile .rt-note, .rack-grid .room-tile .rt-acc, .rack-grid .room-tile .rt-more { font-size: .9em; }
+.rack-grid .room-tile .rt-hk, .rack-grid .room-tile .rt-grp { font-size: .85em; }
+.room-tile.grp-fill { border-color: color-mix(in srgb, var(--grp) 70%, #0f172a 30%); }
 .room-tile { --tw: 118px; --th: 158px; --tone: var(--rk-vacant); --tone-text: #0f172a; --grp: transparent;
   width: var(--tw); min-height: var(--th); display: flex; flex-direction: column; border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; position: relative;
   background: var(--tone); color: var(--tone-text); border: 1px solid color-mix(in srgb, var(--tone) 70%, #0f172a 30%); box-shadow: var(--shadow-sm), inset 4px 0 0 var(--grp);
@@ -903,3 +915,19 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .count-sheet summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .count-sheet .dt { margin: 8px 0; }
 .count-sheet .input.sm { width: 80px; }
+
+/* Rapor sütun seçici ve sütun araması */
+.col-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 61; width: 420px; max-height: 60vh; overflow: auto; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.col-menu-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+.col-menu-list { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+.col-menu-list .check { font-size: 12.5px; }
+.dt .col-filters th { padding: 3px 4px; background: var(--surface-2); }
+.dt .col-filters .input { height: 24px; font-size: 11.5px; width: 100%; min-width: 60px; }
+
+/* Üst çubuk hızlı menüsü (fareyle üzerine gelince) */
+.qh-pop { position: fixed; z-index: 62; min-width: 230px; max-width: 280px; padding: 5px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
+.qh-pop button { all: unset; box-sizing: border-box; padding: 6px 10px; border-radius: 5px; font-size: 12.5px; color: var(--text); cursor: pointer; }
+.qh-pop button:hover { background: var(--surface-3); }
+.qh-pop button.rep { color: var(--text-2); }
+.qh-pop .qh-sep { margin: 4px 6px 2px; padding-top: 5px; border-top: 1px solid var(--border); font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.rack-search .rack-field { border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--text-2); padding: 0 2px; max-width: 92px; cursor: pointer; }

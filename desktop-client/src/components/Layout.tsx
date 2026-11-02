@@ -10,6 +10,7 @@ import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
 import { SupportModal } from './Support';
 import { AppearanceModal, QuickLook } from './AppearanceSettings';
+import { useQuickHover } from './QuickHover';
 import { WindowsProvider, WindowTaskbar, useWindows, type WinSpec } from './Windows';
 import { useLogo } from './PrintDoc';
 import { Modal, useContextMenu } from './ui';
@@ -153,6 +154,7 @@ function Shell({ children }: { children: ReactNode }) {
   const windows = useWindows();
   const [look, setLook] = useState(false);
   const [quickLook, setQuickLook] = useState(false);
+  const quickHover = useQuickHover();
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
   const can = useCallback((p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p)), [canOne]);
   const [collapsed, setCollapsed] = useState(false);
@@ -258,7 +260,8 @@ function Shell({ children }: { children: ReactNode }) {
               </button>
             );
             return [
-              <button key={i.to} className={active ? 'active' : ''} style={{ '--tone': i.tone } as CSSProperties} onClick={() => (i.win && windows ? windows.open(i.win) : nav(i.to))}
+              <button key={i.to} className={active ? 'active' : ''} style={{ '--tone': i.tone } as CSSProperties} {...quickHover.bind(i.to)}
+                onClick={() => { quickHover.bind(i.to).onClick?.(); if (i.win && windows) windows.open(i.win); else nav(i.to); }}
                 title={n ? `${i.label}: ${n} bekleyen` : i.label}>
                 <span className="qi">{i.icon}{n > 0 && <em>{n > 99 ? '99+' : n}</em>}</span><span className="ql">{i.label}</span>
               </button>,
@@ -277,6 +280,7 @@ function Shell({ children }: { children: ReactNode }) {
       {support && <SupportModal onClose={() => setSupport(false)} />}
       {look && <AppearanceModal onClose={() => setLook(false)} />}
       {harcamaMenu.node}
+      {quickHover.node}
       {keysHelp && (
         <Modal title="Klavye kısayolları" onClose={() => setKeysHelp(false)} footer={<button className="btn primary" onClick={() => setKeysHelp(false)}>Tamam</button>}>
           <table className="dt keys-table"><tbody>

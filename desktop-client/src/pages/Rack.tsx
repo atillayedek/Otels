@@ -36,6 +36,9 @@ function toneOf(r: RoomStatus): Tone {
 
 const SIZE_KEY = 'pms-rack-size';
 const LAYOUT_KEY = 'pms-rack-layout';
+const COLOR_KEY = 'pms-rack-color';
+/** Grup rengi üzerinde okunur yazı rengi (açık zeminde koyu, koyu zeminde beyaz). */
+const textOn = (hex: string) => { const n = parseInt(hex.slice(1), 16); const l = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; return l > 0.6 ? '#0f172a' : '#ffffff'; };
 const readPref = <T extends string>(key: string, allowed: T[], d: T): T => { try { const v = localStorage.getItem(key) as T | null; return v && allowed.includes(v) ? v : d; } catch { return d; } };
 const savePref = (key: string, v: string) => { try { localStorage.setItem(key, v); } catch { /* tarayıcı depolaması kapalı olabilir */ } };
 
@@ -59,12 +62,16 @@ export default function RackPage() {
   const menu = useContextMenu();
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
+  // Arama alanı (AmonRa'daki alan seçimi gibi): tümü veya yalnız oda no / misafir / firma / kat / oda tipi.
+  const [field, setField] = useState<'all' | 'room' | 'guest' | 'account' | 'floor' | 'type'>('all');
   // AmonRa rack süzgeçleri: firma/acente ve çıkış tarihi (boş = hepsi)
   const [acc, setAcc] = useState('');
   const [dep, setDep] = useState('');
   const [size, setSize] = useState<Size>(() => readPref(SIZE_KEY, ['s', 'm', 'l'], 'm'));
   // Rack: odalar sıralı tek akış; Otel Planı: odalar kat kat (kat bilgisi olmayanlar en sonda).
   const [layout, setLayout] = useState<'rack' | 'plan'>(() => readPref(LAYOUT_KEY, ['rack', 'plan'], 'rack'));
+  // Kutu rengi: oda durumu (dolu/boş/kirli...) veya oda grubu (grubu olan oda tamamen grup rengine boyanır).
+  const [colorMode, setColorMode] = useState<'status' | 'group'>(() => readPref(COLOR_KEY, ['status', 'group'], 'status'));
   const [hkRoom, setHkRoom] = useState<string | null>(null);
   const [ticketRoom, setTicketRoom] = useState<string | null>(null);
   const [blockRoom, setBlockRoom] = useState<string | null>(null);
@@ -89,7 +96,12 @@ export default function RackPage() {
   // Arama: oda no, odadaki herkesin adı (ana ve ek misafirler, bugünkü geliş dahil), firma/acente.
   const needle = lc(q.trim());
   const view = rooms.filter(r => {
-    if (needle && ![r.number, r.inHouseGuest, r.arrivalGuest, r.inHouseGuests, r.inHouseAccount, r.arrivalAccount].some(x => lc(x).includes(needle))) return false;
+    if (needle) {
+      const by = { room: [r.number], guest: [r.inHouseGuest, r.arrivalGuest, r.inHouseGuests], account: [r.inHouseAccount, r.arrivalAccount], floor: [r.floor], type: [r.roomTypeCode] };
+      const hay = field === 'all' ? Object.values(by).flat() : by[field];
+      // Oda ve kat alanında tam eşleşme (101 yazınca 1101 gelmesin); diğerlerinde içerir.
+      if (!hay.some(x => field === 'room' || field === 'floor' ? lc(x) === needle : lc(x).includes(needle))) return false;
+    }
     if (acc && (r.inHouseAccount ?? r.arrivalAccount) !== acc) return false;
     if (dep && (r.inHouseDeparture ?? r.arrivalDeparture) !== dep) return false;
     switch (filter) {
@@ -276,8 +288,8 @@ export default function RackPage() {
     const t = toneOf(r);
     const names = (r.inHouseGuests ?? r.inHouseGuest ?? r.arrivalGuest ?? '').split(' · ').filter(Boolean);
     return (
-      <div key={r.id} className={`room-tile tone-${t}${sel.has(r.id) ? ' selected' : ''}`} title={tileTitle(r)} aria-selected={sel.has(r.id)}
-        style={r.groupColor ? ({ '--grp': r.groupColor } as React.CSSProperties) : undefined}
+      <div key={r.id} className={`room-tile tone-${t}${sel.has(r.id) ? ' selected' : ''}${colorMode === 'group' && r.groupColor ? ' grp-fill' : ''}`} title={tileTitle(r)} aria-selected={sel.has(r.id)}
+        style={r.groupColor ? ({ '--grp': r.groupColor, ...(colorMode === 'group' ? { '--tone': r.groupColor, '--tone-text': textOn(r.groupColor) } : {}) } as React.CSSProperties) : undefined}
         onClick={e => {
           if (e.ctrlKey || e.metaKey || e.shiftKey) { e.preventDefault(); toggle(r, e.shiftKey); return; }
           menu.open(e, sel.has(r.id) && sel.size > 1 ? bulkItems() : items(r));
@@ -316,13 +328,21 @@ export default function RackPage() {
   return (
     <div className="page rack-page">
       <div className="rack-tools">
+        <div className="seg" title="Kutu rengi: oda durumuna göre veya oda grubuna göre">
+          <button className={colorMode === 'status' ? 'active' : ''} onClick={() => { setColorMode('status'); savePref(COLOR_KEY, 'status'); }}>Durum rengi</button>
+          <button className={colorMode === 'group' ? 'active' : ''} onClick={() => { setColorMode('group'); savePref(COLOR_KEY, 'group'); }}>Grup rengi</button>
+        </div>
         <div className="seg" title="Görünüm">
           <button className={layout === 'rack' ? 'active' : ''} onClick={() => { setLayout('rack'); savePref(LAYOUT_KEY, 'rack'); }}>Rack</button>
           <button className={layout === 'plan' ? 'active' : ''} onClick={() => { setLayout('plan'); savePref(LAYOUT_KEY, 'plan'); }}>Otel Planı</button>
         </div>
         <div className="rack-search">
           <Search size={15} />
-          <input className="input" placeholder="Kişi ara: ad soyad, oda no, firma" value={q} onChange={e => setQ(e.target.value)} autoFocus data-enter="keep" />
+          <select className="rack-field" value={field} onChange={e => setField(e.target.value as typeof field)} title="Arama alanı">
+            <option value="all">Tümü</option><option value="room">Oda no</option><option value="guest">Misafir</option>
+            <option value="account">Firma</option><option value="floor">Kat</option><option value="type">Oda tipi</option>
+          </select>
+          <input className="input" placeholder={field === 'all' ? 'Kişi ara: ad soyad, oda no, firma' : 'Ara…'} value={q} onChange={e => setQ(e.target.value)} autoFocus data-enter="keep" />
           {q && <button className="btn sm ghost" onClick={() => setQ('')} aria-label="Aramayı temizle">×</button>}
         </div>
         <select className="input sm rack-sel" value={acc} onChange={e => setAcc(e.target.value)} title="Firma / acente">

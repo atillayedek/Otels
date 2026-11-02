@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { save } from '@tauri-apps/plugin-dialog';
-import { FileSpreadsheet, FileText, Play, Printer } from 'lucide-react';
+import { Columns3, FileSpreadsheet, FileText, Filter, Play, Printer } from 'lucide-react';
 import { download, get, qs } from '../lib/api';
 import type { ReportInfo, ReportResult } from '../lib/types';
 
@@ -35,6 +35,21 @@ export default function ReportsPage() {
   const [params, setParams] = useState<Record<string, string>>({});
   const [runKey, setRunKey] = useState(0);
   const [printing, setPrinting] = useState(false);
+  // Gösterilecek sütunlar (rapor başına bu bilgisayarda hatırlanır) ve sütun bazında arama (AmonRa'daki gibi).
+  const colKey = `pms-report-cols-${name}`;
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [colMenu, setColMenu] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  useEffect(() => {
+    try { setHidden(JSON.parse(localStorage.getItem(colKey) ?? '[]')); } catch { setHidden([]); }
+    setFilters({}); setColMenu(false);
+  }, [colKey]);
+  const toggleCol = (k: string) => setHidden(h => {
+    const next = h.includes(k) ? h.filter(x => x !== k) : [...h, k];
+    try { localStorage.setItem(colKey, JSON.stringify(next)); } catch { /* tarayıcı depolaması kapalı olabilir */ }
+    return next;
+  });
   useEffect(() => {
     if (!def) return;
     const p: Record<string, string> = {};
@@ -103,6 +118,20 @@ export default function ReportsPage() {
                   setTimeout(() => { window.print(); page?.remove(); setPrinting(false); }, 50);
                 }}><Printer /> Yazdır{def.landscape ? ' (yatay)' : ''}</button>
                 {name === 'kbs-guests' && <button className="btn primary" onClick={() => void exportPolice()}><FileSpreadsheet /> Polis Excel'i indir</button>}
+                <span style={{ position: 'relative' }}>
+                  <button className="btn" disabled={!result.data} onClick={() => setColMenu(m => !m)} title="Gösterilecek bilgileri seç"><Columns3 /> Sütunlar{hidden.length ? ` (${(result.data?.columns.length ?? 0) - hidden.length})` : ''}</button>
+                  {colMenu && result.data && <>
+                    <div className="ql-backdrop" onMouseDown={() => setColMenu(false)} />
+                    <div className="col-menu">
+                      <div className="col-menu-head"><b>Gösterilecek bilgiler</b>
+                        <button className="btn sm ghost" onClick={() => { setHidden([]); try { localStorage.removeItem(colKey); } catch { /* yok say */ } }}>Tümü</button></div>
+                      <div className="col-menu-list">{result.data.columns.map(c => (
+                        <label key={c.key} className="check"><input type="checkbox" checked={!hidden.includes(c.key)} onChange={() => toggleCol(c.key)} /> {c.header}</label>
+                      ))}</div>
+                    </div>
+                  </>}
+                </span>
+                <button className={`btn ${showFilters ? 'active' : ''}`} disabled={!result.data} onClick={() => { setShowFilters(f => !f); setFilters({}); }} title="Sütunlarda ara"><Filter /> Ara</button>
                 <button className="btn" onClick={() => void exportAs('xlsx')}><FileSpreadsheet /> Excel</button>
                 <button className="btn" onClick={() => void exportAs('csv')}>CSV</button>
               </div></div>
@@ -118,7 +147,7 @@ export default function ReportsPage() {
                 </div>)}
               {missing.length > 0 ? <div className="card"><Empty icon={<FileText />} title={`${missing.map(m => m.label).join(', ')} seçin`} text="Rapor, seçiminizden sonra hazırlanır." /></div>
                 : result.isFetching ? <Spinner label="Rapor hazırlanıyor…" /> : result.error ? <ErrorBox error={result.error} /> : result.data && (
-                <ReportTable r={result.data} />
+                <ReportTable r={result.data} hidden={hidden} filters={showFilters ? filters : undefined} onFilter={(k, v) => setFilters(f => ({ ...f, [k]: v }))} />
               )}
             </>
           )}
@@ -132,20 +161,29 @@ export default function ReportsPage() {
               return `${p?.label}: ${p?.type === 'date' ? fmtDate(v) : p?.type === 'account' ? `${v} ${accounts.data?.find(a => a.code === v)?.name ?? ''}` : v}`;
             }),
             `Oluşturma: ${fmtDateTime(result.data.generatedAt)}`]} />
-          <ReportTable r={result.data} print />
+          <ReportTable r={result.data} print hidden={hidden} filters={showFilters ? filters : undefined} />
           <DocFooter note={`${result.data.rows.length} kayıt.`} />
         </div>, document.getElementById('print-root')!)}
     </div>
   );
 }
 
-function ReportTable({ r, print }: { r: ReportResult; print?: boolean }) {
+function ReportTable({ r, print, hidden = [], filters, onFilter }: {
+  r: ReportResult; print?: boolean; hidden?: string[]; filters?: Record<string, string>; onFilter?: (key: string, value: string) => void;
+}) {
   const right = (t: string) => ['money', 'int', 'decimal'].includes(t);
+  const cols = r.columns.filter(c => !hidden.includes(c.key));
+  const lc = (x: string) => x.toLocaleLowerCase('tr-TR');
+  const active = Object.entries(filters ?? {}).filter(([, v]) => v.trim());
+  const rows = active.length ? r.rows.filter(row => active.every(([k, v]) => lc(cellText(row[k], r.columns.find(c => c.key === k)?.type ?? 'text')).includes(lc(v.trim())))) : r.rows;
   const table = (
     <table className={print ? 'fd-table' : 'dt'}>
-      <thead><tr>{r.columns.map(c => <th key={c.key} style={{ textAlign: right(c.type) ? 'right' : undefined }}>{c.header}</th>)}</tr></thead>
-      <tbody>{r.rows.map((row, i) => <tr key={i}>{r.columns.map(c => <td key={c.key} className={right(c.type) ? 'num r' : ''}>{cellText(row[c.key], c.type)}</td>)}</tr>)}</tbody>
-      {Object.keys(r.totals ?? {}).length > 0 && <tfoot><tr>{r.columns.map((c, i) => <td key={c.key} className={right(c.type) ? 'num r' : ''}><b>{i === 0 && r.totals[c.key] === undefined ? 'Toplam' : cellText(r.totals[c.key], c.type)}</b></td>)}</tr></tfoot>}
+      <thead>
+        <tr>{cols.map(c => <th key={c.key} style={{ textAlign: right(c.type) ? 'right' : undefined }}>{c.header}</th>)}</tr>
+        {filters && !print && <tr className="col-filters">{cols.map(c => <th key={c.key}><input className="input sm" placeholder="Ara…" value={filters[c.key] ?? ''} onChange={e => onFilter?.(c.key, e.target.value)} /></th>)}</tr>}
+      </thead>
+      <tbody>{rows.map((row, i) => <tr key={i}>{cols.map(c => <td key={c.key} className={right(c.type) ? 'num r' : ''}>{cellText(row[c.key], c.type)}</td>)}</tr>)}</tbody>
+      {!active.length && Object.keys(r.totals ?? {}).length > 0 && <tfoot><tr>{cols.map((c, i) => <td key={c.key} className={right(c.type) ? 'num r' : ''}><b>{i === 0 && r.totals[c.key] === undefined ? 'Toplam' : cellText(r.totals[c.key], c.type)}</b></td>)}</tr></tfoot>}
     </table>
   );
   if (print) return table;
