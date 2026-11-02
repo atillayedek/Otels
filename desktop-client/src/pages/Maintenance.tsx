@@ -9,13 +9,14 @@ import { useSession } from '../lib/session';
 import { Kv, PageHead, useAction } from '../components/common';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, type Column } from '../components/ui';
 import { TicketModal } from '../components/RoomActions';
+import { useSessionState } from '../lib/sessionState';
 
 const PR_COLOR: Record<string, string> = { low: 'gray', normal: 'blue', high: 'orange', urgent: 'red' };
 const ST_COLOR: Record<string, string> = { open: 'orange', in_progress: 'blue', resolved: 'green', closed: 'gray', cancelled: 'gray' };
 
 export default function MaintenancePage() {
   const { can } = useSession();
-  const [status, setStatus] = useState('active');
+  const [status, setStatus] = useSessionState('maint.status', 'active');
   const [creating, setCreating] = useState(false);
   const [edit, setEdit] = useState<Ticket | null>(null);
   const list = useQuery({ queryKey: ['tickets', status], queryFn: () => get<Ticket[]>(`/api/v1/maintenance/tickets${qs({ status: status === 'active' ? null : status })}`) });

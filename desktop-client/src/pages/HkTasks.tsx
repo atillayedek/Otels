@@ -8,13 +8,14 @@ import { useRooms, useStaff } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, type Column } from '../components/ui';
+import { useSessionState } from '../lib/sessionState';
 
 const ST_COLOR: Record<string, string> = { open: 'orange', in_progress: 'blue', done: 'green', cancelled: 'gray' };
 
 export default function HkTasksPage() {
   const { can, property } = useSession();
   const [date, setDate] = useState(property?.businessDate ?? '');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useSessionState('hktasks.status', '');
   const [assignee, setAssignee] = useState('');
   const [edit, setEdit] = useState<HkTask | 'new' | null>(null);
   const [suggest, setSuggest] = useState(false);

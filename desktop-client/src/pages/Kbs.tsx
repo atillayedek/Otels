@@ -8,12 +8,13 @@ import { PageHead, useAction } from '../components/common';
 import { useOpenReservation } from '../components/Windows';
 import { KbsFormModal } from '../components/KbsForm';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, type Column } from '../components/ui';
+import { useSessionState } from '../lib/sessionState';
 
 const COLOR: Record<string, string> = { accepted: 'green', reported_manually: 'green', blocked_configuration: 'orange', needs_data: 'orange', rejected: 'red', manual_action_required: 'red', outcome_unknown: 'red' };
 
 export default function KbsPage() {
   const openRes = useOpenReservation();
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useSessionState('kbs.status', '');
   const [manual, setManual] = useState<KbsReport | null>(null);
   const [formFor, setFormFor] = useState<string | null>(null);
   const st = useQuery({ queryKey: ['kbs', 'status'], queryFn: () => get<{ configured: boolean; message: string }>('/api/v1/kbs/status') });

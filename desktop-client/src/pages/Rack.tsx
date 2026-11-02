@@ -19,6 +19,7 @@ import { DocFooter, DocHeader } from '../components/PrintDoc';
 import { useWindows } from '../components/Windows';
 import { BlockModal } from './RoomBlocks';
 import { TaskModal } from './HkTasks';
+import { useSessionState } from '../lib/sessionState';
 
 type Filter = 'all' | 'vacant' | 'occupied' | 'arrival' | 'departure' | 'dirty' | 'blocked';
 type Size = 's' | 'm' | 'l';
@@ -62,10 +63,10 @@ export default function RackPage() {
     queryFn: () => get<RoomStatus[]>(`/api/v1/rooms/status${future ? `?date=${day}` : ''}`) });
   const groups = useRoomGroups();
   const menu = useContextMenu();
-  const [filter, setFilter] = useState<Filter>('all');
-  const [q, setQ] = useState('');
+  const [filter, setFilter] = useSessionState<Filter>('rack.filter', 'all');
+  const [q, setQ] = useSessionState('rack.q', '');
   // Arama alanı (AmonRa'daki alan seçimi gibi): tümü veya yalnız oda no / misafir / firma / kat / oda tipi.
-  const [field, setField] = useState<'all' | 'room' | 'guest' | 'account' | 'floor' | 'type' | 'resno'>('all');
+  const [field, setField] = useSessionState<'all' | 'room' | 'guest' | 'account' | 'floor' | 'type' | 'resno'>('rack.field', 'all');
   // AmonRa rack süzgeçleri: firma/acente ve çıkış tarihi (boş = hepsi)
   const [acc, setAcc] = useState('');
   const [dep, setDep] = useState('');

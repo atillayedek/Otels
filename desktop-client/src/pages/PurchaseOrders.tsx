@@ -9,6 +9,7 @@ import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { ItemDatalist, ItemPicker, StockDocumentModal } from '../components/StockDocument';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, Spinner, type Column } from '../components/ui';
+import { useSessionState } from '../lib/sessionState';
 
 const STATUS: Record<PurchaseOrder['status'], [string, string]> = {
   draft: ['Taslak', 'gray'], ordered: ['Sipariş verildi', 'blue'], partially_received: ['Kısmen teslim', 'orange'], received: ['Teslim alındı', 'green'], cancelled: ['İptal', 'red'],
@@ -17,7 +18,7 @@ type Detail = { order: PurchaseOrder; lines: PurchaseOrderLine[] };
 
 export default function PurchaseOrdersPage() {
   const { can } = useSession();
-  const [status, setStatus] = useState('open');
+  const [status, setStatus] = useSessionState('po.status', 'open');
   const [edit, setEdit] = useState<Detail | 'new' | null>(null);
   const [view, setView] = useState<string | null>(null);
   const list = useQuery({ queryKey: ['stock', 'orders', status], queryFn: () => get<PurchaseOrder[]>(`/api/v1/purchase-orders${qs({ status: status || null })}`) });

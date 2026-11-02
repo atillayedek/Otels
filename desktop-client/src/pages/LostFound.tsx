@@ -7,6 +7,7 @@ import { useRooms } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { Badge, Empty, ErrorBox, Field, Modal, Spinner } from '../components/ui';
+import { useSessionState } from '../lib/sessionState';
 
 interface LostItem {
   id: string; itemNo: number; foundDate: string; location: string; roomId?: string; roomNumber?: string; guestId?: string; guestName?: string; category: string;
@@ -21,8 +22,8 @@ const STATUS: Record<string, { label: string; color: 'blue' | 'green' | 'gray' }
 
 /** Kayıp eşya defteri: bulunan eşyanın kaydı, sahibine teslimi (teslim alan yazılır) veya imha/bağışı. */
 export default function LostFoundPage() {
-  const [status, setStatus] = useState('stored');
-  const [q, setQ] = useState('');
+  const [status, setStatus] = useSessionState('lf.status', 'stored');
+  const [q, setQ] = useSessionState('lf.q', '');
   const [edit, setEdit] = useState<LostItem | 'new' | null>(null);
   const [close, setClose] = useState<LostItem | null>(null);
   const list = useQuery({ queryKey: ['lostItems', status, q], queryFn: () => get<LostItem[]>(`/api/v1/lost-items${qs({ status, q })}`) });

@@ -9,6 +9,7 @@ import type { RoomGroup, RoomStatus } from '../lib/types';
 import { PageHead, useAction } from '../components/common';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, useConfirm, useContextMenu, useToast, type Column } from '../components/ui';
 import { HkStatusModal } from '../components/RoomActions';
+import { useSessionState } from '../lib/sessionState';
 
 /** Oda grubu renk önerileri (gruplar farklı renkte görünsün). */
 const GROUP_COLORS = ['#2563eb', '#16a34a', '#db2777', '#ea580c', '#7c3aed', '#0891b2', '#ca8a04', '#be123c', '#4d7c0f', '#0f766e'];
@@ -22,9 +23,9 @@ export default function HousekeepingPage() {
   const groups = useRoomGroups();
   const [hk, setHk] = useState('');
   const [fo, setFo] = useState('');
-  const [floor, setFloor] = useState('');
-  const [groupId, setGroupId] = useState('');
-  const [q, setQ] = useState('');
+  const [floor, setFloor] = useSessionState('hk.floor', '');
+  const [groupId, setGroupId] = useSessionState('hk.group', '');
+  const [q, setQ] = useSessionState('hk.q', '');
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [edit, setEdit] = useState<string | null>(null);
   const [note, setNote] = useState(false);

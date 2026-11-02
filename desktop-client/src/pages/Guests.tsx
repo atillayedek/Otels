@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Crown, Search, UserPlus } from 'lucide-react';
 import { api, get, qs } from '../lib/api';
@@ -9,19 +9,20 @@ import { PageHead, useAction } from '../components/common';
 import { Badge, DataTable, Empty, ErrorBox, Modal, Pager, type Column } from '../components/ui';
 import { draftToBody, emptyGuest, GuestFields, type GuestDraft } from '../components/GuestFields';
 import { useOpenGuest } from '../components/Windows';
+import { useSessionState, useOnChange } from '../lib/sessionState';
 
 export default function GuestsPage() {
   const openGuest = useOpenGuest();
   const { can } = useSession();
-  const [q, setQ] = useState('');
-  const [first, setFirst] = useState('');
-  const [last, setLast] = useState('');
-  const [term, setTerm] = useState({ q: '', first: '', last: '' });
-  const [flag, setFlag] = useState('');
-  const [page, setPage] = useState(1);
+  const [q, setQ] = useSessionState('guests.q', '');
+  const [first, setFirst] = useSessionState('guests.first', '');
+  const [last, setLast] = useSessionState('guests.last', '');
+  const [term, setTerm] = useState(() => ({ q: q.trim(), first: first.trim(), last: last.trim() }));
+  const [flag, setFlag] = useSessionState('guests.flag', '');
+  const [page, setPage] = useSessionState('guests.page', 1);
   const [creating, setCreating] = useState(false);
   // Ad ve soyad ayrı kutulardan aranır; üçüncü kutu kimlik no, telefon veya e-posta içindir.
-  useEffect(() => { const t = setTimeout(() => { setTerm({ q: q.trim(), first: first.trim(), last: last.trim() }); setPage(1); }, 300); return () => clearTimeout(t); }, [q, first, last]);
+  useOnChange(() => { const t = setTimeout(() => { setTerm({ q: q.trim(), first: first.trim(), last: last.trim() }); setPage(1); }, 300); return () => clearTimeout(t); }, [q, first, last]);
   const searching = !!(term.q || term.first || term.last);
   const list = useQuery({ queryKey: ['guests', term, flag, page], queryFn: () => get<Paged<GuestListItem>>(`/api/v1/guests${qs({ q: term.q || null, firstName: term.first || null, lastName: term.last || null, vip: flag === 'vip' || null, blacklisted: flag === 'black' || null, page, pageSize: 100 })}`) });
 

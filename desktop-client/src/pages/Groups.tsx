@@ -11,6 +11,7 @@ import { Kv, PageHead, useAction } from '../components/common';
 import { useOpenReservation } from '../components/Windows';
 import { GuestSearch } from '../components/GuestSearch';
 import { Badge, DataTable, Empty, ErrorBox, Field, Modal, Money, MoneyInput, Spinner, type Column } from '../components/ui';
+import { useSessionState } from '../lib/sessionState';
 
 interface GroupListItem { id: string; groupNumber: string; name: string; companyName?: string; agencyName?: string; contactName?: string; arrival?: string; departure?: string; rooms: number; inHouse: number; cancelled: number; balance: string; createdAt: string }
 interface Group { id: string; groupNumber: string; name: string; companyId?: string; companyName?: string; agencyId?: string; agencyName?: string; contactName?: string; notes?: string; createdAt: string; version: number }
@@ -23,8 +24,8 @@ export default function GroupsPage() {
 function GroupList() {
   const nav = useNavigate();
   const { can } = useSession();
-  const [q, setQ] = useState('');
-  const [term, setTerm] = useState('');
+  const [q, setQ] = useSessionState('groups.q', '');
+  const [term, setTerm] = useState(() => q.trim());
   const [creating, setCreating] = useState(false);
   useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 300); return () => clearTimeout(t); }, [q]);
   const list = useQuery({ queryKey: ['reservations', 'groups', term], queryFn: () => get<GroupListItem[]>(`/api/v1/groups${qs({ q: term })}`) });

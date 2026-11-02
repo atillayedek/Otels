@@ -11,6 +11,7 @@ import { PageHead } from '../components/common';
 import { useOpenReservation } from '../components/Windows';
 import { Badge, DataTable, Empty, ErrorBox, Money, Pager, Tabs, useContextMenu, useToast, type Column, Balance } from '../components/ui';
 import { CheckInModal, CheckOutModal } from '../components/ReservationActions';
+import { useSessionState, useOnChange } from '../lib/sessionState';
 
 type View = 'all' | 'arrivals' | 'departures' | 'inhouse';
 const TITLES: Record<View, string> = { all: 'Rezervasyon Listesi', arrivals: 'Beklenen Gelişler', departures: 'Beklenen Çıkışlar', inhouse: 'Konaklayanlar' };
@@ -23,16 +24,16 @@ export default function ReservationsPage() {
   const { can, property } = useSession();
   const [sp, setSp] = useSearchParams();
   const view = (sp.get('view') as View) || 'all';
-  const [q, setQ] = useState('');
-  const [term, setTerm] = useState('');
-  const [status, setStatus] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [page, setPage] = useState(1);
+  const [q, setQ] = useSessionState('res.q', '');
+  const [term, setTerm] = useState(() => q.trim());
+  const [status, setStatus] = useSessionState('res.status', '');
+  const [from, setFrom] = useSessionState('res.from', '');
+  const [to, setTo] = useSessionState('res.to', '');
+  const [page, setPage] = useSessionState('res.page', 1);
   const [checkIn, setCheckIn] = useState<Reservation | null>(null);
   const [checkOut, setCheckOut] = useState<Reservation | null>(null);
-  useEffect(() => { const t = setTimeout(() => { setTerm(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
-  useEffect(() => setPage(1), [view, status, from, to]);
+  useEffect(() => { const t = setTimeout(() => { const v = q.trim(); if (v !== term) { setTerm(v); setPage(1); } }, 300); return () => clearTimeout(t); }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  useOnChange(() => setPage(1), [view, status, from, to]);
 
   const list = useQuery({
     queryKey: ['reservations', view, term, status, from, to, page],
