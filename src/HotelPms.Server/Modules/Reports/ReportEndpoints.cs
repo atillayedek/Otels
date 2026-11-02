@@ -324,6 +324,30 @@ public static class ReportEndpoints
         },
         new()
         {
+            // Operasyon Raporu: tarih aralığında gün gün giriş, çıkış, konaklayan, dolu/boş oda, arızalı oda ve kişi sayısı (iptal ve no-show hariç).
+            Name = "operations", Title = "Operasyon Raporu", Category = "Kat Hizmetleri", Permission = "report.view", Params = [From, To],
+            Columns = [new("day", "Tarih", "date"), new("arrivals", "Giriş", "int"), new("departures", "Çıkış", "int"), new("stayovers", "Konaklayan", "int"),
+                new("occupied", "Dolu Oda", "int"), new("outOfOrder", "Arızalı/Bloke", "int"), new("available", "Satılabilir", "int"), new("pax", "Kişi", "int")],
+            SumColumns = ["arrivals", "departures"],
+            Sql = """
+                WITH d AS (SELECT generate_series(@from::date, @to::date, interval '1 day')::date AS day),
+                rooms AS (SELECT count(*)::int AS n FROM pms.rooms WHERE is_active),
+                res AS (SELECT arrival, departure, adults + children AS pax FROM pms.reservations WHERE status IN ('tentative','confirmed','checked_in','checked_out'))
+                SELECT d.day,
+                       (SELECT count(*) FROM res WHERE res.arrival = d.day)::int AS arrivals,
+                       (SELECT count(*) FROM res WHERE res.departure = d.day)::int AS departures,
+                       (SELECT count(*) FROM res WHERE res.arrival < d.day AND res.departure > d.day)::int AS stayovers,
+                       (SELECT count(*) FROM res WHERE res.arrival <= d.day AND res.departure > d.day)::int AS occupied,
+                       (SELECT count(DISTINCT b.room_id) FROM pms.room_blocks b WHERE b.is_active AND b.date_from <= d.day AND b.date_to > d.day)::int AS out_of_order,
+                       GREATEST((SELECT n FROM rooms)
+                         - (SELECT count(*) FROM res WHERE res.arrival <= d.day AND res.departure > d.day)
+                         - (SELECT count(DISTINCT b.room_id) FROM pms.room_blocks b WHERE b.is_active AND b.date_from <= d.day AND b.date_to > d.day), 0)::int AS available,
+                       COALESCE((SELECT sum(pax) FROM res WHERE res.arrival <= d.day AND res.departure > d.day), 0)::int AS pax
+                FROM d ORDER BY d.day
+                """,
+        },
+        new()
+        {
             Name = "cashier", Title = "Kasa Raporu (Ödeme Tipine Göre)", Category = "Finans", Permission = "financial_report.view", Params = [From, To],
             Columns = [new("businessDate", "İş Günü", "date"), new("user", "Kullanıcı", "text"), new("paymentMethod", "Ödeme Tipi", "text"),
                 new("collected", "Tahsilat", "money"), new("refunded", "İade", "money"), new("net", "Net", "money"), new("count", "Adet", "int")],

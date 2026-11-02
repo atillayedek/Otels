@@ -1634,6 +1634,9 @@ try {
     assert.ok(Array.isArray(disc.rows));
     const att = await R('hk-attendants');
     assert.ok(Array.isArray(att.rows));
+    const ops = await R('operations', `from=${state.bd}&to=${addDays(state.bd, 6)}`);
+    assert.equal(ops.rows.length, 7, 'operasyon raporu her gün için bir satır');
+    for (const r of ops.rows) assert.ok(r.available >= 0 && r.occupied >= 0);
     const h = await api('GET', '/api/v1/system/health');
     assert.ok(h.checkedAt, 'son kontrol zamanı yok');
     const db = h.checks.find(c => c.name === 'database');
