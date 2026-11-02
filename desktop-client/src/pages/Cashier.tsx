@@ -28,13 +28,13 @@ export default function CashierPage() {
     <div className="page">
       <PageHead title="Kasa Vardiyası" sub="Nakit ve kart tahsilatları açık vardiyaya yazılır" actions={<>
         <button className="btn" onClick={() => setHandover(true)}><ClipboardList /> Devir özeti</button>
-        {cur.data ? <>
-          <button className="btn" onClick={() => setMoveDlg('cash_in')}><ArrowDownToLine /> Kasa girişi</button>
-          <button className="btn" onClick={() => setMoveDlg('cash_out')}><ArrowUpFromLine /> Kasa çıkışı</button>
-          <button className="btn" onClick={() => setMoveDlg('exchange')}><Repeat /> Döviz bozdurma</button>
-          <button className="btn" onClick={() => setMoveDlg('transfer')}><ArrowLeftRight /> Kasa transfer</button>
-          <button className="btn danger" onClick={() => setCloseDlg(true)}><Lock /> Vardiyayı kapat</button>
-        </> : <button className="btn primary" onClick={() => setOpenDlg(true)}><Unlock /> Vardiya aç</button>}
+        {/* Kasa hareketleri her zaman görünür; vardiya kapalıyken pasif ve nedeni yazılı. */}
+        <button className="btn" disabled={!cur.data} title={cur.data ? '' : 'Önce vardiya açın'} onClick={() => setMoveDlg('cash_in')}><ArrowDownToLine /> Kasa girişi</button>
+        <button className="btn" disabled={!cur.data} title={cur.data ? '' : 'Önce vardiya açın'} onClick={() => setMoveDlg('cash_out')}><ArrowUpFromLine /> Kasa çıkışı</button>
+        <button className="btn" disabled={!cur.data} title={cur.data ? '' : 'Önce vardiya açın'} onClick={() => setMoveDlg('exchange')}><Repeat /> Döviz bozdurma</button>
+        <button className="btn" disabled={!cur.data} title={cur.data ? '' : 'Önce vardiya açın'} onClick={() => setMoveDlg('transfer')}><ArrowLeftRight /> Kasa transfer</button>
+        {cur.data ? <button className="btn danger" onClick={() => setCloseDlg(true)}><Lock /> Vardiyayı kapat</button>
+          : <button className="btn primary" onClick={() => setOpenDlg(true)}><Unlock /> Vardiya aç</button>}
       </>} />
       {handover && <HandoverModal shift={cur.data ? report.data : undefined} onClose={() => setHandover(false)} />}
       {cur.isLoading ? <Spinner /> : (
