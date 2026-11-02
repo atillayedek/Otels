@@ -1246,6 +1246,17 @@ try {
     await api('POST', `/api/v1/folios/${folio.id}/payments`, { paymentMethodId: state.cash, amount: (await api('GET', `/api/v1/folios/${folio.id}`)).folio.balance, isDeposit: false }, k());
     r = await api('GET', `/api/v1/reservations/${r.id}`);
     await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, k());
+    // 1b) Rack sağ tık "Oda ücreti bas": bu gecenin ücreti şimdi yazılır, ikinci kez ve gece denetiminde tekrar yazılmaz
+    r = await mkStay(3);
+    const rc = await api('POST', `/api/v1/reservations/${r.id}/room-charge`, undefined, k());
+    assert.equal(Number(rc.amount), 1500);
+    await api('POST', `/api/v1/reservations/${r.id}/room-charge`, undefined, { ...k(), expect: 422 });
+    r = await api('GET', `/api/v1/reservations/${r.id}`);
+    await api('POST', `/api/v1/reservations/${r.id}/day-use-charge`, { version: r.version }, { ...k(), expect: 422 });
+    const f3 = (await api('GET', `/api/v1/folios?reservationId=${r.id}`))[0];
+    await api('POST', `/api/v1/folios/${f3.id}/payments`, { paymentMethodId: state.cash, amount: (await api('GET', `/api/v1/folios/${f3.id}`)).folio.balance, isDeposit: false }, k());
+    r = await api('GET', `/api/v1/reservations/${r.id}`);
+    await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, k());
     // 2) Ücretsiz günübirlik çıkış gerekçe ister
     r = await mkStay(2);
     await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false, waiveDayUse: true }, { ...k(), expect: 422 });

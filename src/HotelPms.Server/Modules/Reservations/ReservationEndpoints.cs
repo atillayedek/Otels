@@ -211,6 +211,22 @@ public static class ReservationEndpoints
             return new { id, amount };
         })).RequirePermission("folio.post");
 
+        // Odaya oda ücreti bas (rack sağ tık): bu gecenin oda ücreti (ve varsa konaklama vergisi) gece denetimini beklemeden şimdi yazılır.
+        // Gece denetimi aynı geceyi tekrar yazmaz; aynı gece ikinci kez basılamaz.
+        g.MapPost("/{id:guid}/room-charge", (Guid id, CommandRunner cmd) => cmd.RunAsync("reservation.room_charge", new { id }, async tx =>
+        {
+            var r = await tx.OneOrNullAsync<(string Status, DateOnly Arrival, DateOnly Departure)>("SELECT status, arrival, departure FROM pms.reservations WHERE id = @id FOR UPDATE", new { id });
+            if (r == default) throw PmsException.NotFound("Rezervasyon");
+            var bd = await Property.PropertyEndpoints.BusinessDateAsync(tx);
+            if (r.Status != "checked_in") throw PmsException.Validation("Oda ücreti yalnız konaklayan (giriş yapmış) misafire basılır.");
+            if (r.Departure <= bd) throw PmsException.Validation("Bugün çıkış günü; bu gece için oda ücreti yazılmaz.");
+            var amount = await NightAudit.NightAuditEndpoints.PostDayUseChargeAsync(tx, id);
+            if (amount <= 0) throw PmsException.Validation("Bu gecenin oda ücreti zaten basılmış veya gecelik fiyat 0.");
+            await tx.AuditAsync("reservation.room_charge", "reservation", id, null, new { amount, businessDate = bd });
+            tx.Publish("folios"); tx.Publish("reservations", id); tx.Publish("rooms");
+            return new { id, amount };
+        })).RequirePermission("folio.post");
+
         g.MapPost("/{id:guid}/check-out", (Guid id, CheckOutRequest req, CommandRunner cmd, IntegrationRegistry reg) => cmd.RunAsync("reservation.check_out", new { id, req }, async tx =>
         {
             await ReservationService.CheckOutAsync(tx, reg, id, req);

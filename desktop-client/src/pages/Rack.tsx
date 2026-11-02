@@ -8,12 +8,12 @@ import {
 } from 'lucide-react';
 import { BulkChargeModal, BulkCheckoutModal, BulkNoteModal } from '../components/RackBulk';
 import { save } from '@tauri-apps/plugin-dialog';
-import { api, download, get } from '../lib/api';
+import { api, download, get, newKey } from '../lib/api';
 import { useRoomGroups } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { BLOCK_LABEL, fmtDate, fmtDateTime, fmtMoney, HK_LABEL } from '../lib/format';
 import type { RoomStatus } from '../lib/types';
-import { Empty, ErrorBox, Spinner, useContextMenu, useToast, type MenuItem } from '../components/ui';
+import { Empty, ErrorBox, Spinner, useConfirm, useContextMenu, useToast, type MenuItem } from '../components/ui';
 import { HkStatusModal, TicketModal } from '../components/RoomActions';
 import { DocFooter, DocHeader } from '../components/PrintDoc';
 import { useWindows } from '../components/Windows';
@@ -51,6 +51,7 @@ export default function RackPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
+  const confirm = useConfirm();
   const windows = useWindows();
   const { can, property } = useSession();
   // Rack tarihi: boş = iş günü (canlı durum); ileri tarih seçilince o günün doluluğu (odası atanmış rezervasyonlar ve blokajlar).
@@ -164,6 +165,16 @@ export default function RackPage() {
     if (windows) windows.open({ kind: walkIn ? 'walk-in' : 'new-reservation', params });
     else nav(walkIn ? `/walk-in?room=${r.id}` : `/reservations/new?room=${r.id}&type=${r.roomTypeId}${arrival ? `&arrival=${arrival}` : ''}`);
   };
+  // Odaya oda ücreti bas: bu gecenin oda ücreti gece denetimini beklemeden folyoya yazılır (gece denetimi aynı geceyi tekrar yazmaz).
+  const postRoomCharge = async (r: RoomStatus) => {
+    if (!r.inHouseReservationId) return;
+    if (!await confirm({ title: `Oda ${r.number} · oda ücreti`, message: `${r.inHouseGuest ?? ''} için ${fmtDate(bd)} gecesinin oda ücreti şimdi folyoya yazılacak. Gece denetimi bu geceyi tekrar yazmaz.`, confirmText: 'Oda ücretini bas' })) return;
+    try {
+      const x = await api<{ amount: string }>('POST', `/api/v1/reservations/${r.inHouseReservationId}/room-charge`, undefined, { key: newKey() });
+      await qc.invalidateQueries({ predicate: q => ['roomStatus', 'rooms', 'rack', 'folios', 'reservations', 'dashboard'].includes(String(q.queryKey[0])) });
+      toast.ok(`Oda ${r.number}: oda ücreti basıldı (${fmtMoney(String(x.amount), r.inHouseCurrency)}).`);
+    } catch (e) { toast.error(e); }
+  };
   const bulk = async (r: RoomStatus | RoomStatus[], body: Record<string, unknown>, done: string) => {
     const list = Array.isArray(r) ? r : [r];
     try {
@@ -227,6 +238,7 @@ export default function RackPage() {
         label: 'Ödeme / harcama', icon: <CreditCard size={14} />, disabled: !ih, children: [
           { label: 'Tahsilat al', icon: <CreditCard size={14} />, disabled: !can('payment.create'), onClick: () => ih && openFolio(ih, 'payment') },
           { label: 'Masraf gir', icon: <Plus size={14} />, disabled: !can('folio.post'), onClick: () => ih && openFolio(ih, 'charge') },
+          { label: r.departureToday ? 'Oda ücreti bas (bugün çıkış)' : 'Oda ücreti bas (bu gece)', icon: <BedDouble size={14} />, disabled: !can('folio.post') || r.departureToday, onClick: () => void postRoomCharge(r) },
           { label: 'Adisyon aç (restoran / bar)', icon: <Utensils size={14} />, disabled: !can('pos.order'), onClick: () => nav(`/pos?room=${encodeURIComponent(r.number)}`) },
           { label: 'Hesap hareketleri (folyo)', icon: <FileText size={14} />, onClick: () => ih && openFolio(ih) },
         ],

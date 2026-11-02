@@ -864,7 +864,7 @@ public static class ReportEndpoints
         ["done"] = "tamamlandı", ["completed"] = "tamamlandı", ["returned"] = "teslim edildi", ["disposed"] = "imha edildi", ["export"] = "dışa aktarıldı",
         ["install"] = "yüklendi", ["generate"] = "oluşturuldu", ["reverse"] = "ters kayıt", ["manual"] = "elle fiş", ["exchange"] = "döviz bozdurma",
         ["cash_in"] = "kasa girişi", ["cash_out"] = "kasa çıkışı", ["key_card_issue"] = "kart verildi", ["invoice_reference"] = "fatura no girildi",
-        ["master"] = "ana folyo bağlandı", ["day_use_charge"] = "günübirlik ücreti", ["anonymize"] = "anonimleştirildi", ["privacy_export"] = "kişisel veri dökümü",
+        ["master"] = "ana folyo bağlandı", ["day_use_charge"] = "günübirlik ücreti", ["room_charge"] = "oda ücreti basıldı", ["anonymize"] = "anonimleştirildi", ["privacy_export"] = "kişisel veri dökümü",
         ["retention_purge"] = "saklama süresi temizliği", ["move_room"] = "oda değişimi", ["assign_room"] = "oda atandı", ["add_guest"] = "misafir eklendi",
         ["remove_guest"] = "misafir çıkarıldı", ["paid_out"] = "paid-out", ["receipt"] = "makbuz", ["reset_password"] = "parola sıfırlandı", ["restore"] = "geri yüklendi",
         ["upload"] = "yüklendi", ["send"] = "gönderildi", ["issue"] = "verildi", ["revoke"] = "iptal edildi", ["unlock"] = "kilit açıldı", ["save"] = "kaydedildi",
