@@ -18,11 +18,13 @@ export function useSessionState<T>(key: string, initial: T | (() => T)) {
 }
 
 // İlk açılışta değil, yalnız değerler sonradan değişince çalışır (korunan sayfa numarası açılışta sıfırlanmasın diye).
+// Önceki değerlerle karşılaştırır; etkinin iki kez çalıştırılması (React geliştirme modu) yanlış tetiklemez.
 export function useOnChange(fn: () => void | (() => void), deps: unknown[]) {
-  const first = useRef(true);
+  const prev = useRef(deps);
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    return fn();
+    const changed = deps.some((d, i) => !Object.is(d, prev.current[i]));
+    prev.current = deps;
+    if (changed) return fn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
