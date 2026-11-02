@@ -8,6 +8,14 @@ namespace HotelPms.Server.Modules.Platform;
 
 public sealed record HealthCheck(string Name, string Status, string Message);
 
+/// <summary>Tek denetim turunun sonucu: genel durum ve alt kontroller aynı andan gelir, birbiriyle çelişmez.</summary>
+public sealed record HealthSnapshot(IReadOnlyList<HealthCheck> Checks, bool DatabaseOk, DateTime CheckedAt)
+{
+    public string Status => CheckedAt == default ? "starting"
+        : !DatabaseOk ? "unavailable"
+        : Checks.Any(c => c.Status is "error" or "unavailable") ? "degraded" : "healthy";
+}
+
 public sealed class HealthState
 {
     public volatile bool DatabaseReady;
@@ -25,6 +33,7 @@ public sealed class HealthState
     public DateTime? LastBackupAt { get; set; }
     public string? LastBackupStatus { get; set; }
     public DateTime LastCheckAt { get; set; }
+    public HealthSnapshot Snapshot { get; set; } = new([], false, default);
 }
 
 /// <summary>Sunucu, veritabanı, disk, bellek, yedek, realtime, yazıcı ve entegrasyon alt sistemlerini periyodik denetler.</summary>
@@ -135,8 +144,10 @@ public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, Serv
         checks.Add(new("printing", "healthy", Printing.PrinterService.InstalledPrinters().Count + " Windows yazıcısı"));
         checks.Add(new("integrations", "healthy", "Entegrasyon adaptörleri yüklendi"));
 
+        var now = DateTime.UtcNow;
         state.Checks = checks;
-        state.LastCheckAt = DateTime.UtcNow;
+        state.LastCheckAt = now;
+        state.Snapshot = new HealthSnapshot(checks, checks.Any(c => c.Name == "database" && c.Status == "healthy"), now);
         WriteStatusFile();
     }
 
@@ -147,10 +158,10 @@ public sealed class HealthMonitor(HealthState state, Db db, PmsPaths paths, Serv
         {
             var json = global::System.Text.Json.JsonSerializer.Serialize(new
             {
-                at = DateTime.UtcNow,
+                at = state.Snapshot.CheckedAt,
                 pid = Environment.ProcessId,
                 version = PmsConstants.VersionText,
-                databaseReady = state.DatabaseReady,
+                databaseReady = state.Snapshot.DatabaseOk,
                 startupError = state.StartupError,
                 checks = state.Checks,
             }, Json.Options);

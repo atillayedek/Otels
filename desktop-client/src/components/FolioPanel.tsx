@@ -9,7 +9,7 @@ import { defaultPaymentMethodId, useAgencies, useCompanies, usePaymentMethods, u
 import { useSession } from '../lib/session';
 import { useAction } from './common';
 import { DocFooter, DocHeader } from './PrintDoc';
-import { Badge, Empty, ErrorBox, Field, Modal, Money, MoneyInput, Spinner, useContextMenu } from './ui';
+import { Badge, Empty, ErrorBox, Field, Modal, Money, MoneyInput, Spinner, useContextMenu, Balance } from './ui';
 
 function useRefresh() {
   const qc = useQueryClient();
@@ -107,7 +107,7 @@ export function FolioPanel({ reservation, folioId: fixedFolio, initialDialog }: 
                 ))}
               </tbody>
               <tfoot>
-                <tr><td colSpan={5}>Borç {fmtMoney(debit.toFixed(2))} · Alacak {fmtMoney(credit.toFixed(2))}</td><td className="num"><b>{fmtMoney(f.balance, f.currency)}</b></td><td colSpan={2}>Bakiye</td></tr>
+                <tr><td colSpan={5}>Borç {fmtMoney(debit.toFixed(2))} · Alacak {fmtMoney(credit.toFixed(2))}</td><td className="num"><b><Balance value={f.balance} currency={f.currency} /></b></td><td colSpan={2}>Bakiye (bu pencere)</td></tr>
               </tfoot>
             </table>
             {lines.length === 0 && <Empty title="Bu folyoda henüz işlem yok" />}

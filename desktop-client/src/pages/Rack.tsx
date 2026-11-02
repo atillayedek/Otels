@@ -7,7 +7,8 @@ import {
   Minus, NotebookPen, Pencil, Plus, Printer, Search, ShieldCheck, StickyNote, Tag, UserPlus, Users, Utensils, Wrench, X, XCircle,
 } from 'lucide-react';
 import { BulkChargeModal, BulkCheckoutModal, BulkNoteModal } from '../components/RackBulk';
-import { api, get } from '../lib/api';
+import { save } from '@tauri-apps/plugin-dialog';
+import { api, download, get } from '../lib/api';
 import { useRoomGroups } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { BLOCK_LABEL, fmtDate, fmtDateTime, fmtMoney, HK_LABEL } from '../lib/format';
@@ -63,7 +64,7 @@ export default function RackPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
   // Arama alanı (AmonRa'daki alan seçimi gibi): tümü veya yalnız oda no / misafir / firma / kat / oda tipi.
-  const [field, setField] = useState<'all' | 'room' | 'guest' | 'account' | 'floor' | 'type'>('all');
+  const [field, setField] = useState<'all' | 'room' | 'guest' | 'account' | 'floor' | 'type' | 'resno'>('all');
   // AmonRa rack süzgeçleri: firma/acente ve çıkış tarihi (boş = hepsi)
   const [acc, setAcc] = useState('');
   const [dep, setDep] = useState('');
@@ -97,7 +98,7 @@ export default function RackPage() {
   const needle = lc(q.trim());
   const view = rooms.filter(r => {
     if (needle) {
-      const by = { room: [r.number], guest: [r.inHouseGuest, r.arrivalGuest, r.inHouseGuests], account: [r.inHouseAccount, r.arrivalAccount], floor: [r.floor], type: [r.roomTypeCode] };
+      const by = { room: [r.number], guest: [r.inHouseGuest, r.arrivalGuest, r.inHouseGuests], account: [r.inHouseAccount, r.arrivalAccount], floor: [r.floor], type: [r.roomTypeCode], resno: [r.reservationNumbers] };
       const hay = field === 'all' ? Object.values(by).flat() : by[field];
       // Oda ve kat alanında tam eşleşme (101 yazınca 1101 gelmesin); diğerlerinde içerir.
       if (!hay.some(x => field === 'room' || field === 'floor' ? lc(x) === needle : lc(x).includes(needle))) return false;
@@ -274,11 +275,19 @@ export default function RackPage() {
 
   const setZoom = (s: Size) => { setSize(s); savePref(SIZE_KEY, s); };
   const print = (mode: 'rooms' | 'names' = 'rooms') => { setPrinting(mode); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
+  // Dosyaya aktar: sunucudaki rapor çıktısı (Excel/CSV) doğrudan seçilen konuma kaydedilir.
+  const exportFile = async (report: 'room-status' | 'inhouse', format: 'xlsx' | 'csv') => {
+    const path = await save({ defaultPath: `${report === 'inhouse' ? 'konaklayanlar' : 'oda-listesi'}-${bd}.${format}`, filters: [{ name: format.toUpperCase(), extensions: [format] }] });
+    if (!path) return;
+    try { await download(`/api/v1/reports/${report}/export?format=${format}`, path); toast.ok('Dosya kaydedildi.', path); } catch (e) { toast.error(e); }
+  };
   const printMenu = (e: React.MouseEvent) => menu.open(e, [
     { label: sel.size ? `Oda listesi (seçili ${sel.size} oda)` : 'Oda listesi', icon: <Printer size={14} />, onClick: () => print('rooms') },
     { label: sel.size ? `İsim listesi (seçili ${sel.size} oda)` : 'İsim listesi (konaklayanlar, soyada göre)', icon: <Users size={14} />, onClick: () => print('names') },
     { separator: true, label: '' },
-    { label: 'Dosyaya aktar (Excel / CSV)', icon: <FileText size={14} />, disabled: !can('report.view'), onClick: () => nav('/reports/inhouse') },
+    { label: 'Oda listesini Excel dosyasına aktar', icon: <FileText size={14} />, disabled: !can('report.view'), onClick: () => void exportFile('room-status', 'xlsx') },
+    { label: 'Konaklayan listesini Excel dosyasına aktar', icon: <FileText size={14} />, disabled: !can('report.view'), onClick: () => void exportFile('inhouse', 'xlsx') },
+    { label: 'Konaklayan listesini CSV olarak aktar', icon: <FileText size={14} />, disabled: !can('report.view'), onClick: () => void exportFile('inhouse', 'csv') },
   ]);
   // Süzgeç düğmelerindeki renk noktası kart rengini gösterir (ayrı açıklama şeridi yok).
   const DOT: Partial<Record<Filter, string>> = { vacant: 'vacant', occupied: 'occupied', arrival: 'arrival', departure: 'departure', dirty: 'dirty', blocked: 'blocked' };
@@ -340,7 +349,7 @@ export default function RackPage() {
           <Search size={15} />
           <select className="rack-field" value={field} onChange={e => setField(e.target.value as typeof field)} title="Arama alanı">
             <option value="all">Tümü</option><option value="room">Oda no</option><option value="guest">Misafir</option>
-            <option value="account">Firma</option><option value="floor">Kat</option><option value="type">Oda tipi</option>
+            <option value="account">Firma</option><option value="floor">Kat</option><option value="type">Oda tipi</option><option value="resno">Rez. no</option>
           </select>
           <input className="input" placeholder={field === 'all' ? 'Kişi ara: ad soyad, oda no, firma' : 'Ara…'} value={q} onChange={e => setQ(e.target.value)} autoFocus data-enter="keep" />
           {q && <button className="btn sm ghost" onClick={() => setQ('')} aria-label="Aramayı temizle">×</button>}

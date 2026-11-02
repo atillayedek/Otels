@@ -308,7 +308,7 @@ public sealed class MainForm : Form
             _setupHint.Text = s.SetupCode is null
                 ? "İstemcilerde PMS Client açılınca sunucu otomatik bulunur; bulunamazsa yukarıdaki IP adresi ve port girilir. Parmak izinin istemcide gösterilenle aynı olduğunu doğrulayın."
                 : "İlk bağlanan PMS Client, otel bilgilerini ve ilk yönetici hesabını oluştururken bu kodu isteyecektir.";
-            Fill(_checks, s.Checks.Select(c => new[] { c.Name, c.Status == "healthy" ? "Tamam" : c.Status == "warning" ? "Uyarı" : "Hata", c.Message }),
+            Fill(_checks, s.Checks.Select(c => new[] { ConfirmDialog.CheckName(c.Name), c.Status == "healthy" ? "Tamam" : c.Status == "warning" ? "Uyarı" : c.Status == "unavailable" ? "Erişilemiyor" : "Hata", c.Message }),
                 (item, i) => item.ForeColor = s.Checks[i].Status == "healthy" ? Color.Black : s.Checks[i].Status == "warning" ? Warn : Bad);
             if (s.LicenseRestricted && s.License is { } lw) _setupHint.Text = "Lisans: " + lw;
             Fill(_metrics, [
@@ -317,7 +317,7 @@ public sealed class MainForm : Form
                 ["Veritabanı boyutu", Bytes(s.DatabaseSizeBytes)], ["Boş disk", $"{Bytes(s.FreeDiskBytes)} / {Bytes(s.TotalDiskBytes)}"],
                 ["Bellek / CPU", $"{Bytes(s.MemoryBytes)} · %{s.CpuPercent:0.0}"],
                 ["Son yedek", s.LastBackupAt is { } b ? $"{b.ToLocalTime():dd.MM.yyyy HH:mm} · {s.LastBackupStatus}" : "Henüz yedek yok"],
-                ["Yedek klasörü", s.BackupDirectory], ["Başlangıç hatası", s.StartupError ?? "—"],
+                ["Son sağlık kontrolü", s.CheckedAt is { } ck ? ck.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss") : "Henüz yapılmadı"], ["Yedek klasörü", s.BackupDirectory], ["Başlangıç hatası", s.StartupError ?? "—"],
             ]);
             Fill(_clients, s.Clients.Select(c => new[] { c.Username, c.Hostname ?? "", c.Ip ?? "", c.ConnectedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm") }));
         }
@@ -470,4 +470,9 @@ sealed class ConfirmDialog : Form
         AcceptButton = ok;
         CancelButton = cancel;
     }
+    internal static string CheckName(string n) => n switch
+    {
+        "database" => "Veritabanı", "disk" => "Disk", "memory" => "Bellek", "backup" => "Yedek", "realtime" => "Anlık bildirim",
+        "printing" => "Yazıcılar", "integrations" => "Entegrasyonlar", _ => n,
+    };
 }

@@ -9,7 +9,7 @@ import { CHANNEL_NAME } from '../lib/product';
 import { useSession } from '../lib/session';
 import { PageHead } from '../components/common';
 import { useOpenReservation } from '../components/Windows';
-import { Badge, DataTable, Empty, ErrorBox, Money, Pager, Tabs, useContextMenu, useToast, type Column } from '../components/ui';
+import { Badge, DataTable, Empty, ErrorBox, Money, Pager, Tabs, useContextMenu, useToast, type Column, Balance } from '../components/ui';
 import { CheckInModal, CheckOutModal } from '../components/ReservationActions';
 
 type View = 'all' | 'arrivals' | 'departures' | 'inhouse';
@@ -62,7 +62,7 @@ export default function ReservationsPage() {
     { key: 'pax', header: 'Kişi', width: 60, value: r => `${r.adults}+${r.children}` },
     { key: 'account', header: 'Şirket / Acente / Kanal', filter: true, value: r => r.channel ? `${CHANNEL_NAME[r.channel] ?? r.channel}${r.channelRef ? ' ' + r.channelRef : ''}` : r.companyName ?? r.agencyName ?? '' },
     { key: 'nightlyRate', header: 'Gecelik', align: 'right', width: 110, render: r => <Money value={r.nightlyRate} currency={r.currency} /> },
-    { key: 'balance', header: 'Bakiye', align: 'right', width: 110, render: r => <Money value={r.balance} colored /> },
+    { key: 'balance', header: 'Bakiye (tüm folyolar)', align: 'right', width: 130, render: r => <Balance value={r.balance} /> },
     { key: 'status', header: 'Durum', width: 110, value: r => STATUS_LABEL[r.status], render: r => <Badge color={STATUS_BADGE[r.status]}>{STATUS_LABEL[r.status]}</Badge> },
   ];
 

@@ -25,7 +25,7 @@ export interface RoomStatus {
   arrivalReservationId?: string; arrivalGuest?: string; departureToday: boolean; openTasks: number; openTickets: number;
   inHouseCheckedInAt?: string; inHouseAccount?: string; inHouseNote?: string; inHousePax?: number; inHouseBalance?: Money; inHouseCurrency?: string;
   arrivalEta?: string; arrivalAccount?: string; arrivalNote?: string; arrivalDeparture?: DateStr;
-  groupId?: string; groupName?: string; groupColor?: string;
+  groupId?: string; groupName?: string; groupColor?: string; reservationNumbers?: string;
   /** Odada kayıtlı herkes (ana + ek misafirler), " · " ile ayrılmış. */
   inHouseGuests?: string;
 }

@@ -21,7 +21,7 @@ public sealed record RoomStatusDto(Guid Id, string Number, string? Floor, Guid R
     Guid? ArrivalReservationId, string? ArrivalGuest, bool DepartureToday, int OpenTasks, int OpenTickets,
     DateTime? InHouseCheckedInAt, string? InHouseAccount, string? InHouseNote, int? InHousePax, decimal? InHouseBalance, string? InHouseCurrency,
     TimeOnly? ArrivalEta, string? ArrivalAccount, string? ArrivalNote, DateOnly? ArrivalDeparture,
-    Guid? GroupId, string? GroupName, string? GroupColor, string? InHouseGuests);
+    Guid? GroupId, string? GroupName, string? GroupColor, string? InHouseGuests, string? ReservationNumbers);
 
 public sealed record HousekeepingUpdateRequest(string HkStatus, bool IsDnd, string? HkNote, int Version);
 /// <summary>Toplu oda işlemi: boş bırakılan alan değişmez. Not için SetNote=true (boş metin notu siler), grup için SetGroup=true (boş grup kaldırır).</summary>
@@ -311,7 +311,8 @@ public static class RoomEndpoints
                -- Odada kayıtlı herkes (ana + ek misafirler, bugünkü geliş dahil): rack aramasında ikinci kişinin adıyla da oda bulunur.
                (SELECT string_agg(DISTINCT gg.first_name || ' ' || gg.last_name, ' · ')
                   FROM pms.reservation_guests xg JOIN pms.guests gg ON gg.id = xg.guest_id
-                 WHERE xg.reservation_id IN (ih.id, ar.id)) AS in_house_guests
+                 WHERE xg.reservation_id IN (ih.id, ar.id)) AS in_house_guests,
+               NULLIF(concat_ws(' · ', ih.reservation_number, ar.reservation_number), '') AS reservation_numbers
         FROM pms.rooms r
         JOIN pms.room_types t ON t.id = r.room_type_id
         LEFT JOIN pms.room_groups rgp ON rgp.id = r.group_id
@@ -323,7 +324,7 @@ public static class RoomEndpoints
         LEFT JOIN pms.guests ihg ON ihg.id = ih.guest_id
         LEFT JOIN pms.companies ihc ON ihc.id = ih.company_id
         LEFT JOIN pms.agencies iha ON iha.id = ih.agency_id
-        LEFT JOIN LATERAL (SELECT x.id, x.guest_id, x.eta, x.notes, x.special_requests, x.company_id, x.agency_id, x.departure FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative')
+        LEFT JOIN LATERAL (SELECT x.id, x.reservation_number, x.guest_id, x.eta, x.notes, x.special_requests, x.company_id, x.agency_id, x.departure FROM pms.reservations x WHERE x.room_id = r.id AND x.status IN ('confirmed','tentative')
                             AND x.arrival = @day ORDER BY x.created_at LIMIT 1) ar ON true
         LEFT JOIN pms.guests arg ON arg.id = ar.guest_id
         LEFT JOIN pms.companies arc ON arc.id = ar.company_id

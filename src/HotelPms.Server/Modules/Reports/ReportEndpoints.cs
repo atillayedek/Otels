@@ -279,6 +279,51 @@ public static class ReportEndpoints
         },
         new()
         {
+            // Oda Kat Görevlisi Raporu: tarih aralığında görevli başına atanan, biten ve bekleyen görevler.
+            Name = "hk-attendants", Title = "Oda Kat Görevlisi Raporu", Category = "Kat Hizmetleri", Permission = "report.view", Params = [From, To],
+            Columns = [new("assignedTo", "Görevli", "text"), new("total", "Atanan", "int"), new("done", "Tamamlanan", "int"), new("open", "Bekleyen", "int"),
+                new("rooms", "Odalar", "text")],
+            SumColumns = ["total", "done", "open"],
+            Sql = """
+                SELECT COALESCE(u.full_name, 'Atanmamış') AS assigned_to, count(*)::int AS total,
+                       count(*) FILTER (WHERE k.status IN ('done','completed','inspected'))::int AS done,
+                       count(*) FILTER (WHERE k.status IN ('open','in_progress'))::int AS open,
+                       string_agg(DISTINCT r.number, ', ') AS rooms
+                FROM pms.hk_tasks k JOIN pms.rooms r ON r.id = k.room_id LEFT JOIN pms.users u ON u.id = k.assigned_user_id
+                WHERE k.business_date BETWEEN @from AND @to
+                GROUP BY u.full_name ORDER BY u.full_name NULLS LAST
+                """,
+        },
+        new()
+        {
+            // Uyuşmazlık Raporu: önbüro kaydı ile oda/kat durumu arasındaki çelişkiler (kayıtlardan hesaplanır, tahmin yok).
+            Name = "room-discrepancy", Title = "Uyuşmazlık Raporu", Category = "Kat Hizmetleri", Permission = "report.view",
+            Columns = [new("room", "Oda", "text"), new("issue", "Uyuşmazlık", "text"), new("guest", "Misafir", "text"), new("reservationNo", "Rez. No", "text"), new("detail", "Ayrıntı", "text")],
+            Sql = """
+                WITH bd AS (SELECT business_date AS d FROM pms.property LIMIT 1),
+                ih AS (SELECT x.*, g.first_name || ' ' || g.last_name AS guest FROM pms.reservations x JOIN pms.guests g ON g.id = x.guest_id WHERE x.status = 'checked_in')
+                SELECT r.number AS room, 'Dolu odada aktif blokaj' AS issue, ih.guest, ih.reservation_number AS reservation_no, CASE b.kind WHEN 'out_of_order' THEN 'Arızalı' WHEN 'out_of_service' THEN 'Servis dışı' WHEN 'blocked' THEN 'Bloke' ELSE b.kind END || COALESCE(': ' || b.reason, '') AS detail, r.sort_order
+                  FROM ih JOIN pms.rooms r ON r.id = ih.room_id
+                  JOIN pms.room_blocks b ON b.room_id = r.id AND b.is_active AND b.date_from <= (SELECT d FROM bd) AND b.date_to > (SELECT d FROM bd)
+                UNION ALL
+                SELECT r.number, 'Çıkış tarihi geçmiş, hâlâ konaklıyor', ih.guest, ih.reservation_number, 'Çıkış: ' || to_char(ih.departure, 'DD.MM.YYYY'), r.sort_order
+                  FROM ih JOIN pms.rooms r ON r.id = ih.room_id WHERE ih.departure < (SELECT d FROM bd)
+                UNION ALL
+                SELECT r.number, 'Aynı odada birden fazla konaklayan rezervasyon', string_agg(ih.guest, ', '), string_agg(ih.reservation_number, ', '), count(*) || ' rezervasyon', r.sort_order
+                  FROM ih JOIN pms.rooms r ON r.id = ih.room_id GROUP BY r.id, r.number, r.sort_order HAVING count(*) > 1
+                UNION ALL
+                SELECT r.number, 'Kayıtlı misafir sayısı kişi sayısından az', ih.guest, ih.reservation_number,
+                       'Kişi: ' || (ih.adults + ih.children) || ', kayıtlı: ' || (SELECT count(*) FROM pms.reservation_guests xg WHERE xg.reservation_id = ih.id), r.sort_order
+                  FROM ih JOIN pms.rooms r ON r.id = ih.room_id
+                 WHERE (SELECT count(*) FROM pms.reservation_guests xg WHERE xg.reservation_id = ih.id) < ih.adults + ih.children
+                UNION ALL
+                SELECT r.number, 'Konaklayan rezervasyonun odası yok', ih.guest, ih.reservation_number, NULL, 0
+                  FROM ih LEFT JOIN pms.rooms r ON r.id = ih.room_id WHERE ih.room_id IS NULL
+                ORDER BY 6, 1
+                """,
+        },
+        new()
+        {
             Name = "cashier", Title = "Kasa Raporu (Ödeme Tipine Göre)", Category = "Finans", Permission = "financial_report.view", Params = [From, To],
             Columns = [new("businessDate", "İş Günü", "date"), new("user", "Kullanıcı", "text"), new("paymentMethod", "Ödeme Tipi", "text"),
                 new("collected", "Tahsilat", "money"), new("refunded", "İade", "money"), new("net", "Net", "money"), new("count", "Adet", "int")],
@@ -788,8 +833,63 @@ public static class ReportEndpoints
         },
         ["type"] = new() { ["payment"] = "Tahsilat", ["deposit"] = "Depozito", ["refund"] = "İade", ["void"] = "İptal", ["charge"] = "Masraf", ["discount"] = "İndirim", ["allowance"] = "Düzeltme" },
         ["mealPlan"] = new() { ["RO"] = "Oda (RO)", ["BB"] = "Oda kahvaltı (BB)", ["HB"] = "Yarım pansiyon (HB)", ["FB"] = "Tam pansiyon (FB)", ["AI"] = "Her şey dahil (AI)", ["UAI"] = "Ultra her şey dahil" },
+        ["entityType"] = new()
+        {
+            ["session"] = "Oturum", ["folio"] = "Folyo", ["folio_line"] = "Folyo satırı", ["company"] = "Şirket", ["agency"] = "Acente", ["reservation"] = "Rezervasyon",
+            ["reservation_group"] = "Grup rezervasyonu", ["room_block"] = "Blokaj", ["cashier_shift"] = "Kasa vardiyası", ["guest"] = "Misafir", ["calendar_note"] = "Takvim notu",
+            ["stop_sale"] = "Stop sale", ["report"] = "Rapor", ["warehouse"] = "Depo", ["license"] = "Lisans", ["lost_item"] = "Kayıp eşya", ["setting"] = "Ayar",
+            ["gl_entry"] = "Muhasebe fişi", ["gl_mapping"] = "Muhasebe eşlemesi", ["gl_account"] = "Muhasebe hesabı", ["business_date"] = "İş günü",
+            ["transaction_code"] = "Masraf kodu", ["rate_plan"] = "Fiyat planı", ["pos_check"] = "Adisyon", ["pos_product"] = "Ürün", ["pos_printer"] = "Yazıcı",
+            ["pos_outlet"] = "Satış noktası", ["allotment"] = "Kontenjan", ["user"] = "Kullanıcı", ["room"] = "Oda", ["room_type"] = "Oda tipi", ["room_group"] = "Oda grubu",
+            ["stock_document"] = "Stok belgesi", ["purchase_order"] = "Satın alma", ["supplier"] = "Tedarikçi", ["stock_item"] = "Stok kartı",
+            ["maintenance_ticket"] = "Arıza kaydı", ["document"] = "Belge", ["import_job"] = "Veri aktarımı", ["backup"] = "Yedek", ["wifi"] = "Wi-Fi",
+            ["exchange_rate"] = "Döviz kuru", ["property"] = "Otel bilgisi", ["feedback"] = "Misafir yorumu", ["trace"] = "Hatırlatma", ["cashier"] = "Kasa",
+            ["payment"] = "Tahsilat", ["auth"] = "Giriş", ["settings"] = "Ayarlar", ["housekeeping"] = "Kat hizmetleri", ["hk_task"] = "Kat görevi", ["wakeup"] = "Uyandırma",
+        },
+        ["entity"] = new()
+        {
+            ["room_types"] = "Oda tipleri", ["rooms"] = "Odalar", ["companies"] = "Şirketler", ["agencies"] = "Acenteler", ["guests"] = "Misafirler",
+            ["account_ledger"] = "Cari hareketler", ["reservations"] = "Rezervasyonlar", ["folio_history"] = "Geçmiş folyo hareketleri",
+        },
         ["task"] = new() { ["departure_clean"] = "Çıkış temizliği", ["stayover_clean"] = "Konaklama temizliği", ["inspection"] = "Kontrol", ["turndown"] = "Akşam servisi", ["deep_clean"] = "Detaylı temizlik", ["other"] = "Diğer" },
     };
+
+    // Denetim kaydı işlemi "kayıt.eylem" biçimindedir; iki parça ayrı ayrı Türkçeleştirilir, bilinmeyen parça ham kalır.
+    static readonly Dictionary<string, string> ActionVerbs = new()
+    {
+        ["create"] = "oluşturuldu", ["update"] = "güncellendi", ["delete"] = "silindi", ["cancel"] = "iptal edildi", ["cancelled"] = "iptal edildi", ["login"] = "oturum açıldı",
+        ["check_in"] = "giriş yapıldı", ["check_out"] = "çıkış yapıldı", ["no_show"] = "no-show yapıldı", ["charge"] = "masraf eklendi", ["void"] = "satır silindi",
+        ["line_void"] = "satır silindi", ["discount"] = "indirim", ["refund"] = "iade", ["transfer"] = "aktarım", ["transfer_balance"] = "bakiye aktarıldı",
+        ["open"] = "açıldı", ["close"] = "kapatıldı", ["reopen"] = "yeniden açıldı", ["release"] = "kaldırıldı", ["lift"] = "kaldırıldı", ["resolved"] = "çözüldü",
+        ["done"] = "tamamlandı", ["completed"] = "tamamlandı", ["returned"] = "teslim edildi", ["disposed"] = "imha edildi", ["export"] = "dışa aktarıldı",
+        ["install"] = "yüklendi", ["generate"] = "oluşturuldu", ["reverse"] = "ters kayıt", ["manual"] = "elle fiş", ["exchange"] = "döviz bozdurma",
+        ["cash_in"] = "kasa girişi", ["cash_out"] = "kasa çıkışı", ["key_card_issue"] = "kart verildi", ["invoice_reference"] = "fatura no girildi",
+        ["master"] = "ana folyo bağlandı", ["day_use_charge"] = "günübirlik ücreti", ["anonymize"] = "anonimleştirildi", ["privacy_export"] = "kişisel veri dökümü",
+        ["retention_purge"] = "saklama süresi temizliği", ["move_room"] = "oda değişimi", ["assign_room"] = "oda atandı", ["add_guest"] = "misafir eklendi",
+        ["remove_guest"] = "misafir çıkarıldı", ["paid_out"] = "paid-out", ["receipt"] = "makbuz", ["reset_password"] = "parola sıfırlandı", ["restore"] = "geri yüklendi",
+        ["upload"] = "yüklendi", ["send"] = "gönderildi", ["issue"] = "verildi", ["revoke"] = "iptal edildi", ["unlock"] = "kilit açıldı", ["save"] = "kaydedildi",
+        ["count"] = "sayım", ["routing"] = "yönlendirme", ["occupancy"] = "doluluk", ["tcmb"] = "TCMB kuru alındı", ["housekeeping"] = "kat durumu",
+        ["bulk_housekeeping"] = "toplu kat durumu", ["folio_details"] = "folyo bilgileri", ["check_open"] = "adisyon açıldı", ["check_close"] = "adisyon kapatıldı",
+        ["check_cancel"] = "adisyon iptal", ["check_send"] = "mutfağa gönderildi", ["form_view"] = "form görüntülendi", ["api_key_create"] = "API anahtarı oluşturuldu",
+        ["api_key_revoke"] = "API anahtarı iptal", ["secret_rotate"] = "gizli anahtar yenilendi", ["push_resend"] = "yeniden gönderildi", ["push_secret_rotate"] = "gizli anahtar yenilendi",
+    };
+
+    static string ActionLabel(string action)
+    {
+        var dot = action.IndexOf('.');
+        if (dot <= 0) return action;
+        var ent = action[..dot]; var verb = action[(dot + 1)..];
+        var e = CodeLabels["entityType"].TryGetValue(ent, out var el) ? el : ent;
+        var v = ActionVerbs.TryGetValue(verb, out var vl) ? vl : verb;
+        return $"{e}: {v}";
+    }
+
+    // Kod sütunu etiketi: önce sütunun kendi tablosu; "reservationStatus" gibi ...Status ile bitenler ortak durum tablosunu kullanır.
+    // Tabloda olmayan yeni bir kod boş bırakılmaz, ham hâliyle görünür.
+    static Dictionary<string, string>? LabelsFor(string key) =>
+        CodeLabels.TryGetValue(key, out var own) ? own
+        : key.EndsWith("Status", StringComparison.Ordinal) ? CodeLabels["status"]
+        : key.EndsWith("Source", StringComparison.Ordinal) || key == "sourceType" ? CodeLabels["source"] : null;
 
     static ReportDefinition Find(string name, RequestContext ctx)
     {
@@ -840,7 +940,8 @@ public static class ReportEndpoints
                 var snake = global::System.Text.RegularExpressions.Regex.Replace(col.Key, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant();
                 r.TryGetValue(snake, out var v);
                 // Sistem kodları (ör. "checked_in", "minibar") ekranda, yazdırmada ve dışa aktarmada Türkçe adıyla gösterilir.
-                if (v is string code && col.Type == "text" && CodeLabels.TryGetValue(col.Key, out var labels) && labels.TryGetValue(code, out var label)) v = label;
+                if (v is string code && col.Type == "text" && LabelsFor(col.Key) is { } labels && labels.TryGetValue(code, out var label)) v = label;
+                else if (v is string act && col.Key == "action" && def.Name == "audit-log") v = ActionLabel(act);
                 row[col.Key] = v switch
                 {
                     DateTime dt when col.Type == "date" => DateOnly.FromDateTime(dt),

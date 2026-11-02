@@ -69,6 +69,8 @@ export const QUICK_HOVER: Record<string, HoverItem[]> = {
     { label: 'Arıza kayıtları', to: '/maintenance', perm: 'maintenance.view' },
     { label: 'Boş oda listesi', to: '/reports/vacant-rooms', perm: 'report.view', report: true },
     { label: 'Bekleyen görevler', to: '/reports/pending-tasks', perm: 'report.view', report: true },
+    { label: 'Oda kat görevlisi raporu', to: '/reports/hk-attendants', perm: 'report.view', report: true },
+    { label: 'Uyuşmazlık raporu', to: '/reports/room-discrepancy', perm: 'report.view', report: true },
     { label: 'Kat hizmetleri görev raporu', to: '/reports/housekeeping', perm: 'report.view', report: true },
     { label: 'Kayıp bulundu raporu', to: '/reports/lost-found', perm: 'report.view', report: true },
   ],

@@ -291,6 +291,17 @@ export function Pager({ page, pageSize, total, onPage }: { page: number; pageSiz
   );
 }
 
+/** Bakiye: tutarın yanında anlamı yazılır. Pozitif = misafir/cari borçlu, negatif = fazla ödeme (otelin borcu). */
+export function Balance({ value, currency }: { value?: string | null; currency?: string }) {
+  if (value === undefined || value === null) return null;
+  const neg = value.startsWith('-'); const zero = /^-?0+(\.0+)?$/.test(value);
+  return (
+    <span className={`num ${zero ? '' : neg ? 'amount-neg' : 'amount-pos'}`} title={zero ? 'Bakiye kapalı' : neg ? 'Fazla ödeme: tahsilat masraftan fazla, otel misafire borçlu' : 'Misafir borçlu: masraf tahsilattan fazla'}>
+      {fmtMoney(neg ? value.slice(1) : value, currency)}{!zero && <small className="bal-tag">{neg ? ' alacak' : ' borç'}</small>}
+    </span>
+  );
+}
+
 export function Money({ value, currency, colored }: { value?: string | null; currency?: string; colored?: boolean }) {
   if (value === undefined || value === null) return null;
   const cls = colored ? (value.startsWith('-') ? 'amount-neg' : /^0+(\.0+)?$/.test(value) ? '' : 'amount-pos') : '';

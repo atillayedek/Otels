@@ -19,7 +19,7 @@ public sealed record ManageStatus(string Status, string Hostname, IReadOnlyList<
     string? DatabaseVersion, string SchemaVersion, bool DatabaseReady, string? StartupError, TimeSpan Uptime, int ConnectedClients,
     IReadOnlyList<ConnectedClient> Clients, int ActiveSessions, IReadOnlyList<string> LoggedInUsers, long DatabaseSizeBytes, DateTime? LastBackupAt,
     string? LastBackupStatus, long FreeDiskBytes, long TotalDiskBytes, long MemoryBytes, double CpuPercent, IReadOnlyList<HealthCheck> Checks,
-    string DataRoot, string BackupDirectory, string? SetupCode, string LogsDirectory, string? License = null, bool LicenseRestricted = false);
+    string DataRoot, string BackupDirectory, string? SetupCode, string LogsDirectory, string? License = null, bool LicenseRestricted = false, DateTime? CheckedAt = null);
 
 public sealed record RestoreRequest(string FilePath, string Confirmation);
 public sealed record EmergencyResetRequest(string Username, string NewPassword);
@@ -53,12 +53,19 @@ public static class SystemEndpoints
                 PmsConstants.MinClientVersion.ToString(3), "v1", setup, hotel, fp, cfg.HttpsPort, DateTime.UtcNow, PmsConstants.SupportEmail);
         }).AllowAnonymousPms();
 
-        sys.MapGet("/health", (HealthState h) => Results.Json(new
+        // Genel durum, veritabanı bilgisi ve alt kontroller aynı denetim turundan okunur; checkedAt o turun zamanıdır.
+        sys.MapGet("/health", (HealthState h) =>
         {
-            status = !h.DatabaseReady ? "unavailable" : h.Checks.Any(c => c.Status == "error") ? "degraded" : "healthy",
-            database = h.DatabaseReady,
-            checks = h.Checks.Select(c => new { c.Name, c.Status }),
-        }, Json.Options, statusCode: h.DatabaseReady ? 200 : 503)).AllowAnonymousPms();
+            var snap = h.Snapshot;
+            var dbOk = snap.CheckedAt == default ? h.DatabaseReady : snap.DatabaseOk;
+            return Results.Json(new
+            {
+                status = snap.Status,
+                database = dbOk,
+                checkedAt = snap.CheckedAt == default ? (DateTime?)null : snap.CheckedAt,
+                checks = snap.Checks.Select(c => new { c.Name, c.Status }),
+            }, Json.Options, statusCode: dbOk ? 200 : 503);
+        }).AllowAnonymousPms();
 
         sys.MapGet("/ca.crt", (PmsPaths paths) => File.Exists(paths.CaCertFile)
             ? Results.File(paths.CaCertFile, "application/x-x509-ca-cert", "HotelPMS-Yerel-CA.crt")
@@ -106,11 +113,14 @@ public static class SystemEndpoints
             var proc = Process.GetCurrentProcess();
             UpdateCpu(proc);
             var setupCode = File.Exists(paths.SetupTokenFile) ? File.ReadAllText(paths.SetupTokenFile).Trim() : null;
-            return new ManageStatus(h.StartupError is not null ? "error" : h.DatabaseReady ? "running" : "degraded", Environment.MachineName,
+            // Durum, veritabanı bilgisi ve kontrol listesi aynı denetim turundan (anlık görüntü) okunur.
+            var snap = h.Snapshot;
+            var dbOk = snap.CheckedAt == default ? h.DatabaseReady : snap.DatabaseOk;
+            return new ManageStatus(h.StartupError is not null ? "error" : dbOk ? "running" : "degraded", Environment.MachineName,
                 CertificateManager.LocalAddresses().Select(a => a.ToString()).ToList(), cfg.HttpsPort, cfg.HttpPort, PmsConstants.VersionText, h.DatabaseVersion,
-                schema, h.DatabaseReady, h.StartupError, DateTime.UtcNow - h.StartedAt, hub.Clients.Count, hub.Clients, sessions, users, h.DatabaseSizeBytes,
-                h.LastBackupAt, h.LastBackupStatus, h.FreeDiskBytes, h.TotalDiskBytes, proc.WorkingSet64, _cpu, h.Checks, paths.DataRoot,
-                backups.PrimaryDirectory, setupCode, paths.LogsDir, lic?.Message, lic?.Restricted ?? false);
+                schema, dbOk, h.StartupError, DateTime.UtcNow - h.StartedAt, hub.Clients.Count, hub.Clients, sessions, users, h.DatabaseSizeBytes,
+                h.LastBackupAt, h.LastBackupStatus, h.FreeDiskBytes, h.TotalDiskBytes, proc.WorkingSet64, _cpu, snap.Checks, paths.DataRoot,
+                backups.PrimaryDirectory, setupCode, paths.LogsDir, lic?.Message, lic?.Restricted ?? false, snap.CheckedAt == default ? null : snap.CheckedAt);
         });
 
         m.MapGet("/logs", (PmsPaths paths, int? lines) =>

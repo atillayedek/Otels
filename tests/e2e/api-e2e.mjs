@@ -1570,6 +1570,27 @@ try {
     assert.equal(Number(led.rows.find(x => x.code === 'CARI1').balance), 300);
   });
 
+  await step('Raporlarda ham kod kalmaz (durum, kayıt türü, işlem); Uyuşmazlık ve Kat Görevlisi raporları çalışır; sağlık durumu tek anlık görüntüden', async () => {
+    const R = (n, q = 'from=2024-01-01&to=2032-12-31') => api('GET', `/api/v1/reports/${n}?${q}`);
+    const audit = await R('audit-log');
+    assert.ok(audit.rows.length > 0);
+    for (const r of audit.rows) {
+      assert.ok(!/^[a-z_]+$/.test(r.entityType) || !r.entityType.includes('_'), `ham kayıt türü: ${r.entityType}`);
+      assert.ok(!/^[a-z_]+\.[a-z_]+$/.test(r.action), `ham işlem: ${r.action}`);
+    }
+    const fb = await R('folio-balances', '');
+    for (const r of fb.rows) assert.ok(!/^[a-z]+_[a-z_]+$/.test(r.reservationStatus ?? ''), `ham durum: ${r.reservationStatus}`);
+    const disc = await R('room-discrepancy', '');
+    assert.ok(Array.isArray(disc.rows));
+    const att = await R('hk-attendants');
+    assert.ok(Array.isArray(att.rows));
+    const h = await api('GET', '/api/v1/system/health');
+    assert.ok(h.checkedAt, 'son kontrol zamanı yok');
+    const db = h.checks.find(c => c.name === 'database');
+    assert.equal(h.database, db?.status === 'healthy', 'veritabanı bilgisi alt kontrolle çelişiyor');
+    if (h.database) assert.notEqual(h.status, 'unavailable');
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);
