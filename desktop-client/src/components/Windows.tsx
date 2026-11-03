@@ -101,7 +101,7 @@ function WindowFrame({ w, api, patch, focus }: { w: Win; api: WinApi; patch: (k:
     e.preventDefault();
     e.stopPropagation();
     const sx = e.clientX, sy = e.clientY, ow = w.w, oh = w.h;
-    const move = (m: MouseEvent) => patch(w.key, { w: Math.max(520, ow + m.clientX - sx), h: Math.max(320, oh + m.clientY - sy) });
+    const move = (m: MouseEvent) => patch(w.key, { w: Math.max(360, ow + m.clientX - sx), h: Math.max(220, oh + m.clientY - sy) });
     const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);

@@ -161,6 +161,14 @@ function Shell({ children }: { children: ReactNode }) {
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
   const can = useCallback((p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p)), [canOne]);
   const [collapsed, setCollapsed] = useState(false);
+  // Pencere kenarından daraltılınca sol menü kendiliğinden simge görünümüne geçer (içerik alanı küçülmesin).
+  useEffect(() => {
+    let wasNarrow = window.innerWidth < 900;
+    if (wasNarrow) setCollapsed(true);
+    const onResize = () => { const n = window.innerWidth < 900; if (n && !wasNarrow) setCollapsed(true); wasNarrow = n; };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [support, setSupport] = useState(false);
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string[]>(['Resepsiyon', 'Rezervasyon']);

@@ -685,7 +685,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 
 /* ================================================================ Pencereler */
 .win-layer { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
-.win { position: absolute; pointer-events: auto; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(15, 23, 42, .28), 0 2px 8px rgba(15, 23, 42, .12); overflow: hidden; min-width: 520px; min-height: 320px; }
+.win { position: absolute; pointer-events: auto; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(15, 23, 42, .28), 0 2px 8px rgba(15, 23, 42, .12); overflow: hidden; min-width: 360px; min-height: 220px; }
 .win.max { left: 6px !important; top: 68px !important; right: 6px; bottom: 32px; width: auto !important; height: auto !important; }
 .win.min { display: none; }
 .win-head { flex: none; display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 4px 0 12px; background: var(--nav); color: var(--nav-strong); cursor: move; user-select: none; }
