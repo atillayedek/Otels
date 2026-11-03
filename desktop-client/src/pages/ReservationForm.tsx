@@ -5,7 +5,7 @@ import { Save, X } from 'lucide-react';
 import { api, ApiError, get, newKey, qs } from '../lib/api';
 import type { ExchangeRatesView, RatePreview, Reservation } from '../lib/types';
 import { addDays, fmtDate, fmtMoney, fmtQty, fmtRate, MEAL_LABEL, nightsBetween, SOURCE_LABEL } from '../lib/format';
-import { useAgencies, useChannels, useCompanies, useRatePlans, useRoomStatus, useRoomTypes } from '../lib/queries';
+import { useAgencies, useChannels, useCompanies, useRatePlans, useReservationCodes, useRoomStatus, useRoomTypes } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { PageHead, useAction } from '../components/common';
 import { ErrorBox, Field, Modal, MoneyInput, useConfirm } from '../components/ui';
@@ -18,7 +18,7 @@ type Mode = 'new' | 'walkin' | 'edit';
 
 interface Draft {
   roomTypeId: string; roomId: string; arrival: string; departure: string; adults: number; children: number; ratePlanId: string; nightlyRate: string; overrideRate: boolean; rateCurrency: string;
-  channel: string; channelRef: string;
+  channel: string; channelRef: string; market: string; segment: string;
   mealPlan: string; companyId: string; agencyId: string; source: string; status: string; optionUntil: string; eta: string; etd: string; notes: string; specialRequests: string; depositRequired: string;
   /** Kişi sayısına göre fiyat (Tek/Çift/Üç/Dört): açıksa yetişkin sayısına göre gecelik fiyat otomatik seçilir. */
   useOcc: boolean; sgl: string; dbl: string; trp: string; quad: string;
@@ -37,6 +37,12 @@ export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mo
   const bd = property?.businessDate ?? '';
   const types = useRoomTypes();
   const plans = useRatePlans();
+  const resCodes = useReservationCodes();
+  // Rezervasyon kodu listesi: aktif kodlar + kayıttaki eski (pasif/silinmiş) kod, kaybolmasın diye.
+  const codeOptions = (kind: 'market' | 'segment', cur: string) => {
+    const list = (resCodes.data ?? []).filter(c => c.kind === kind && (c.isActive || c.code === cur));
+    return [...list.map(c => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>), ...(cur && !list.some(c => c.code === cur) ? [<option key={cur} value={cur}>{cur}</option>] : [])];
+  };
   const companies = useCompanies();
   const agencies = useAgencies();
   const channels = useChannels();
@@ -47,14 +53,14 @@ export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mo
   const [newGuest, setNewGuest] = useState<GuestDraft | null>(null);
   const [d, setD] = useState<Draft>(() => initial ? {
     roomTypeId: initial.roomTypeId, roomId: initial.roomId ?? '', arrival: initial.arrival, departure: initial.departure, adults: initial.adults, children: initial.children,
-    ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.rateCurrency ? initial.fxNightlyRate ?? '' : initial.nightlyRate, overrideRate: false, rateCurrency: initial.rateCurrency ?? '', channel: initial.channel ?? '', channelRef: initial.channelRef ?? '', mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
+    ratePlanId: initial.ratePlanId ?? '', nightlyRate: initial.rateCurrency ? initial.fxNightlyRate ?? '' : initial.nightlyRate, overrideRate: false, rateCurrency: initial.rateCurrency ?? '', channel: initial.channel ?? '', channelRef: initial.channelRef ?? '', market: initial.market ?? '', segment: initial.segment ?? '', mealPlan: initial.mealPlan, companyId: initial.companyId ?? '', agencyId: initial.agencyId ?? '',
     source: initial.source, status: initial.status, optionUntil: initial.optionUntil ?? '', eta: initial.eta?.slice(0, 5) ?? '', etd: initial.etd?.slice(0, 5) ?? '', notes: initial.notes ?? '',
     specialRequests: initial.specialRequests ?? '', depositRequired: initial.depositRequired,
     useOcc: [initial.rateSgl, initial.rateDbl, initial.rateTrp, initial.rateQuad].some(v => v != null),
     sgl: initial.rateSgl ?? '', dbl: initial.rateDbl ?? '', trp: initial.rateTrp ?? '', quad: initial.rateQuad ?? '',
   } : {
     roomTypeId: param('type') ?? '', roomId: param('room') ?? '', arrival: mode === 'walkin' ? bd : (param('arrival') ?? bd), departure: addDays(mode === 'walkin' ? bd : (param('arrival') ?? bd), 1),
-    adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, rateCurrency: '', channel: '', channelRef: '', mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
+    adults: 1, children: 0, ratePlanId: '', nightlyRate: '', overrideRate: false, rateCurrency: '', channel: '', channelRef: '', market: '', segment: '', mealPlan: 'RO', companyId: '', agencyId: '', source: mode === 'walkin' ? 'walk_in' : 'direct',
     status: 'confirmed', optionUntil: '', eta: '', etd: '', notes: '', specialRequests: '', depositRequired: '0.00',
     useOcc: false, sgl: '', dbl: '', trp: '', quad: '',
   });
@@ -97,7 +103,7 @@ export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mo
       companyId: n(d.companyId), agencyId: n(d.agencyId), groupId: initial?.groupId ?? null, roomTypeId: d.roomTypeId, roomId: n(d.roomId),
       arrival: d.arrival, departure: d.departure, adults: d.adults, children: d.children, ratePlanId: n(d.ratePlanId),
       nightlyRate: (d.overrideRate || (needsManual && !occ)) && d.nightlyRate ? d.nightlyRate : null, rateCurrency: d.rateCurrency || null, channel: d.channel || null, channelRef: d.channel && d.channelRef.trim() ? d.channelRef.trim() : null, mealPlan: d.mealPlan, status: mode === 'walkin' ? 'confirmed' : d.status,
-      source: d.source, market: initial?.market ?? null, segment: initial?.segment ?? null, eta: d.eta ? `${d.eta}:00` : null, etd: d.etd ? `${d.etd}:00` : null,
+      source: d.source, market: d.market || null, segment: d.segment || null, eta: d.eta ? `${d.eta}:00` : null, etd: d.etd ? `${d.etd}:00` : null,
       notes: n(d.notes), specialRequests: n(d.specialRequests), depositRequired: d.depositRequired || '0', optionUntil: d.status === 'tentative' ? n(d.optionUntil) : null,
       version: initial?.version ?? null,
       // Tablo kapatılırsa boş gönderilir (kayıtlı tablo silinir); hiç kullanılmadıysa gönderilmez.
@@ -181,6 +187,8 @@ export function ReservationEditor({ mode, initial, onSaved, params }: { mode: Mo
               <option value="">Doğrudan / acente</option>{channels.data?.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}</select></Field>
             {d.channel && <Field label="Kanal rezervasyon no" hint="Aynı numara ikinci kez girilemez"><input className="input mono" value={d.channelRef} onChange={e => set('channelRef', e.target.value)} maxLength={60} /></Field>}
             <Field label="Kaynak"><select className="input" value={d.source} onChange={e => set('source', e.target.value)}>{Object.entries(SOURCE_LABEL).filter(([k]) => k !== 'migration' || d.source === 'migration').map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+            <Field label="Market" hint={resCodes.data?.some(c => c.kind === 'market') ? undefined : 'Kodlar: Fiyat Planları > Rezervasyon Kodları'}><select className="input" value={d.market} onChange={e => set('market', e.target.value)}><option value="">—</option>{codeOptions('market', d.market)}</select></Field>
+            <Field label="Segment" hint={resCodes.data?.some(c => c.kind === 'segment') ? undefined : 'Kodlar: Fiyat Planları > Rezervasyon Kodları'}><select className="input" value={d.segment} onChange={e => set('segment', e.target.value)}><option value="">—</option>{codeOptions('segment', d.segment)}</select></Field>
             <Field label="İstenen depozito"><MoneyInput value={d.depositRequired} onChange={v => set('depositRequired', v)} /></Field>
             <Field label="Özel istekler" className="span-2"><input className="input" value={d.specialRequests} onChange={e => set('specialRequests', e.target.value)} maxLength={1000} /></Field>
             <Field label="Notlar" className="span-4"><textarea className="input" rows={2} value={d.notes} onChange={e => set('notes', e.target.value)} maxLength={4000} /></Field>

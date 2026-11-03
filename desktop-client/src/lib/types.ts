@@ -48,6 +48,8 @@ export interface Account {
   id: string; code?: string; name: string; taxOffice?: string; taxNumber?: string; address?: string; city?: string; country?: string; phone?: string; email?: string;
   contactName?: string; creditLimit?: Money; commissionRate?: Money; isCityLedger: boolean; notes?: string; isActive: boolean; balance: Money; version: number;
 }
+/** Rezervasyon kodu (market / segment): rezervasyonda kod olarak saklanır. */
+export interface ReservationCode { id: string; kind: 'market' | 'segment'; code: string; name: string; sortOrder: number; isActive: boolean; usedCount: number; version: number }
 export interface RatePlan { id: string; code: string; name: string; mealPlan: string; description?: string; isActive: boolean; version: number; currency?: string }
 export interface RatePrice { id: string; ratePlanId: string; roomTypeId: string; roomTypeCode: string; dateFrom: DateStr; dateTo: DateStr; price: Money; minStay?: number }
 

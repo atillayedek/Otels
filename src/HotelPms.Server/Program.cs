@@ -175,6 +175,7 @@ try
     PrivacyEndpoints.Map(app);
     AccountEndpoints.Map(app);
     ReservationEndpoints.Map(app);
+    ReservationCodeEndpoints.Map(app);
     GroupEndpoints.Map(app);
     TraceEndpoints.Map(app);
     SalesCalendarEndpoints.Map(app);

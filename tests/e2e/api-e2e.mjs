@@ -1637,6 +1637,15 @@ try {
     const ops = await R('operations', `from=${state.bd}&to=${addDays(state.bd, 6)}`);
     assert.equal(ops.rows.length, 7, 'operasyon raporu her gün için bir satır');
     for (const r of ops.rows) assert.ok(r.available >= 0 && r.occupied >= 0);
+    // Rezervasyon kodları (market/segment) ve Market ve Segment Üretimi raporu
+    const mk = await api('POST', '/api/v1/reservation-codes', { kind: 'market', code: 'yerli', name: 'Yerli pazar', sortOrder: 1, isActive: true });
+    await api('POST', '/api/v1/reservation-codes', { kind: 'market', code: 'YERLI', name: 'Tekrar', sortOrder: 2, isActive: true }, { expect: 409 });
+    await api('POST', '/api/v1/reservation-codes', { kind: 'segment', code: 'A B', name: 'Boşluklu', sortOrder: 0, isActive: true }, { expect: 422 });
+    const codes = await api('GET', '/api/v1/reservation-codes');
+    assert.ok(codes.some(c => c.id === mk.id && c.code === 'YERLI' && c.usedCount === 0), 'kod büyük harfe çevrildi');
+    const seg = await R('segment_production');
+    assert.ok(Array.isArray(seg.rows) && seg.rows.length > 0, 'segment raporu satır döndürür');
+    await api('DELETE', `/api/v1/reservation-codes/${mk.id}`);
     const h = await api('GET', '/api/v1/system/health');
     assert.ok(h.checkedAt, 'son kontrol zamanı yok');
     const db = h.checks.find(c => c.name === 'database');

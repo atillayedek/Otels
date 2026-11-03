@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { get, qs } from './api';
-import type { Account, LicenseStatus, PaymentMethod, RatePlan, Room, RoomGroup, RoomStatus, RoomType, Staff, StockItem, Supplier, TransactionCode, Warehouse } from './types';
+import type { Account, LicenseStatus, PaymentMethod, RatePlan, ReservationCode, Room, RoomGroup, RoomStatus, RoomType, Staff, StockItem, Supplier, TransactionCode, Warehouse } from './types';
 
 // Sık kullanılan tanım listeleri. Değişiklikler sunucudan gelen anlık bildirimle yenilenir.
 export const useRoomTypes = () => useQuery({ queryKey: ['rooms', 'types'], queryFn: () => get<RoomType[]>('/api/v1/room-types') });
 export const useRooms = () => useQuery({ queryKey: ['rooms', 'list'], queryFn: () => get<Room[]>('/api/v1/rooms') });
 export const useRoomGroups = () => useQuery({ queryKey: ['rooms', 'groups'], queryFn: () => get<RoomGroup[]>('/api/v1/room-groups') });
 export const useRoomStatus = () => useQuery({ queryKey: ['roomStatus'], queryFn: () => get<RoomStatus[]>('/api/v1/rooms/status') });
+export const useReservationCodes = () => useQuery({ queryKey: ['reservationCodes'], queryFn: () => get<ReservationCode[]>('/api/v1/reservation-codes') });
 export const useRatePlans = () => useQuery({ queryKey: ['ratePlans'], queryFn: () => get<RatePlan[]>('/api/v1/rate-plans') });
 export const useCompanies = () => useQuery({ queryKey: ['accounts', 'companies'], queryFn: () => get<Account[]>('/api/v1/companies?active=true') });
 export const useAgencies = () => useQuery({ queryKey: ['accounts', 'agencies'], queryFn: () => get<Account[]>('/api/v1/agencies?active=true') });

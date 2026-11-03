@@ -786,6 +786,35 @@ public static class ReportEndpoints
                 GROUP BY 1 ORDER BY revenue DESC
                 """,
         },
+
+        new()
+        {
+            // Market / segment üretimi: rezervasyon kodlarına göre (Fiyat Planları > Rezervasyon Kodları). Kodu boş olanlar "Belirtilmemiş".
+            Name = "segment_production", Title = "Market ve Segment Üretimi", Category = "Satış", Permission = "report.view", Params = [From, To],
+            Columns = [new("market", "Market", "text"), new("segment", "Segment", "text"), new("reservations", "Rezervasyon", "int"), new("roomNights", "Oda-gece", "int"),
+                new("revenue", "Konaklama tutarı", "money"), new("adr", "Ortalama fiyat", "money"), new("cancelled", "İptal", "int")],
+            SumColumns = ["reservations", "roomNights", "revenue", "cancelled"],
+            Sql = """
+                WITH x AS (
+                    SELECT COALESCE(r.market || COALESCE(' · ' || mc.name, ''), 'Belirtilmemiş') AS market,
+                           COALESCE(r.segment || COALESCE(' · ' || sc.name, ''), 'Belirtilmemiş') AS segment,
+                           r.status, r.departure - r.arrival AS nights,
+                           (SELECT sum(rate) FROM pms.reservation_rates q WHERE q.reservation_id = r.id) AS amount
+                    FROM pms.reservations r
+                    LEFT JOIN pms.reservation_codes mc ON mc.kind = 'market' AND mc.code = r.market
+                    LEFT JOIN pms.reservation_codes sc ON sc.kind = 'segment' AND sc.code = r.segment
+                    WHERE r.arrival BETWEEN @from AND @to AND r.source <> 'migration')
+                SELECT market, segment,
+                       count(*) FILTER (WHERE status IN ('tentative','confirmed','checked_in','checked_out'))::int AS reservations,
+                       COALESCE(sum(nights) FILTER (WHERE status IN ('tentative','confirmed','checked_in','checked_out')), 0)::int AS room_nights,
+                       COALESCE(sum(amount) FILTER (WHERE status IN ('tentative','confirmed','checked_in','checked_out')), 0) AS revenue,
+                       CASE WHEN COALESCE(sum(nights) FILTER (WHERE status IN ('tentative','confirmed','checked_in','checked_out')), 0) = 0 THEN 0
+                            ELSE round(COALESCE(sum(amount) FILTER (WHERE status IN ('tentative','confirmed','checked_in','checked_out')), 0)
+                                 / sum(nights) FILTER (WHERE status IN ('tentative','confirmed','checked_in','checked_out')), 2) END AS adr,
+                       count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
+                FROM x GROUP BY market, segment ORDER BY revenue DESC, market, segment
+                """,
+        },
     ];
 
     public static void Map(WebApplication app)

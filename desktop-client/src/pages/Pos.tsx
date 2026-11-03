@@ -124,7 +124,7 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
     return r;
   });
   const setDetail = (r: PosCheckDetail) => { qc.setQueryData(['pos', 'check', id], r); void qc.invalidateQueries({ queryKey: ['pos', 'checks'] }); };
-  const add = useAction(async (key: string, productId: string) => { const r = await post<PosCheckDetail>(`/api/v1/pos/checks/${id}/lines`, { productId, quantity: '1' }, key); setDetail(r); return r; }, { silentError: false });
+  const add = useAction(async (key: string, productId: string, quantity = '1') => { const r = await post<PosCheckDetail>(`/api/v1/pos/checks/${id}/lines`, { productId, quantity }, key); setDetail(r); return r; }, { silentError: false });
 
   if (d.isLoading || !d.data) return <Spinner />;
   const c = d.data.check;
@@ -140,7 +140,20 @@ function CheckScreen({ id, outletId, onClosed }: { id: string; outletId: string;
         <div className="pos-menu">
           <div className="row wrap">
             <div className="seg wrap"><button className={!cat ? 'active' : ''} onClick={() => setCat('')}>Tümü</button>{categories.map(x => <button key={x} className={cat === x ? 'active' : ''} onClick={() => setCat(x)}>{x}</button>)}</div>
-            <span className="spacer" /><Search size={15} className="muted" /><input className="input" style={{ width: 170 }} placeholder="Ürün ara" value={q} onChange={e => setQ(e.target.value)} />
+            <span className="spacer" /><Search size={15} className="muted" /><input className="input" style={{ width: 190 }} placeholder="Ürün ara / kod + Enter" title="Ürün kodunu yazıp Enter: adisyona ekler. Adet için 3*KOD" value={q} onChange={e => setQ(e.target.value)} data-enter="keep"
+              onKeyDown={e => {
+                if (e.key !== 'Enter' || !q.trim()) return;
+                e.preventDefault();
+                // Kodla hızlı satış: "KOD" veya "3*KOD"; kod tam eşleşmezse listede tek ürün kaldıysa o eklenir.
+                const m = /^(\d+(?:[.,]\d+)?)\s*\*\s*(.+)$/.exec(q.trim());
+                const qty = m ? m[1].replace(',', '.') : '1';
+                const term = (m ? m[2] : q).trim().toLocaleLowerCase('tr-TR');
+                const all = products.data ?? [];
+                const hit = all.find(p => p.code.toLocaleLowerCase('tr-TR') === term)
+                  ?? (() => { const f = all.filter(p => `${p.name} ${p.code}`.toLocaleLowerCase('tr-TR').includes(term)); return f.length === 1 ? f[0] : undefined; })();
+                if (!hit) { toast.error(`"${term}" koduyla ürün bulunamadı.`); return; }
+                void add.run(hit.id, qty).then(r => { if (r !== undefined) setQ(''); });
+              }} />
           </div>
           {products.isLoading ? <Spinner /> : shown.length === 0 ? <Empty title="Ürün yok" text={(products.data ?? []).length === 0 ? 'Bu satış noktasında satılan ürün tanımlı değil.' : undefined} /> : (
             <div className="pos-products">
