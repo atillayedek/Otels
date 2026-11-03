@@ -1643,9 +1643,19 @@ try {
     await api('POST', '/api/v1/reservation-codes', { kind: 'segment', code: 'A B', name: 'Boşluklu', sortOrder: 0, isActive: true }, { expect: 422 });
     const codes = await api('GET', '/api/v1/reservation-codes');
     assert.ok(codes.some(c => c.id === mk.id && c.code === 'YERLI' && c.usedCount === 0), 'kod büyük harfe çevrildi');
-    const seg = await R('segment_production');
-    assert.ok(Array.isArray(seg.rows) && seg.rows.length > 0, 'segment raporu satır döndürür');
-    await api('DELETE', `/api/v1/reservation-codes/${mk.id}`);
+    // Kodla kaydedilen rezervasyon raporda kendi market/segment satırında görünür; kullanılmış kod silinemez.
+    const sg = await api('POST', '/api/v1/reservation-codes', { kind: 'segment', code: 'KURUMSAL', name: 'Kurumsal', sortOrder: 1, isActive: true });
+    const segFrom = addDays(state.bd, 300);
+    const sr = await api('POST', '/api/v1/reservations', { guestId: state.guest, roomTypeId: state.std, arrival: segFrom, departure: addDays(segFrom, 3), adults: 1, children: 0, status: 'confirmed', depositRequired: '0', market: 'YERLI', segment: 'KURUMSAL' }, { key: randomUUID() });
+    const srGet = await api('GET', `/api/v1/reservations/${sr.id}`);
+    assert.equal(srGet.market, 'YERLI'); assert.equal(srGet.segment, 'KURUMSAL');
+    const seg = await R('segment_production', `from=${segFrom}&to=${segFrom}`);
+    const row = seg.rows.find(x => x.market === 'YERLI · Yerli pazar' && x.segment === 'KURUMSAL · Kurumsal');
+    assert.ok(row, 'rezervasyon kendi market/segment satırında: ' + JSON.stringify(seg.rows));
+    assert.equal(row.reservations, 1); assert.equal(row.roomNights, 3);
+    assert.ok((await api('GET', '/api/v1/reservation-codes')).find(c => c.id === sg.id).usedCount === 1, 'kullanım sayısı');
+    await api('DELETE', `/api/v1/reservation-codes/${sg.id}`, undefined, { expect: 422 });
+    await api('DELETE', `/api/v1/reservation-codes/${mk.id}`, undefined, { expect: 422 });
     const h = await api('GET', '/api/v1/system/health');
     assert.ok(h.checkedAt, 'son kontrol zamanı yok');
     const db = h.checks.find(c => c.name === 'database');
