@@ -523,7 +523,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 
 /* ================================================================ Görünüm (tema, desen, simge, yazı, köşe) */
 :root {
-  --rk-vacant: #ffffff; --rk-occupied: #16a34a; --rk-dirty: #dc2626; --rk-arrival: #2563eb; --rk-departure: #f59e0b; --rk-blocked: #64748b; --rk-inspected: #0d9488; --rk-cleaning: #0284c7;
+  --rk-vacant: #ffffff; --rk-frame: #9aa4b2; --rk-occupied: #16a34a; --rk-dirty: #dc2626; --rk-arrival: #2563eb; --rk-departure: #f59e0b; --rk-blocked: #64748b; --rk-inspected: #0d9488; --rk-cleaning: #0284c7;
   --bk-confirmed: #2563eb; --bk-tentative: #ca8a04; --bk-checked_in: #16a34a; --bk-checked_out: #64748b; --bk-block: #475569;
   --bk-confirmed-soft: #dbe7ff; --bk-tentative-soft: #fbf1c7; --bk-checked_in-soft: #d5f2df; --bk-checked_out-soft: #e2e8f0; --bk-block-soft: #e7eaef;
   --bk-confirmed-text: #153a8a; --bk-tentative-text: #6f4c07; --bk-checked_in-text: #0c5a28; --bk-checked_out-text: #334155; --bk-block-text: #283141;
@@ -611,7 +611,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .rack-row { display: flex; flex-wrap: wrap; gap: 8px; }
 /* Rack: bir satırdaki oda sayısını kullanıcı seçer (4–40); kutular pencere genişliğiyle orantılı büyür/küçülür, alt sınır yok.
    Kutu daraldıkça ayrıntılar sırayla gizlenir (kutunun kendi genişliğine göre), en küçükte yalnız oda no ve renk kalır. */
-.rack-grid { --cols: 10; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: max(2px, min(8px, calc(80px / var(--cols)))); container-type: inline-size; }
+.rack-grid { --cols: 10; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: max(4px, min(8px, calc(80px / var(--cols)))); container-type: inline-size; }
 .rack-grid .room-tile { width: auto !important; min-height: 0 !important; aspect-ratio: 118 / 150; container-type: inline-size; font-size: clamp(5px, calc(100cqi / var(--cols) / 10), 16px); }
 .rack-grid .room-tile .rt-no { font-size: 1.9em; }
 .rack-grid .room-tile .rt-head { padding: .45em .6em 0 .8em; }
@@ -633,7 +633,8 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
   background: var(--tone); color: var(--tone-text); border: 1px solid color-mix(in srgb, var(--tone) 70%, #0f172a 30%); box-shadow: var(--shadow-sm), inset 4px 0 0 var(--grp);
   transition: box-shadow .12s, transform .12s; }
 .room-tile:hover { box-shadow: var(--shadow), inset 4px 0 0 var(--grp); transform: translateY(-1px); }
-.room-tile.tone-vacant { --tone: var(--rk-vacant); --tone-text: #0f172a; border-color: var(--border-strong); }
+/* Her kutu ince gri çerçeveyle ayrılır (boş/beyaz odalar arasında sınır net görünsün). */
+.room-tile.tone-vacant { --tone: var(--rk-vacant); --tone-text: #0f172a; border-color: var(--rk-frame); }
 .room-tile.tone-occupied { --tone: var(--rk-occupied); --tone-text: var(--rk-occupied-text); }
 .room-tile.tone-departure { --tone: var(--rk-departure); --tone-text: var(--rk-departure-text); }
 .room-tile.tone-arrival { --tone: var(--rk-arrival); --tone-text: var(--rk-arrival-text); }
@@ -882,7 +883,7 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .fdw-linked .btn { height: 22px; padding: 0 8px; font-weight: 600; }
 
 /* Rack çoklu seçim */
-.room-tile.selected { outline: 3px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent); }
+.room-tile.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rack-selbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 8px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); font-size: 13px; }
 .rack-selbar .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
 
