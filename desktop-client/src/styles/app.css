@@ -609,18 +609,23 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .rf-label { display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--text-2); font-weight: 700; font-size: 17px; writing-mode: horizontal-tb; }
 .rf-label small { font-size: 10px; font-weight: 500; color: var(--muted); }
 .rack-row { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Rack: sütun sayısı sabit, kutular pencere genişliğine göre büyür/küçülür (pencere daralınca kutular da küçülür). */
-.rack-grid { --cols: 10; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: clamp(3px, .5vw, 8px); container-type: inline-size; }
-.rack-grid.size-s { --cols: 14; }
-.rack-grid.size-l { --cols: 7; }
-@media (max-width: 1500px) { .rack-grid { --cols: 9; } .rack-grid.size-s { --cols: 12; } .rack-grid.size-l { --cols: 6; } }
-@media (max-width: 1100px) { .rack-grid { --cols: 7; } .rack-grid.size-s { --cols: 10; } .rack-grid.size-l { --cols: 5; } }
-@media (max-width: 800px) { .rack-grid { --cols: 6; } .rack-grid.size-s { --cols: 8; } .rack-grid.size-l { --cols: 4; } }
-.rack-grid .room-tile { width: auto !important; min-height: 0 !important; aspect-ratio: 118 / 150; font-size: clamp(10px, calc(100cqi / var(--cols) / 10), 13.5px); }
-.rack-grid .room-tile .rt-no { font-size: clamp(13px, calc(100cqi / var(--cols) / 5.4), 28px); }
+/* Rack: bir satırdaki oda sayısını kullanıcı seçer (4–40); kutular pencere genişliğiyle orantılı büyür/küçülür, alt sınır yok.
+   Kutu daraldıkça ayrıntılar sırayla gizlenir (kutunun kendi genişliğine göre), en küçükte yalnız oda no ve renk kalır. */
+.rack-grid { --cols: 10; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: max(2px, min(8px, calc(80px / var(--cols)))); container-type: inline-size; }
+.rack-grid .room-tile { width: auto !important; min-height: 0 !important; aspect-ratio: 118 / 150; container-type: inline-size; font-size: clamp(5px, calc(100cqi / var(--cols) / 10), 16px); }
+.rack-grid .room-tile .rt-no { font-size: 1.9em; }
+.rack-grid .room-tile .rt-head { padding: .45em .6em 0 .8em; }
+.rack-grid .room-tile .rt-body { padding: .2em .6em .35em .8em; }
+.rack-grid .room-tile .rt-foot { padding: .25em .45em .35em .8em; gap: .35em; }
+.rack-grid .room-tile .rt-icons svg { width: 1.15em; height: 1.15em; }
 .rack-grid .room-tile .rt-body, .rack-grid .room-tile .rt-guest, .rack-grid .room-tile .rt-type { font-size: 1em; }
 .rack-grid .room-tile .rt-dates, .rack-grid .room-tile .rt-bal, .rack-grid .room-tile .rt-note, .rack-grid .room-tile .rt-acc, .rack-grid .room-tile .rt-more { font-size: .9em; }
 .rack-grid .room-tile .rt-hk, .rack-grid .room-tile .rt-grp { font-size: .85em; }
+@container (max-width: 84px) { .rack-grid .room-tile :is(.rt-type, .rt-acc, .rt-note, .rt-bal, .rt-dates, .rt-more) { display: none; } }
+@container (max-width: 60px) { .rack-grid .room-tile :is(.rt-body, .rt-icons, .rt-grp) { display: none; } .rack-grid .room-tile .rt-head { justify-content: center; padding: .3em .3em 0; } .rack-grid .room-tile .rt-foot { justify-content: center; padding: .25em .3em .35em; } .rack-grid .room-tile .rt-no { font-size: 2.4em; } }
+@container (max-width: 40px) { .rack-grid .room-tile .rt-foot { display: none; } .rack-grid .room-tile .rt-head { flex: 1; align-items: center; padding: 0 .15em; } .rack-grid .room-tile .rt-no { font-size: min(2.6em, 36cqi); } }
+.rack-zoom { align-items: center; }
+.rack-zoom input[type=range] { width: 90px; margin: 0 6px; accent-color: var(--accent); }
 .room-tile.grp-fill { border-color: color-mix(in srgb, var(--grp) 70%, #0f172a 30%); }
 .room-tile { --tw: 118px; --th: 158px; --tone: var(--rk-vacant); --tone-text: #0f172a; --grp: transparent;
   width: var(--tw); min-height: var(--th); display: flex; flex-direction: column; border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; position: relative;
@@ -655,13 +660,6 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .room-tile .rt-hk.hk-cleaning { background: var(--rk-cleaning); color: var(--rk-cleaning-text); }
 .room-tile.tone-blocked .rt-hk { background: rgba(0,0,0,.25); color: #fff; }
 .room-tile .rt-grp { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--grp); color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.size-s .room-tile { --tw: 92px; --th: 118px; }
-.size-s .room-tile .rt-no { font-size: 17px; }
-.size-s .room-tile .rt-acc, .size-s .room-tile .rt-note, .size-s .room-tile .rt-bal, .size-s .room-tile .rt-type { display: none; }
-.size-l .room-tile { --tw: 156px; --th: 200px; }
-.size-l .room-tile .rt-no { font-size: 28px; }
-.size-l .room-tile .rt-body { font-size: 12px; }
-.size-l .room-tile .rt-guest { font-size: 12px; }
 /* Oda durum bilgileri: sayfanın altında, her rengin anlamı ve sayısı */
 .rack-legend { position: sticky; bottom: -28px; margin: 14px -20px -28px; padding: 9px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; background: color-mix(in srgb, var(--surface) 94%, transparent); border-top: 1px solid var(--border); backdrop-filter: blur(4px); z-index: 2; }
 .rl-item { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: 12px; color: var(--text-2); cursor: pointer; }

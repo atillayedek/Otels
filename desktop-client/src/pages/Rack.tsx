@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,7 +22,6 @@ import { TaskModal } from './HkTasks';
 import { useSessionState } from '../lib/sessionState';
 
 type Filter = 'all' | 'vacant' | 'occupied' | 'arrival' | 'departure' | 'dirty' | 'blocked';
-type Size = 's' | 'm' | 'l';
 /** Kartın ana rengi (gövde): bloke > dolu > geliş > kirli > temizleniyor/kontrol > boş. */
 type Tone = 'blocked' | 'occupied' | 'departure' | 'arrival' | 'dirty' | 'cleaning' | 'inspected' | 'vacant';
 
@@ -36,7 +35,10 @@ function toneOf(r: RoomStatus): Tone {
   return 'vacant';
 }
 
-const SIZE_KEY = 'pms-rack-size';
+const COLS_KEY = 'pms-rack-cols';
+// Kart boyutu: bir satırdaki oda sayısı. Çok küçültünce (çok sütun) kutuda yalnız oda no ve durum kalır.
+const COLS_MIN = 4, COLS_MAX = 40, COLS_DEFAULT = 10;
+const readCols = () => { try { const n = Number(localStorage.getItem(COLS_KEY)); return n >= COLS_MIN && n <= COLS_MAX ? Math.round(n) : COLS_DEFAULT; } catch { return COLS_DEFAULT; } };
 const LAYOUT_KEY = 'pms-rack-layout';
 const COLOR_KEY = 'pms-rack-color';
 /** Grup rengi üzerinde okunur yazı rengi (açık zeminde koyu, koyu zeminde beyaz). */
@@ -70,11 +72,12 @@ export default function RackPage() {
   // AmonRa rack süzgeçleri: firma/acente ve çıkış tarihi (boş = hepsi)
   const [acc, setAcc] = useState('');
   const [dep, setDep] = useState('');
-  const [size, setSize] = useState<Size>(() => readPref(SIZE_KEY, ['s', 'm', 'l'], 'm'));
+  const [cols, setColsState] = useState<number>(readCols);
+  const pageRef = useRef<HTMLDivElement>(null);
   // Rack: odalar sıralı tek akış; Otel Planı: odalar kat kat (kat bilgisi olmayanlar en sonda).
   const [layout, setLayout] = useState<'rack' | 'plan'>(() => readPref(LAYOUT_KEY, ['rack', 'plan'], 'rack'));
-  // Kutu rengi: oda durumu (dolu/boş/kirli...) veya oda grubu (grubu olan oda tamamen grup rengine boyanır).
-  const [colorMode, setColorMode] = useState<'status' | 'group'>(() => readPref(COLOR_KEY, ['status', 'group'], 'status'));
+  // Kutu rengi: oda grubu (varsayılan; grubu olan oda tamamen grup rengine boyanır, grubu olmayan durum rengini korur) veya oda durumu.
+  const [colorMode, setColorMode] = useState<'status' | 'group'>(() => readPref(COLOR_KEY, ['status', 'group'], 'group'));
   const [hkRoom, setHkRoom] = useState<string | null>(null);
   const [ticketRoom, setTicketRoom] = useState<string | null>(null);
   const [blockRoom, setBlockRoom] = useState<string | null>(null);
@@ -286,7 +289,23 @@ export default function RackPage() {
     ];
   };
 
-  const setZoom = (s: Size) => { setSize(s); savePref(SIZE_KEY, s); };
+  const setCols = (n: number | ((c: number) => number)) => setColsState(c => {
+    const v = Math.min(COLS_MAX, Math.max(COLS_MIN, Math.round(typeof n === 'function' ? n(c) : n)));
+    savePref(COLS_KEY, String(v));
+    return v;
+  });
+  // Ctrl + fare tekerleği ile kartları büyüt/küçült (sayfa yakınlaştırması yerine).
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setCols(c => c + (e.deltaY > 0 ? 1 : -1));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
   const print = (mode: 'rooms' | 'names' = 'rooms') => { setPrinting(mode); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
   // Dosyaya aktar: sunucudaki rapor çıktısı (Excel/CSV) doğrudan seçilen konuma kaydedilir.
   const exportFile = async (report: 'room-status' | 'inhouse', format: 'xlsx' | 'csv') => {
@@ -348,7 +367,7 @@ export default function RackPage() {
   };
 
   return (
-    <div className="page rack-page">
+    <div className="page rack-page" ref={pageRef}>
       <div className="rack-tools">
         <div className="seg" title="Kutu rengi: oda durumuna göre veya oda grubuna göre">
           <button className={colorMode === 'status' ? 'active' : ''} onClick={() => { setColorMode('status'); savePref(COLOR_KEY, 'status'); }}>Durum rengi</button>
@@ -381,10 +400,11 @@ export default function RackPage() {
           {future && <button className="btn sm ghost" onClick={() => setDay('')}>Bugün</button>}
         </span>
         <span className="muted" style={{ fontSize: 12 }}>{view.length} / {rooms.length} oda</span>
-        <div className="seg" title="Kart boyutu">
-          <button className={size === 's' ? 'active' : ''} onClick={() => setZoom('s')} aria-label="Küçült"><Minus size={14} /></button>
-          <button className={size === 'm' ? 'active' : ''} onClick={() => setZoom('m')}>Normal</button>
-          <button className={size === 'l' ? 'active' : ''} onClick={() => setZoom('l')} aria-label="Büyült"><Plus size={14} /></button>
+        <div className="seg rack-zoom" title="Kart boyutu (Ctrl + fare tekerleği ile de değişir)">
+          <button onClick={() => setCols(c => c + 1)} disabled={cols >= COLS_MAX} aria-label="Küçült"><Minus size={14} /></button>
+          <input type="range" min={COLS_MIN} max={COLS_MAX} value={COLS_MIN + COLS_MAX - cols} onChange={e => setCols(COLS_MIN + COLS_MAX - Number(e.target.value))} aria-label="Kart boyutu" />
+          <button onClick={() => setCols(c => c - 1)} disabled={cols <= COLS_MIN} aria-label="Büyült"><Plus size={14} /></button>
+          <button className={cols === COLS_DEFAULT ? 'active' : ''} onClick={() => setCols(COLS_DEFAULT)} title="Normal boyut">Normal</button>
         </div>
         <button className="btn icon" onClick={printMenu} disabled={view.length === 0} title="Önizle / yazdır: oda listesi, isim listesi, dosyaya aktar"><Printer /></button>
       </div>
@@ -404,8 +424,8 @@ export default function RackPage() {
       {status.isLoading ? <Spinner /> : status.error ? <ErrorBox error={status.error} /> : rooms.length === 0 ? (
         <Empty icon={<BedDouble />} title="Henüz oda tanımlanmamış" text="Odaları Yönetim → Oda ve Oda Tipleri ekranından ekleyin." action={can('room.manage') ? <button className="btn primary" onClick={() => nav('/settings/rooms')}>Oda tanımla</button> : undefined} />
       ) : view.length === 0 ? <Empty title={needle ? `"${q.trim()}" ile eşleşen oda veya misafir yok` : 'Bu filtreye uyan oda yok'} /> : (
-        layout === 'plan' ? <FloorPlan rooms={view} size={size} tile={tile} />
-          : <div className={`rack-grid size-${size}`}>{view.map(tile)}</div>
+        layout === 'plan' ? <FloorPlan rooms={view} cols={cols} tile={tile} />
+          : <div className="rack-grid" style={{ '--cols': cols } as React.CSSProperties}>{view.map(tile)}</div>
       )}
 
 
@@ -485,7 +505,7 @@ function NamePrint({ rooms, filtered }: { rooms: RoomStatus[]; filtered: boolean
 }
 
 /** Otel planı: odalar katlarına göre satır satır; her katın doluluk özeti başlıkta. */
-function FloorPlan({ rooms, size, tile }: { rooms: RoomStatus[]; size: Size; tile: (r: RoomStatus) => React.ReactNode }) {
+function FloorPlan({ rooms, cols, tile }: { rooms: RoomStatus[]; cols: number; tile: (r: RoomStatus) => React.ReactNode }) {
   const floors = new Map<string, RoomStatus[]>();
   for (const r of rooms) {
     const k = r.floor?.trim() || '';
@@ -501,7 +521,7 @@ function FloorPlan({ rooms, size, tile }: { rooms: RoomStatus[]; size: Size; til
         return (
           <section key={k || '-'} className="fp-floor">
             <header><b>{k ? `${k}. kat` : 'Kat bilgisi yok'}</b><span className="muted">{list.length} oda · {occ} dolu · {list.length - occ} boş</span></header>
-            <div className={`rack-grid size-${size}`}>{list.map(tile)}</div>
+            <div className="rack-grid" style={{ '--cols': cols } as React.CSSProperties}>{list.map(tile)}</div>
           </section>
         );
       })}
