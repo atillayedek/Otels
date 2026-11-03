@@ -523,7 +523,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 
 /* ================================================================ Görünüm (tema, desen, simge, yazı, köşe) */
 :root {
-  --rk-vacant: #ffffff; --rk-frame: #9aa4b2; --rk-occupied: #16a34a; --rk-dirty: #dc2626; --rk-arrival: #2563eb; --rk-departure: #f59e0b; --rk-blocked: #64748b; --rk-inspected: #0d9488; --rk-cleaning: #0284c7;
+  --rk-vacant: #ffffff; --rk-frame: #6b7686; --rk-occupied: #16a34a; --rk-dirty: #dc2626; --rk-arrival: #2563eb; --rk-departure: #f59e0b; --rk-blocked: #64748b; --rk-inspected: #0d9488; --rk-cleaning: #0284c7;
   --bk-confirmed: #2563eb; --bk-tentative: #ca8a04; --bk-checked_in: #16a34a; --bk-checked_out: #64748b; --bk-block: #475569;
   --bk-confirmed-soft: #dbe7ff; --bk-tentative-soft: #fbf1c7; --bk-checked_in-soft: #d5f2df; --bk-checked_out-soft: #e2e8f0; --bk-block-soft: #e7eaef;
   --bk-confirmed-text: #153a8a; --bk-tentative-text: #6f4c07; --bk-checked_in-text: #0c5a28; --bk-checked_out-text: #334155; --bk-block-text: #283141;
@@ -627,13 +627,13 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 .rack-zoom { align-items: center; }
 .page.rack-page { max-width: none; }
 .rack-zoom input[type=range] { width: 90px; margin: 0 6px; accent-color: var(--accent); }
-.room-tile.grp-fill { border-color: color-mix(in srgb, var(--grp) 70%, #0f172a 30%); }
+.room-tile.grp-fill { border-color: color-mix(in srgb, var(--grp) 55%, #0f172a 45%); }
 .room-tile { --tw: 118px; --th: 158px; --tone: var(--rk-vacant); --tone-text: #0f172a; --grp: transparent;
   width: var(--tw); min-height: var(--th); display: flex; flex-direction: column; border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; position: relative;
-  background: var(--tone); color: var(--tone-text); border: 1px solid color-mix(in srgb, var(--tone) 70%, #0f172a 30%); box-shadow: var(--shadow-sm), inset 4px 0 0 var(--grp);
+  background: var(--tone); color: var(--tone-text); border: 2px solid color-mix(in srgb, var(--tone) 55%, #0f172a 45%); box-shadow: var(--shadow-sm), inset 4px 0 0 var(--grp);
   transition: box-shadow .12s, transform .12s; }
 .room-tile:hover { box-shadow: var(--shadow), inset 4px 0 0 var(--grp); transform: translateY(-1px); }
-/* Her kutu ince gri çerçeveyle ayrılır (boş/beyaz odalar arasında sınır net görünsün). */
+/* Her kutu 2 px belirgin çerçeveyle ayrılır (boş/beyaz odalar arasında sınır net görünsün); renkli kutuda çerçeve kendi renginin koyusu. */
 .room-tile.tone-vacant { --tone: var(--rk-vacant); --tone-text: #0f172a; border-color: var(--rk-frame); }
 .room-tile.tone-occupied { --tone: var(--rk-occupied); --tone-text: var(--rk-occupied-text); }
 .room-tile.tone-departure { --tone: var(--rk-departure); --tone-text: var(--rk-departure-text); }
