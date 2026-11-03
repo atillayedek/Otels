@@ -16,8 +16,6 @@
         "title": "Ferrolit PMS",
         "width": 1440,
         "height": 900,
-        "minWidth": 640,
-        "minHeight": 420,
         "maximized": true,
         "resizable": true
       }

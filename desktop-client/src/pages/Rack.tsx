@@ -38,6 +38,20 @@ function toneOf(r: RoomStatus): Tone {
 const COLS_KEY = 'pms-rack-cols';
 // Kart boyutu: bir satırdaki oda sayısı. Çok küçültünce (çok sütun) kutuda yalnız oda no ve durum kalır.
 const COLS_MIN = 4, COLS_MAX = 40, COLS_DEFAULT = 10;
+const AUTO_KEY = 'pms-rack-auto';
+/** Otomatik boyut: tüm odalar görünür alana sığacak en büyük kutu (kutu genişliği ~44–180 px). Kat planında kat başlıkları da hesaba katılır. */
+function fitCols(width: number, height: number, floorCounts: number[], headerH: number) {
+  const gapOf = (c: number) => Math.max(2, Math.min(8, 80 / c));
+  // Kutu en az ~44 px kalır (oda no okunur); sığmıyorsa sayfa kaydırılır.
+  const start = Math.max(COLS_MIN, Math.ceil(width / 180));
+  const end = Math.max(start, Math.min(COLS_MAX, Math.floor(width / 48)));
+  for (let c = start; c <= end; c++) {
+    const g = gapOf(c), tw = (width - (c - 1) * g) / c, th = tw * 150 / 118;
+    const total = floorCounts.reduce((sum, n) => { const rows = Math.ceil(n / c); return sum + rows * th + Math.max(0, rows - 1) * g + headerH; }, 0);
+    if (total <= height) return c;
+  }
+  return end;
+}
 const readCols = () => { try { const n = Number(localStorage.getItem(COLS_KEY)); return n >= COLS_MIN && n <= COLS_MAX ? Math.round(n) : COLS_DEFAULT; } catch { return COLS_DEFAULT; } };
 const LAYOUT_KEY = 'pms-rack-layout';
 const COLOR_KEY = 'pms-rack-color';
@@ -73,6 +87,10 @@ export default function RackPage() {
   const [acc, setAcc] = useState('');
   const [dep, setDep] = useState('');
   const [cols, setColsState] = useState<number>(readCols);
+  // Otomatik (varsayılan): pencere büyüyüp küçüldükçe kutular tüm odaları ekrana sığdıracak şekilde kendiliğinden ayarlanır.
+  const [auto, setAuto] = useState<boolean>(() => { try { return localStorage.getItem(AUTO_KEY) !== '0'; } catch { return true; } });
+  const [autoCols, setAutoCols] = useState(COLS_DEFAULT);
+  const areaRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   // Rack: odalar sıralı tek akış; Otel Planı: odalar kat kat (kat bilgisi olmayanlar en sonda).
   const [layout, setLayout] = useState<'rack' | 'plan'>(() => readPref(LAYOUT_KEY, ['rack', 'plan'], 'rack'));
@@ -289,6 +307,8 @@ export default function RackPage() {
     ];
   };
 
+  const manual = () => { setAuto(false); savePref(AUTO_KEY, '0'); };
+  const turnAuto = () => { setAuto(true); savePref(AUTO_KEY, '1'); };
   const setCols = (n: number | ((c: number) => number)) => setColsState(c => {
     const v = Math.min(COLS_MAX, Math.max(COLS_MIN, Math.round(typeof n === 'function' ? n(c) : n)));
     savePref(COLS_KEY, String(v));
@@ -301,11 +321,34 @@ export default function RackPage() {
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
+      setAuto(a => { if (a) { savePref(AUTO_KEY, '0'); setColsState(effRef.current); } return false; });
       setCols(c => c + (e.deltaY > 0 ? 1 : -1));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
+  const effCols = auto ? autoCols : cols;
+  const effRef = useRef(effCols);
+  effRef.current = effCols;
+  useEffect(() => {
+    if (!auto) return;
+    const area = areaRef.current;
+    if (!area) return;
+    const scroller = (area.closest('.main, .win-body') as HTMLElement | null) ?? document.documentElement;
+    const calc = () => {
+      const sr = scroller.getBoundingClientRect(), ar = area.getBoundingClientRect();
+      const height = scroller.clientHeight - (ar.top - sr.top + scroller.scrollTop) - 30;
+      const counts = layout === 'plan'
+        ? [...view.reduce((m, r) => m.set(r.floor?.trim() || '', (m.get(r.floor?.trim() || '') ?? 0) + 1), new Map<string, number>()).values()]
+        : [view.length];
+      setAutoCols(fitCols(area.clientWidth, Math.max(120, height), counts, layout === 'plan' ? 48 : 0));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(scroller);
+    ro.observe(area);
+    return () => ro.disconnect();
+  }, [auto, layout, view]);
   const print = (mode: 'rooms' | 'names' = 'rooms') => { setPrinting(mode); setTimeout(() => { window.print(); setPrinting(false); }, 80); };
   // Dosyaya aktar: sunucudaki rapor çıktısı (Excel/CSV) doğrudan seçilen konuma kaydedilir.
   const exportFile = async (report: 'room-status' | 'inhouse', format: 'xlsx' | 'csv') => {
@@ -401,10 +444,10 @@ export default function RackPage() {
         </span>
         <span className="muted" style={{ fontSize: 12 }}>{view.length} / {rooms.length} oda</span>
         <div className="seg rack-zoom" title="Kart boyutu (Ctrl + fare tekerleği ile de değişir)">
-          <button onClick={() => setCols(c => c + 1)} disabled={cols >= COLS_MAX} aria-label="Küçült"><Minus size={14} /></button>
-          <input type="range" min={COLS_MIN} max={COLS_MAX} value={COLS_MIN + COLS_MAX - cols} onChange={e => setCols(COLS_MIN + COLS_MAX - Number(e.target.value))} aria-label="Kart boyutu" />
-          <button onClick={() => setCols(c => c - 1)} disabled={cols <= COLS_MIN} aria-label="Büyült"><Plus size={14} /></button>
-          <button className={cols === COLS_DEFAULT ? 'active' : ''} onClick={() => setCols(COLS_DEFAULT)} title="Normal boyut">Normal</button>
+          <button onClick={() => { manual(); setCols(effCols + 1); }} disabled={effCols >= COLS_MAX} aria-label="Küçült"><Minus size={14} /></button>
+          <input type="range" min={COLS_MIN} max={COLS_MAX} value={COLS_MIN + COLS_MAX - effCols} onChange={e => { manual(); setCols(COLS_MIN + COLS_MAX - Number(e.target.value)); }} aria-label="Kart boyutu" />
+          <button onClick={() => { manual(); setCols(effCols - 1); }} disabled={effCols <= COLS_MIN} aria-label="Büyült"><Plus size={14} /></button>
+          <button className={auto ? 'active' : ''} onClick={turnAuto} title="Kutular pencere boyutuna göre kendiliğinden büyür/küçülür; tüm odalar ekrana sığar">Otomatik</button>
         </div>
         <button className="btn icon" onClick={printMenu} disabled={view.length === 0} title="Önizle / yazdır: oda listesi, isim listesi, dosyaya aktar"><Printer /></button>
       </div>
@@ -424,8 +467,8 @@ export default function RackPage() {
       {status.isLoading ? <Spinner /> : status.error ? <ErrorBox error={status.error} /> : rooms.length === 0 ? (
         <Empty icon={<BedDouble />} title="Henüz oda tanımlanmamış" text="Odaları Yönetim → Oda ve Oda Tipleri ekranından ekleyin." action={can('room.manage') ? <button className="btn primary" onClick={() => nav('/settings/rooms')}>Oda tanımla</button> : undefined} />
       ) : view.length === 0 ? <Empty title={needle ? `"${q.trim()}" ile eşleşen oda veya misafir yok` : 'Bu filtreye uyan oda yok'} /> : (
-        layout === 'plan' ? <FloorPlan rooms={view} cols={cols} tile={tile} />
-          : <div className="rack-grid" style={{ '--cols': cols } as React.CSSProperties}>{view.map(tile)}</div>
+        <div ref={areaRef}>{layout === 'plan' ? <FloorPlan rooms={view} cols={effCols} tile={tile} />
+          : <div className="rack-grid" style={{ '--cols': effCols } as React.CSSProperties}>{view.map(tile)}</div>}</div>
       )}
 
 

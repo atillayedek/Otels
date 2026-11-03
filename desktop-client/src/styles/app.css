@@ -625,6 +625,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 @container (max-width: 60px) { .rack-grid .room-tile :is(.rt-body, .rt-icons, .rt-grp) { display: none; } .rack-grid .room-tile .rt-head { justify-content: center; padding: .3em .3em 0; } .rack-grid .room-tile .rt-foot { justify-content: center; padding: .25em .3em .35em; } .rack-grid .room-tile .rt-no { font-size: 2.4em; } }
 @container (max-width: 40px) { .rack-grid .room-tile .rt-foot { display: none; } .rack-grid .room-tile .rt-head { flex: 1; align-items: center; padding: 0 .15em; } .rack-grid .room-tile .rt-no { font-size: min(2.6em, 36cqi); } }
 .rack-zoom { align-items: center; }
+.page.rack-page { max-width: none; }
 .rack-zoom input[type=range] { width: 90px; margin: 0 6px; accent-color: var(--accent); }
 .room-tile.grp-fill { border-color: color-mix(in srgb, var(--grp) 70%, #0f172a 30%); }
 .room-tile { --tw: 118px; --th: 158px; --tone: var(--rk-vacant); --tone-text: #0f172a; --grp: transparent;
@@ -685,7 +686,7 @@ table.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
 
 /* ================================================================ Pencereler */
 .win-layer { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
-.win { position: absolute; pointer-events: auto; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(15, 23, 42, .28), 0 2px 8px rgba(15, 23, 42, .12); overflow: hidden; min-width: 360px; min-height: 220px; }
+.win { position: absolute; pointer-events: auto; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(15, 23, 42, .28), 0 2px 8px rgba(15, 23, 42, .12); overflow: hidden; min-width: 240px; min-height: 140px; }
 .win.max { left: 6px !important; top: 68px !important; right: 6px; bottom: 32px; width: auto !important; height: auto !important; }
 .win.min { display: none; }
 .win-head { flex: none; display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 4px 0 12px; background: var(--nav); color: var(--nav-strong); cursor: move; user-select: none; }
