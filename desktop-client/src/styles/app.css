@@ -74,6 +74,12 @@ h1, h2, .brand span, .kpi .value { font-family: var(--font-display); }
 /* ---------------------------------------------------------------- Uygulama iskeleti */
 .shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: 62px 1fr 26px; height: 100vh; }
 .shell.collapsed { --sidebar-w: 64px; }
+.shell.nav-hidden { --sidebar-w: 0px; }
+.shell.nav-hidden .sidebar { visibility: hidden; overflow: hidden; }
+/* Menü tutamacı: menünün sağ kenarında küçük sekme; tıkla = kapat/aç, sürükle = kapalı / simgeler / tam menü. */
+.nav-handle { position: fixed; top: 50%; left: var(--sidebar-w); transform: translateY(-50%); z-index: 46; width: 12px; height: 46px; padding: 0;
+  display: grid; place-items: center; border: 0; border-radius: 0 7px 7px 0; background: var(--accent); color: var(--on-accent); cursor: ew-resize; opacity: .85; box-shadow: 1px 0 4px rgba(15, 23, 42, .2); touch-action: none; }
+.nav-handle:hover { opacity: 1; width: 14px; }
 .sidebar { grid-row: 1 / 4; background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; min-height: 0; }
 .brand { height: 62px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: var(--nav-2); color: var(--nav-strong); font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; }
 .brand img { width: 28px; height: 28px; border-radius: 7px; flex: none; }

@@ -4,7 +4,7 @@ import { get } from '../lib/api';
 import { moduleAllowed, useLicense } from '../lib/queries';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  AlarmClock, BarChart3, Coins, HandCoins, Keyboard, PencilLine, Phone, ReceiptText, ShoppingCart, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, Palette, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
+  AlarmClock, BarChart3, Coins, HandCoins, Keyboard, PencilLine, Phone, ReceiptText, ShoppingCart, BedDouble, Brush, Building2, Calculator, CalendarRange, ChevronRight, ClipboardList, CreditCard, FileSpreadsheet, Gauge, GripVertical, KeyRound, LayoutGrid, LifeBuoy, LogOut, Moon, Package, Palette, PanelLeftClose, PanelLeftOpen, PlaneLanding, PlaneTakeoff, Search, Settings, ShieldCheck, Tags, UserPlus, Users, Utensils, Wallet, Wrench,
 } from 'lucide-react';
 import { useSession } from '../lib/session';
 import { fmtDate } from '../lib/format';
@@ -161,7 +161,29 @@ function Shell({ children }: { children: ReactNode }) {
   const quickHover = useQuickHover();
   const { me, property, connected, dbAvailable, client, can: canOne, logout } = useSession();
   const can = useCallback((p?: string | string[]) => !p || (Array.isArray(p) ? p.every(canOne) : canOne(p)), [canOne]);
-  const [collapsed, setCollapsed] = useState(false);
+  // Sol menü: tam, simge (daraltılmış) veya kapalı. Kenardaki tutamaçla sürüklenir / tıklanır; seçim hatırlanır.
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('pms-nav') === 'icons'; } catch { return false; } });
+  const [navHidden, setNavHidden] = useState(() => { try { return localStorage.getItem('pms-nav') === 'hidden'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('pms-nav', navHidden ? 'hidden' : collapsed ? 'icons' : 'full'); } catch { /* yok say */ } }, [collapsed, navHidden]);
+  const onNavHandle = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    let moved = false;
+    const move = (m: PointerEvent) => {
+      if (Math.abs(m.clientX - startX) > 4) moved = true;
+      if (!moved) return;
+      // Bırakılan yere göre: en sola yakın = kapalı, dar = simgeler, geniş = tam menü.
+      if (m.clientX < 36) setNavHidden(true);
+      else { setNavHidden(false); setCollapsed(m.clientX < 170); }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!moved) setNavHidden(h => !h);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   // Pencere kenarından daraltılınca sol menü kendiliğinden simge görünümüne geçer (içerik alanı küçülmesin).
   useEffect(() => {
     let wasNarrow = window.innerWidth < 900;
@@ -229,7 +251,8 @@ function Shell({ children }: { children: ReactNode }) {
   }, [q, canOne, license.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
+    <div className={`shell ${collapsed ? 'collapsed' : ''}${navHidden ? ' nav-hidden' : ''}`}>
+      <button className="nav-handle" onPointerDown={onNavHandle} title={navHidden ? 'Menüyü aç (tıkla veya sağa sürükle)' : 'Menüyü kapat (tıkla) · sürükleyerek daralt/genişlet'} aria-label={navHidden ? 'Menüyü aç' : 'Menüyü kapat'}><GripVertical size={12} /></button>
       <aside className="sidebar">
         <div className="brand"><img src="/logo.svg" alt="" /><span>Ferrolit PMS<small>{property?.name}</small></span></div>
         {hotelLogo && !collapsed && <div className="hotel-logo"><img src={hotelLogo} alt={property?.name ?? ''} /></div>}
