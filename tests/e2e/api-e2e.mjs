@@ -434,6 +434,8 @@ try {
     assert.ok(defs.some(d => d.name === 'kbs-guests'), 'KBS Excel raporu ayrı');
     const rep = await api('GET', '/api/v1/reports/police-list');
     assert.ok(rep.rows.some(x => x.lastName === 'Işıkoğlu'), 'konaklayan misafir listede');
+    assert.ok(['checkedInAt', 'pax', 'identitySerial', 'issueDate'].every(k => pl.columns.some(c => c.key === k)), 'giriş saati, kişi, seri no, belge tarihi sütunları');
+    assert.ok(rep.rows.every(x => x.checkedInAt), 'giriş saati dolu');
 
     // Folyo detayı: manuel harcama yasağı, kredi limiti, indirim %, fiyat kilidi, fatura/kart tipi, oda kartı no
     r = await api('GET', `/api/v1/reservations/${id}`);
@@ -1121,7 +1123,19 @@ try {
     const pv = await api('GET', '/api/v1/night-audit/preview?autoNoShow=true');
     assert.ok(!pv.blockers.some(b => b.code === 'accounting'), 'muhasebe ön kontrolü geçer');
     const bd = state.bd;
+    // Gün sonu 2. adım: oda ücretleri devirden önce basılır; ikinci basma ve devir aynı geceyi tekrar yazmaz.
+    const rc = await api('GET', '/api/v1/night-audit/room-charges');
+    assert.equal(rc.businessDate, bd);
+    assert.ok(rc.pending.length > 0, 'basılacak oda ücreti var');
+    const posted = await api('POST', '/api/v1/night-audit/room-charges', { businessDate: bd }, k());
+    assert.equal(posted.posted, rc.pending.length);
+    const rc2 = await api('GET', '/api/v1/night-audit/room-charges');
+    assert.equal(rc2.pending.length, 0); assert.equal(rc2.postedCount, rc.postedCount + rc.pending.length);
+    assert.equal((await api('POST', '/api/v1/night-audit/room-charges', { businessDate: bd }, k())).posted, 0, 'ikinci basma yazmaz');
+    await api('POST', '/api/v1/night-audit/room-charges', { businessDate: addDays(bd, 1) }, { ...k(), expect: 409 });
+    assert.equal((await api('GET', '/api/v1/night-audit/preview?autoNoShow=true')).roomChargesToPost, 0);
     const run = await api('POST', '/api/v1/night-audit/run', { businessDate: bd, autoNoShow: true }, k());
+    assert.equal(run.roomChargesPosted, 0, 'devir basılmış geceyi tekrar yazmaz');
     state.bd = run.newBusinessDate;
     const entry = (await api('GET', '/api/v1/accounting/entries?kind=day')).find(e => e.businessDate === bd);
     const d = await api('GET', `/api/v1/accounting/entries/${entry.id}`);

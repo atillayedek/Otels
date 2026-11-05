@@ -16,6 +16,9 @@ public sealed record NightAuditPreview(DateOnly BusinessDate, DateOnly NextBusin
 public sealed record RunNightAuditRequest(DateOnly BusinessDate, bool AutoNoShow, bool CancelExpiredOptions = false);
 public sealed record NightAuditResult(DateOnly ClosedDate, DateOnly NewBusinessDate, int RoomChargesPosted, decimal RoomChargeTotal, int NoShows,
     IReadOnlyList<AuditIssue> Warnings, int OptionsCancelled = 0, decimal AccommodationTaxTotal = 0);
+public sealed record PendingRoomCharge(Guid ReservationId, string ReservationNumber, string Room, string Guest, decimal Rate, string? RateCurrency, decimal? FxAmount);
+public sealed record RoomChargeStep(DateOnly BusinessDate, IReadOnlyList<PendingRoomCharge> Pending, int PostedCount, decimal PostedTotal);
+public sealed record PostRoomChargesRequest(DateOnly BusinessDate);
 public sealed record NightAuditHistoryDto(Guid Id, DateOnly BusinessDate, DateTime StartedAt, DateTime CompletedAt, string Username, JsonElement Summary);
 
 public static class NightAuditEndpoints
@@ -32,6 +35,45 @@ public static class NightAuditEndpoints
             SELECT n.id, n.business_date, n.started_at, n.completed_at, u.username, n.summary
             FROM pms.night_audits n JOIN pms.users u ON u.id = n.user_id ORDER BY n.business_date DESC LIMIT 100
             """));
+
+        // Gün sonu 2. adım: bu gecenin oda ücretleri. Liste (basılacaklar + bu gece zaten basılmışlar) ve hepsini şimdi basma.
+        // Gün sonu devri aynı geceyi tekrar yazmaz; adım atlanırsa ücretler devirde yazılır.
+        g.MapGet("/room-charges", (CommandRunner cmd) => cmd.ReadAsync(async tx =>
+        {
+            var bd = await PropertyEndpoints.BusinessDateAsync(tx);
+            var pending = await tx.ListAsync<PendingRoomCharge>(
+                "SELECT c.reservation_id, c.reservation_number, c.room_number AS room, g.first_name || ' ' || g.last_name AS guest, c.rate, c.rate_currency, c.fx_amount " +
+                "FROM (" + ChargeCandidatesSql.Replace("ORDER BY rm.number", "") + ") c " +
+                "JOIN pms.reservations r ON r.id = c.reservation_id JOIN pms.guests g ON g.id = r.guest_id ORDER BY c.room_number",
+                new { bd, rid = (Guid?)null });
+            var done = await tx.OneAsync<(int Count, decimal Total)>("""
+                SELECT count(*)::int, COALESCE(sum(l.amount), 0) FROM pms.room_charge_postings p JOIN pms.folio_lines l ON l.id = p.folio_line_id WHERE p.business_date = @bd
+                """, new { bd });
+            return new RoomChargeStep(bd, pending, done.Count, done.Total);
+        }));
+        g.MapPost("/room-charges", (PostRoomChargesRequest req, CommandRunner cmd) => cmd.RunAsync("night_audit.room_charges", req, async tx =>
+        {
+            var bd = await PropertyEndpoints.BusinessDateAsync(tx, forUpdate: true);
+            if (req.BusinessDate != bd)
+                throw PmsException.Conflict($"Seçilen tarih ({req.BusinessDate:dd.MM.yyyy}) güncel iş günü ({bd:dd.MM.yyyy}) değil.", "business_date_mismatch");
+            if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.night_audits WHERE business_date = @bd)", new { bd }))
+                throw PmsException.Conflict("Bu iş günü için gün sonu zaten tamamlanmış.", "already_closed");
+            var roomCode = await tx.OneAsync<(Guid Id, decimal VatRate)>("SELECT id, vat_rate FROM pms.transaction_codes WHERE code = 'ROOM'");
+            var kv = await AccommodationTaxAsync(tx);
+            var currency = await PropertyEndpoints.CurrencyAsync(tx);
+            var toPost = await tx.ListAsync<ChargeCandidate>(ChargeCandidatesSql, new { bd, rid = (Guid?)null });
+            foreach (var cur in toPost.Where(c => c.RateCurrency is not null).Select(c => c.RateCurrency!).Distinct())
+                await ExchangeRateEndpoints.RateAsync(tx, cur, bd); // kur yoksa anlaşılır hata, hiçbir ücret yazılmaz
+            int count = 0; decimal total = 0;
+            foreach (var c in toPost.Where(c => c.Rate > 0 || c.FxAmount > 0))
+            {
+                var (amount, _) = await PostCandidateAsync(tx, c, bd, currency, roomCode, kv);
+                if (amount > 0) { count++; total += amount; }
+            }
+            await tx.AuditAsync("night_audit.room_charges", "night_audit", null, null, new { businessDate = bd, count, total });
+            tx.Publish("folios"); tx.Publish("reservations"); tx.Publish("rooms");
+            return new { posted = count, total };
+        }));
 
         g.MapPost("/run", (RunNightAuditRequest req, CommandRunner cmd) => cmd.RunAsync("night_audit.run", req, async tx =>
         {

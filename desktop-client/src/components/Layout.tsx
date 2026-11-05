@@ -47,6 +47,7 @@ export const NAV: NavGroup[] = [
       { to: '/traces', label: 'Misafir Hatırlatmaları', perm: 'trace.manage' },
       { to: '/key-cards', label: 'Kullanımdaki Kartlar', perm: 'reservation.view' },
       { to: '/kbs', label: 'Kimlik Bildirimi (KBS)', perm: 'kbs.manage' },
+      { to: '/reports/police-list', label: 'Polis Listesi', perm: 'kbs.manage' },
     ],
   },
   { label: 'Misafirler', icon: <Users size={17} />, items: [{ to: '/guests', label: 'Misafir Kartları', perm: 'guest.view' }, { to: '/feedback', label: 'Misafir Yorumları', perm: 'feedback.manage' }] },

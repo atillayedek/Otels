@@ -94,10 +94,11 @@ public static class KbsExcel
         Columns = [new("room", "Oda", "text"), new("firstName", "Adı", "text"), new("lastName", "Soyadı", "text"), new("fatherName", "Baba Adı", "text"),
             new("motherName", "Anne Adı", "text"), new("birthPlace", "Doğum Yeri", "text"), new("birthDate", "Doğum Tarihi", "date"), new("gender", "Cinsiyet", "text"),
             new("nationality", "Uyruk", "text"), new("identityType", "Belge Türü", "text"), new("identityNumber", "Kimlik / Belge No", "text"),
-            new("arrivalDate", "Giriş", "date"), new("departureDate", "Çıkış", "date")],
+            new("identitySerial", "Seri No", "text"), new("issueDate", "Belge Tarihi", "date"),
+            new("checkedInAt", "Giriş", "datetime"), new("departureDate", "Çıkış", "date"), new("pax", "Kişi", "int")],
         Sql = """
             WITH people AS (
-                SELECT rm.sort_order, rm.number AS room, r.arrival, r.departure, g.*, CASE WHEN rg.is_primary THEN 0 ELSE 1 END AS ord
+                SELECT rm.sort_order, rm.number AS room, r.arrival, r.departure, r.checked_in_at, r.adults + r.children AS res_pax, g.*, CASE WHEN rg.is_primary THEN 0 ELSE 1 END AS ord
                 FROM pms.reservations r JOIN pms.rooms rm ON rm.id = r.room_id
                 JOIN pms.reservation_guests rg ON rg.reservation_id = r.id JOIN pms.guests g ON g.id = rg.guest_id
                 WHERE (@arrival::date IS NULL AND r.status = 'checked_in') OR (r.arrival = @arrival::date AND r.status IN ('checked_in', 'checked_out'))
@@ -106,7 +107,9 @@ public static class KbsExcel
                    CASE p.gender WHEN 'male' THEN 'Erkek' WHEN 'female' THEN 'Kadın' END AS gender, p.nationality::text AS nationality,
                    CASE p.identity_type WHEN 'tckn' THEN 'T.C. Kimlik' WHEN 'passport' THEN 'Pasaport' WHEN 'id_card' THEN 'Kimlik kartı'
                         WHEN 'driver_license' THEN 'Ehliyet' WHEN 'other' THEN 'Diğer' END AS identity_type,
-                   p.identity_number, p.arrival AS arrival_date, p.departure AS departure_date
+                   p.identity_number, p.identity_serial, p.identity_issue_date AS issue_date,
+                   COALESCE(p.checked_in_at, p.arrival::timestamptz) AS checked_in_at, p.departure AS departure_date,
+                   CASE WHEN p.ord = 0 THEN p.res_pax END AS pax
             FROM people p
             WHERE p.anonymized_at IS NULL
             ORDER BY p.sort_order, p.room, p.ord, p.last_name, p.first_name

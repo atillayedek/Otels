@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { save } from '@tauri-apps/plugin-dialog';
 import { Bookmark, Columns3, FileSpreadsheet, FileText, Filter, Play, Printer, Trash2 } from 'lucide-react';
@@ -26,6 +26,8 @@ function cellText(v: unknown, type: string) {
 
 export default function ReportsPage() {
   const { name } = useParams();
+  // Adresle gelen tarih (ör. gün sonu adımından ?from=...&to=...) varsayılan iş günü tarihinin yerine geçer.
+  const [search] = useSearchParams();
   const nav = useNavigate();
   const toast = useToast();
   const { property } = useSession();
@@ -73,10 +75,10 @@ export default function ReportsPage() {
   useEffect(() => {
     if (!def) return;
     const p: Record<string, string> = {};
-    for (const x of def.params) p[x.key] = x.key === 'from' ? addDays(bd, -6) : x.key === 'to' || x.key === 'date' ? bd : '';
+    for (const x of def.params) p[x.key] = search.get(x.key) ?? (x.key === 'from' ? addDays(bd, -6) : x.key === 'to' || x.key === 'date' ? bd : '');
     setParams(p);
     setRunKey(1);
-  }, [def, bd]);
+  }, [def, bd, search]);
   const query = qs(params);
   // Zorunlu (tarih dışı) alan boşken rapor çalıştırılmaz; kullanıcıya ne seçmesi gerektiği gösterilir.
   const missing = def?.params.filter(p => p.required && p.type !== 'date' && !params[p.key]?.trim()) ?? [];

@@ -938,3 +938,13 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .qh-pop .qh-sep { margin: 4px 6px 2px; padding-top: 5px; border-top: 1px solid var(--border); font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .rack-search .rack-field { border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--text-2); padding: 0 2px; max-width: 92px; cursor: pointer; }
 .bal-tag { font-size: 10.5px; font-weight: 500; opacity: .8; margin-left: 2px; }
+
+/* Gün sonu adımları */
+.na-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.na-step { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-2); cursor: pointer; text-align: left; font-size: 12.5px; }
+.na-step:hover:not(:disabled) { border-color: var(--accent); }
+.na-step.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--text); font-weight: 600; }
+.na-step.done .na-no { background: var(--success); color: #fff; }
+.na-no { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); font-size: 12px; font-weight: 700; }
+.na-nav { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; }
+@media (max-width: 900px) { .na-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
