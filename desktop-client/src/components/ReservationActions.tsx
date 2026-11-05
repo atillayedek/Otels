@@ -148,7 +148,7 @@ export function CheckOutModal({ reservation: r, onClose }: { reservation: Reserv
   const { property, can } = useSession();
   const bd = property?.businessDate ?? '';
   const late = !!property && r.departure > bd;
-  // Günübirlik: bugün giriş yapan misafirin gecesi henüz yazılmadı (gece denetimi çıkmış konaklamaya ücret yazmaz).
+  // Günübirlik: bugün giriş yapan misafirin gecesi henüz yazılmadı (gün sonu çıkmış konaklamaya ücret yazmaz).
   const dayUse = r.arrival === bd && r.departure > bd;
   const [dayUseState, setDayUseState] = useState<'pending' | 'charged'>('pending');
   const [waive, setWaive] = useState(false);
@@ -175,7 +175,7 @@ export function CheckOutModal({ reservation: r, onClose }: { reservation: Reserv
         {r.noteOnCheckout && r.notes && <div className="warn-box"><b>Folyo notu:</b> {r.notes}</div>}
         {dayUse && dayUseState === 'pending' && (
           <div className="warn-box stack">
-            <div>Misafir bugün giriş yaptı. Bu gecenin oda ücreti ({fmtMoney(r.nightlyRate, r.currency)}) gece denetiminde yazılacaktı; çıkış yapılırsa yazılmaz.
+            <div>Misafir bugün giriş yaptı. Bu gecenin oda ücreti ({fmtMoney(r.nightlyRate, r.currency)}) gün sonunda yazılacaktı; çıkış yapılırsa yazılmaz.
               Günübirlik kullanım ücretini işleyip tahsil edin.</div>
             <div className="row"><button className="btn primary sm" disabled={charge.busy} onClick={() => void charge.run()}>Günübirlik ücret işle</button></div>
             {can('rate.override') && <>

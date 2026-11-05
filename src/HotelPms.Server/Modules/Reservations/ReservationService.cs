@@ -547,7 +547,7 @@ public static class ReservationService
         if (linked.Count > 0)
             throw PmsException.Conflict($"Bu folyo ana folyo olarak kullanılıyor: {string.Join(", ", linked)}. Önce bu odaların çıkışını yapın veya ana folyo bağlantısını kaldırın.", "master_has_children");
 
-        // Günübirlik kullanım: bu iş gününde giriş yapan konaklamanın gecesi henüz yazılmadı; gece denetimi çıkmış konaklamaya ücret yazmaz.
+        // Günübirlik kullanım: bu iş gününde giriş yapan konaklamanın gecesi henüz yazılmadı; gün sonu çıkmış konaklamaya ücret yazmaz.
         string? waiveReason = null;
         if (r.Arrival == bd && r.Departure > bd && !await tx.ScalarAsync<bool>(
                 "SELECT EXISTS (SELECT 1 FROM pms.room_charge_postings WHERE reservation_id = @id AND business_date = @bd)", new { id, bd }))

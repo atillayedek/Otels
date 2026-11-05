@@ -14,7 +14,7 @@ const HIGHLIGHTS = [
 const MODULES = [
   { icon: <BedDouble />, title: 'Rezervasyon ve ön büro', items: ['Oda rack ve blokaj çizelgesi', 'Gece bazlı fiyatlandırma', 'Check-in, check-out, walk-in', 'Oda değişikliği ve uzatma'] },
   { icon: <Receipt />, title: 'Folyo, kasa ve cari', items: ['Değiştirilemez folyo kayıtları', 'İptal, iade ve transfer izi', 'Kasa vardiyası ve sayım', 'Şirket ve acente carisi'] },
-  { icon: <Moon />, title: 'Gün sonu ve raporlar', items: ['Tek işlemde gece denetimi', 'İş günü ve tesis saat dilimi', 'Excel ve CSV rapor çıktısı', 'Denetim kayıtları'] },
+  { icon: <Moon />, title: 'Gün sonu ve raporlar', items: ['Tek işlemde gün sonu', 'İş günü ve tesis saat dilimi', 'Excel ve CSV rapor çıktısı', 'Denetim kayıtları'] },
 ];
 
 export default function HomePage() {
@@ -26,7 +26,7 @@ export default function HomePage() {
             <span className="eyebrow"><ServerCog size={15} /> Ön sipariş dönemi</span>
             <h1>Otelinizin kendi sunucusunda çalışan otel yönetim sistemi</h1>
             <p className="lead">
-              Ferrolit PMS; rezervasyon, ön büro, folyo, kasa ve gece denetimini otelinizdeki bir bilgisayarda çalıştırır.
+              Ferrolit PMS; rezervasyon, ön büro, folyo, kasa ve gün sonunu otelinizdeki bir bilgisayarda çalıştırır.
               Resepsiyon ve diğer bölümler aynı ağdan bağlanır; internet bağlantısı gerekmez.
             </p>
             <div className="actions">

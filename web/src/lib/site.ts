@@ -2,7 +2,7 @@ export const SITE = {
   product: 'Ferrolit PMS',
   studio: 'TSDMR Digital Studio',
   description:
-    'Otelinizin kendi sunucusunda çalışan, internet bağlantısı gerektirmeyen otel yönetim sistemi. Rezervasyon, ön büro, folyo, kasa, gece denetimi ve eski programdan veri aktarımı.',
+    'Otelinizin kendi sunucusunda çalışan, internet bağlantısı gerektirmeyen otel yönetim sistemi. Rezervasyon, ön büro, folyo, kasa, gün sonu ve eski programdan veri aktarımı.',
   url: process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
   contactEmail: process.env.NEXT_PUBLIC_CONTACT_EMAIL || '',
   contactPhone: process.env.NEXT_PUBLIC_CONTACT_PHONE || '',

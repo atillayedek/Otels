@@ -49,7 +49,7 @@ export default function LicensePage() {
               ['Destek ve güncelleme', l.supportUntil ? fmtDate(l.supportUntil) : '—'],
             ]} />
             <div className="muted" style={{ fontSize: 12 }}>
-              Lisans süresi dolsa bile veriler kilitlenmez: kayıtlara erişim, çıkış, tahsilat, gece denetimi, raporlar ve yedekleme çalışır; yalnız yeni rezervasyon,
+              Lisans süresi dolsa bile veriler kilitlenmez: kayıtlara erişim, çıkış, tahsilat, gün sonu, raporlar ve yedekleme çalışır; yalnız yeni rezervasyon,
               giriş ve adisyon açılamaz. Lisans ve destek için: {SUPPORT_EMAIL}
             </div>
           </div>

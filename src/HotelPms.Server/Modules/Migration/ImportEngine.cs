@@ -632,7 +632,7 @@ public static class RollbackGuard
                   WHEN EXISTS (SELECT 1 FROM pms.room_assignments x WHERE x.reservation_id = @id) THEN 'oda ataması yapılmış'
                   WHEN EXISTS (SELECT 1 FROM pms.identity_reports x WHERE x.reservation_id = @id) THEN 'kimlik bildirimi var'
                   WHEN EXISTS (SELECT 1 FROM pms.wakeup_calls x WHERE x.reservation_id = @id) THEN 'uyandırma kaydı var'
-                  WHEN EXISTS (SELECT 1 FROM pms.room_charge_postings x WHERE x.reservation_id = @id) THEN 'gece denetimi ücreti postalanmış' END
+                  WHEN EXISTS (SELECT 1 FROM pms.room_charge_postings x WHERE x.reservation_id = @id) THEN 'gün sonu ücreti postalanmış' END
                 """,
             "folios" => "SELECT CASE WHEN EXISTS (SELECT 1 FROM pms.folio_lines l WHERE l.folio_id = @id AND l.migration_job_id IS DISTINCT FROM @jobId) THEN 'folyoya yeni hareket girilmiş' END",
             _ => null,

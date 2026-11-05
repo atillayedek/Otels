@@ -36,12 +36,12 @@ public static class NightAuditEndpoints
         g.MapPost("/run", (RunNightAuditRequest req, CommandRunner cmd) => cmd.RunAsync("night_audit.run", req, async tx =>
         {
             var started = DateTime.UtcNow;
-            // İş günü satırı kilitlenir: aynı anda ikinci gece denetimi veya iş gününe bağlı işlem araya giremez.
+            // İş günü satırı kilitlenir: aynı anda ikinci gün sonu veya iş gününe bağlı işlem araya giremez.
             var bd = await PropertyEndpoints.BusinessDateAsync(tx, forUpdate: true);
             if (req.BusinessDate != bd)
                 throw PmsException.Conflict($"Kapatılmak istenen tarih ({req.BusinessDate:dd.MM.yyyy}) güncel iş günü ({bd:dd.MM.yyyy}) değil.", "business_date_mismatch");
             if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.night_audits WHERE business_date = @bd)", new { bd }))
-                throw PmsException.Conflict("Bu iş günü için gece denetimi zaten tamamlanmış.", "already_closed");
+                throw PmsException.Conflict("Bu iş günü için gün sonu zaten tamamlanmış.", "already_closed");
 
             var noShows = 0;
             if (req.AutoNoShow)
@@ -50,7 +50,7 @@ public static class NightAuditEndpoints
                     "SELECT id, version FROM pms.reservations WHERE status IN ('tentative','confirmed') AND arrival <= @bd ORDER BY arrival", new { bd });
                 foreach (var p in pending)
                 {
-                    await ReservationService.NoShowAsync(tx, p.Id, p.Version, "Gece denetimi: otomatik no-show");
+                    await ReservationService.NoShowAsync(tx, p.Id, p.Version, "Gün sonu: otomatik no-show");
                     noShows++;
                 }
             }
@@ -62,14 +62,14 @@ public static class NightAuditEndpoints
                 var expired = await tx.ListAsync<(Guid Id, int Version, DateOnly OptionUntil)>(ExpiredOptionsSql, new { bd });
                 foreach (var o in expired)
                 {
-                    await ReservationService.CancelAsync(tx, o.Id, new CancelRequest($"Opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}) — gece denetimi", o.Version));
+                    await ReservationService.CancelAsync(tx, o.Id, new CancelRequest($"Opsiyon süresi doldu ({o.OptionUntil:dd.MM.yyyy}) — gün sonu", o.Version));
                     optionsCancelled++;
                 }
             }
 
             var preview = await PreviewAsync(tx, req.AutoNoShow, req.CancelExpiredOptions);
             if (preview.Blockers.Count > 0)
-                throw new PmsException(409, "night_audit_blocked", "Gece denetimi tamamlanamaz. Önce engelleri giderin.", preview.Blockers);
+                throw new PmsException(409, "night_audit_blocked", "Gün sonu tamamlanamaz. Önce engelleri giderin.", preview.Blockers);
 
             // Oda ücretleri: her in-house konaklama için bu gecenin ücreti bir kez.
             var roomCode = await tx.OneAsync<(Guid Id, decimal VatRate)>("SELECT id, vat_rate FROM pms.transaction_codes WHERE code = 'ROOM'");
@@ -172,7 +172,7 @@ public static class NightAuditEndpoints
     }
 
     /// <summary>
-    /// Günübirlik kullanım: aynı iş gününde giriş yapıp gece denetiminden önce çıkan konaklamanın bu gecesi gece denetiminde yazılmayacağı için
+    /// Günübirlik kullanım: aynı iş gününde giriş yapıp gün sonundan önce çıkan konaklamanın bu gecesi gün sonunda yazılmayacağı için
     /// oda ücreti çıkıştan önce yazılır. Ücret zaten yazılmışsa 0 döner.
     /// </summary>
     public static async Task<decimal> PostDayUseChargeAsync(Tx tx, Guid reservationId)
@@ -272,7 +272,7 @@ public static class NightAuditEndpoints
                     $"{cur} için kullanılacak son kur {rateDate:dd.MM.yyyy} tarihli (resmî tatil olabilir). Gerekirse güncel kuru girin.", null, cur));
         }
 
-        // Gün sonu muhasebe fişinin oluşturulabildiği gece denetiminden önce doğrulanır (çalıştırmada sürpriz hata olmasın).
+        // Gün sonu muhasebe fişinin oluşturulabildiği gün sonundan önce doğrulanır (çalıştırmada sürpriz hata olmasın).
         if (!closed && await AccountingService.CheckDayAsync(tx, bd) is { } glProblem)
             blockers.Add(new("accounting", "blocker", glProblem, null, null));
         var zero = candidates.Count(c => c.Rate == 0 && c.FxAmount is null or 0);

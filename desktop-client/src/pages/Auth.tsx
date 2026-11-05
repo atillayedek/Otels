@@ -150,7 +150,7 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
           <Field label="Telefon" className="span-2"><input className="input" value={f.phone} onChange={set('phone')} /></Field>
           <Field label="Saat dilimi" required className="span-2"><select className="input" value={f.timeZone} onChange={set('timeZone')}>{zones.map(z => <option key={z}>{z}</option>)}</select></Field>
           <Field label="Para birimi" required><select className="input" value={f.currency} onChange={set('currency')}>{['TRY', 'EUR', 'USD', 'GBP'].map(c => <option key={c}>{c}</option>)}</select></Field>
-          <Field label="Başlangıç iş günü" required hint="Gece denetimi bu tarihten ilerler."><input className="input" type="date" value={f.businessDate} onChange={set('businessDate')} /></Field>
+          <Field label="Başlangıç iş günü" required hint="Gün sonu bu tarihten ilerler."><input className="input" type="date" value={f.businessDate} onChange={set('businessDate')} /></Field>
         </div>
       )}
       {step === 2 && (

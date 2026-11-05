@@ -490,7 +490,7 @@ public static class ReportEndpoints
         },
         new()
         {
-            Name = "night-audit", Title = "Gece Denetimi Geçmişi", Category = "Gelir", Permission = "financial_report.view", Params = [From, To],
+            Name = "night-audit", Title = "Gün Sonu Geçmişi", Category = "Gelir", Permission = "financial_report.view", Params = [From, To],
             Columns = [new("businessDate", "İş Günü", "date"), new("roomsSold", "Satılan", "int"), new("occupancyPct", "Doluluk %", "decimal"),
                 new("roomRevenue", "Oda Geliri", "money"), new("otherRevenue", "Diğer Gelir", "money"), new("payments", "Tahsilat", "money"),
                 new("adr", "ADR", "money"), new("revpar", "RevPAR", "money"), new("arrivals", "Geliş", "int"), new("departures", "Çıkış", "int"),

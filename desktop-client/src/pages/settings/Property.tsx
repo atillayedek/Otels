@@ -14,9 +14,9 @@ const TOGGLES: [string, string, string][] = [
   ['frontoffice.checkout_requires_zero_balance', 'Çıkışta folyo bakiyesi sıfır olmalı', 'Açık bakiyeli çıkışı engeller.'],
   ['frontoffice.allow_checkin_dirty_room', 'Temiz olmayan odaya giriş yapılabilir', 'Kapalıyken yalnız temiz veya kontrol edilmiş odaya giriş yapılır.'],
   ['guest.require_identity_on_checkin', 'Girişte kimlik bilgisi zorunlu', 'KBS bildirimi için gereklidir.'],
-  ['night_audit.auto_no_show', 'Gece denetiminde gelmeyenleri varsayılan olarak no-show yap', ''],
-  ['night_audit.block_on_open_shifts', 'Açık kasa vardiyası varken gece denetimini engelle', ''],
-  ['night_audit.cancel_expired_options', 'Gece denetiminde opsiyon süresi dolan rezervasyonları varsayılan olarak iptal et', 'Kapalıyken yalnız uyarı gösterilir.'],
+  ['night_audit.auto_no_show', 'Gün sonunda gelmeyenleri varsayılan olarak no-show yap', ''],
+  ['night_audit.block_on_open_shifts', 'Açık kasa vardiyası varken gün sonunu engelle', ''],
+  ['night_audit.cancel_expired_options', 'Gün sonunda opsiyon süresi dolan rezervasyonları varsayılan olarak iptal et', 'Kapalıyken yalnız uyarı gösterilir.'],
 ];
 
 /** Logo istemcide en fazla 800×300 piksele küçültülür ve PNG olarak gönderilir (sunucu PNG/JPEG, en fazla 600 KB kabul eder). */

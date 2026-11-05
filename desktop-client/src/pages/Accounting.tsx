@@ -33,7 +33,7 @@ export default function AccountingPage() {
   const [tab, setTab] = useState<Tab>('entries');
   return (
     <div className="page">
-      <PageHead title="Muhasebe" sub="Gün sonu fişleri gece denetiminde otomatik oluşur" actions={<>
+      <PageHead title="Muhasebe" sub="Gün sonu fişleri gün sonu çalıştırılınca otomatik oluşur" actions={<>
         <button className="btn" onClick={() => nav('/reports/trial_balance')}><FileSpreadsheet /> Mizan</button>
         <button className="btn" onClick={() => nav('/reports/account_statement')}><FileSpreadsheet /> Hesap ekstresi</button>
         <button className="btn" onClick={() => nav('/reports/journal')}><FileSpreadsheet /> Yevmiye</button>
@@ -86,7 +86,7 @@ function EntriesTab() {
       </div>
       {list.error ? <ErrorBox error={list.error} /> : (
         <DataTable rows={list.data ?? []} columns={cols} rowKey={e => e.id} onRowClick={e => setSel(e.id)} maxHeight="calc(100vh - 290px)"
-          empty={<Empty title={list.isLoading ? 'Yükleniyor…' : 'Bu aralıkta fiş yok'} text="Gün sonu fişi her gece denetiminde oluşur." />} />
+          empty={<Empty title={list.isLoading ? 'Yükleniyor…' : 'Bu aralıkta fiş yok'} text="Gün sonu fişi her gün sonunda oluşur." />} />
       )}
       {sel && <EntryModal id={sel} onClose={() => setSel(null)} />}
       {manual && <ManualEntryModal onClose={() => setManual(false)} />}
@@ -188,7 +188,7 @@ function GenerateModal({ onClose }: { onClose: () => void }) {
     <Modal title="Geçmiş günlerin gün sonu fişleri" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Kapat</button>
       <button className="btn primary" disabled={!from || !to || gen.busy} onClick={async () => { if (await gen.run() !== undefined) onClose(); }}>Oluştur</button></>}>
       <div className="stack">
-        <div className="muted" style={{ fontSize: 12 }}>Muhasebe modülü kurulmadan önce gece denetimi yapılmış günler için fiş oluşturur. Fişi olan günlere dokunulmaz.</div>
+        <div className="muted" style={{ fontSize: 12 }}>Muhasebe modülü kurulmadan önce gün sonu yapılmış günler için fiş oluşturur. Fişi olan günlere dokunulmaz.</div>
         <div className="form-grid">
           <Field label="Başlangıç" required className="span-2"><input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} /></Field>
           <Field label="Bitiş" required className="span-2"><input type="date" className="input" value={to} onChange={e => setTo(e.target.value)} /></Field>

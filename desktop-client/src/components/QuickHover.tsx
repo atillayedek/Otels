@@ -76,8 +76,8 @@ export const QUICK_HOVER: Record<string, HoverItem[]> = {
     { label: 'Kayıp bulundu raporu', to: '/reports/lost-found', perm: 'report.view', report: true },
   ],
   '/night-audit': [
-    { label: 'Gece denetimi', to: '/night-audit', perm: 'night_audit.execute' },
-    { label: 'Gece denetimi geçmişi', to: '/reports/night-audit', perm: 'report.view', report: true },
+    { label: 'Gün sonu', to: '/night-audit', perm: 'night_audit.execute' },
+    { label: 'Gün sonu geçmişi', to: '/reports/night-audit', perm: 'report.view', report: true },
     { label: 'Doluluk, ADR ve RevPAR', to: '/reports/occupancy', perm: 'financial_report.view', report: true },
   ],
 };

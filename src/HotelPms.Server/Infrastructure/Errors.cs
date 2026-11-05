@@ -73,7 +73,7 @@ public sealed class PmsExceptionHandler(ILogger<PmsExceptionHandler> log) : IExc
         "room_types_code_uq" => "Bu oda tipi kodu zaten tanımlı.",
         "reservations_inhouse_room_uq" => "Bu odada şu an konaklayan başka bir misafir var.",
         "cashier_shifts_one_open_uq" => "Açık bir kasa vardiyanız zaten var.",
-        "night_audits_business_date_key" => "Bu iş günü için gece denetimi zaten tamamlanmış.",
+        "night_audits_business_date_key" => "Bu iş günü için gün sonu zaten tamamlanmış.",
         "folio_lines_single_void_uq" => "Bu satır zaten iptal edilmiş.",
         "room_charge_postings_pkey" => "Bu gece için oda ücreti zaten postalanmış.",
         "warehouses_code_uq" => "Bu depo kodu zaten tanımlı.",

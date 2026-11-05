@@ -85,7 +85,7 @@ public static class AccountingService
         bool IsForeign, decimal? RelRelVat, bool RelRelHasCode);
 
     /// <summary>
-    /// Gece denetimi önizlemesi için: günün fişinin bugünkü hareketlerle oluşturulabildiğini, hiçbir şey yazmadan doğrular.
+    /// Gün sonu önizlemesi için: günün fişinin bugünkü hareketlerle oluşturulabildiğini, hiçbir şey yazmadan doğrular.
     /// Sorun varsa açıklamasını döner (eşleme eksik, fiş dengelenemiyor); sorun yoksa null.
     /// </summary>
     public static async Task<string?> CheckDayAsync(Tx tx, DateOnly bd)
@@ -102,7 +102,7 @@ public static class AccountingService
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.gl_entries WHERE kind = 'day' AND business_date = @bd)", new { bd })) return null;
         var map = (await tx.ListAsync<(string Key, string Account)>("SELECT key, account_code FROM pms.gl_mappings")).ToDictionary(x => x.Key, x => x.Account);
         var b = new Builder(map, dryRun);
-        // Gece denetiminin bu iş günü için yazacağı oda ücreti ve konaklama vergisinin eşlemeleri de önceden doğrulanır.
+        // Gün sonunun bu iş günü için yazacağı oda ücreti ve konaklama vergisinin eşlemeleri de önceden doğrulanır.
         b.Map("revenue.room"); b.Map("tax.accommodation"); b.Map("receivable.guest"); b.Map("vat.output");
         var dayLabel = "Gün sonu";
 

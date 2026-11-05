@@ -165,7 +165,7 @@ public static class AccountingEndpoints
             return new { id = rid };
         })).RequirePermission("accounting.manage");
 
-        // Muhasebe modülü kurulmadan önce kapatılmış günler için gün sonu fişlerini oluşturur (yalnız gece denetimi tamamlanmış günler).
+        // Muhasebe modülü kurulmadan önce kapatılmış günler için gün sonu fişlerini oluşturur (yalnız gün sonu tamamlanmış günler).
         g.MapPost("/generate", (GenerateRequest req, CommandRunner cmd) => cmd.RunAsync("gl_entry.generate", req, async tx =>
         {
             if (req.To < req.From || req.To.DayNumber - req.From.DayNumber > 400) throw PmsException.Validation("Tarih aralığı en fazla 400 gün olabilir.");

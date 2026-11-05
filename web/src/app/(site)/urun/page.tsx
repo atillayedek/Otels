@@ -6,7 +6,7 @@ import {
 
 export const metadata: Metadata = {
   title: 'Ürün',
-  description: 'Ferrolit PMS modülleri: rezervasyon, ön büro, folyo ve kasa, gece denetimi, kat hizmetleri, raporlar, yedekleme ve veri aktarımı.',
+  description: 'Ferrolit PMS modülleri: rezervasyon, ön büro, folyo ve kasa, gün sonu, kat hizmetleri, raporlar, yedekleme ve veri aktarımı.',
 };
 
 const GROUPS: { title: string; lead: string; modules: { icon: React.ReactNode; title: string; items: string[] }[] }[] = [
@@ -27,7 +27,7 @@ const GROUPS: { title: string; lead: string; modules: { icon: React.ReactNode; t
       { icon: <Receipt />, title: 'Folyo', items: ['Folyo satırları sonradan değiştirilemez', 'İptal, iade, indirim ve transfer ayrı kayıt olarak tutulur', 'Tutarlar kuruş hassasiyetinde, yuvarlama hatası olmadan saklanır', 'Ödemede mükerrer tahsilat koruması'] },
       { icon: <Wallet />, title: 'Ön kasa', items: ['Kasa vardiyası açma ve kapama', 'Beklenen ve sayılan nakit karşılaştırması', 'İşlem kodları ve ödeme tipleri', 'Açık folyo bakiyeleri'] },
       { icon: <Building2 />, title: 'Şirket carisi', items: ['Şirket ve acente borç/alacak takibi', 'Eski programdaki cari hareketlerin aktarımı', 'Cari bakiye raporu'] },
-      { icon: <Moon />, title: 'Gece denetimi', items: ['Oda gelirleri tek işlemde işlenir', 'Aynı gün iki kez çalıştırılamaz', 'İş günü tesis saat dilimine göre ilerler', 'Günlük istatistikler'] },
+      { icon: <Moon />, title: 'Gün sonu', items: ['Oda gelirleri tek işlemde işlenir', 'Aynı gün iki kez çalıştırılamaz', 'İş günü tesis saat dilimine göre ilerler', 'Günlük istatistikler'] },
     ],
   },
   {

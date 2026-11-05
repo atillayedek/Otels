@@ -64,7 +64,7 @@ public sealed partial class LicenseService(Db db)
             var left = ends.DayNumber - today.DayNumber;
             return left > 0
                 ? new("trial", $"Deneme sürümü: {left} gün kaldı. Lisans için {PmsConstants.SupportEmail} adresine yazın.", false, null, null, null, null, null, [], null, null, ends, left, activeRooms)
-                : new("trial_expired", $"Deneme süresi {ends:dd.MM.yyyy} tarihinde doldu. Yeni rezervasyon, giriş ve adisyon için lisans yükleyin; mevcut kayıtlar, çıkış, tahsilat, gece denetimi ve raporlar çalışmaya devam eder.",
+                : new("trial_expired", $"Deneme süresi {ends:dd.MM.yyyy} tarihinde doldu. Yeni rezervasyon, giriş ve adisyon için lisans yükleyin; mevcut kayıtlar, çıkış, tahsilat, gün sonu ve raporlar çalışmaya devam eder.",
                     true, null, null, null, null, null, [], null, null, ends, 0, activeRooms);
         }
         var p = Verify(content, out var error);

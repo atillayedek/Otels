@@ -89,13 +89,13 @@ function CurrencyTaxCard() {
           </Field>
           <Field label="Fiyatlara göre" className="span-3">
             <select className="input" value={f.kvIncluded ? '1' : '0'} onChange={e => setF(s => ({ ...s!, kvIncluded: e.target.value === '1' }))}>
-              <option value="1">Gecelik fiyatlara dahil (gece denetiminde fiyattan ayrıştırılır)</option>
+              <option value="1">Gecelik fiyatlara dahil (gün sonunda fiyattan ayrıştırılır)</option>
               <option value="0">Gecelik fiyatın üstüne eklenir</option>
             </select>
           </Field>
         </div>
         <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-          Konaklama vergisi gece denetiminde oda ücretinden ayrı bir satır olarak ("KV" işlem kodu) yazılır. Hesap KDV hariç oda bedeli üzerinden yapılır ve vergi KDV matrahına dahil edilir;
+          Konaklama vergisi gün sonunda oda ücretinden ayrı bir satır olarak ("KV" işlem kodu) yazılır. Hesap KDV hariç oda bedeli üzerinden yapılır ve vergi KDV matrahına dahil edilir;
           oda KDV oranı "ROOM" işlem kodundan alınır. Oranı ve uygulamayı mali müşavirinizle teyit edin.
         </div>
         <ErrorBox error={save.error} />

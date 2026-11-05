@@ -27,7 +27,7 @@ export default function DashboardPage() {
 
   return (
     <div className="page">
-      <PageHead title="Genel Durum" sub={`${d.hotelName} · İş günü ${fmtDate(d.businessDate)}${d.lastNightAudit ? ` · Son gece denetimi ${fmtDate(d.lastNightAudit)}` : ''}`} />
+      <PageHead title="Genel Durum" sub={`${d.hotelName} · İş günü ${fmtDate(d.businessDate)}${d.lastNightAudit ? ` · Son gün sonu ${fmtDate(d.lastNightAudit)}` : ''}`} />
 
       {noRooms && (
         <div className="info-box" style={{ marginBottom: 14 }}>
@@ -103,7 +103,7 @@ export default function DashboardPage() {
 
       <div className="row wrap" style={{ marginTop: 14 }}>
         {can('reservation.view') && <button className="btn" onClick={() => nav('/rack')}><BedDouble /> Oda Rack</button>}
-        {can('night_audit.execute') && <button className="btn" onClick={() => nav('/night-audit')}><Moon /> Gece denetimi</button>}
+        {can('night_audit.execute') && <button className="btn" onClick={() => nav('/night-audit')}><Moon /> Gün sonu</button>}
       </div>
     </div>
   );

@@ -199,9 +199,9 @@ public static class FolioService
         var code = await tx.OneOrNullAsync<(string Name, bool IsActive, decimal VatRate, string Category)>(
             "SELECT name, is_active, vat_rate, category FROM pms.transaction_codes WHERE id = @id", new { id = req.TransactionCodeId });
         if (code == default || !code.IsActive) throw PmsException.Validation("İşlem kodu bulunamadı veya pasif.");
-        // Oda ücreti ve konaklama vergisi yalnız gece denetiminde veya günübirlik ücretle, fiyat ve vergi kurallarına göre yazılır.
+        // Oda ücreti ve konaklama vergisi yalnız gün sonunda veya günübirlik ücretle, fiyat ve vergi kurallarına göre yazılır.
         if (code.Category is "room" or "tax")
-            throw PmsException.Validation("Oda ücreti ve konaklama vergisi elle masraf olarak girilemez; gece denetimi (veya günübirlik ücret) yazar. Tutarı düzeltmek için folyodaki İndirim düğmesini (indirim veya düzeltme) kullanın.");
+            throw PmsException.Validation("Oda ücreti ve konaklama vergisi elle masraf olarak girilemez; gün sonu (veya günübirlik ücret) yazar. Tutarı düzeltmek için folyodaki İndirim düğmesini (indirim veya düzeltme) kullanın.");
         if (req.Quantity <= 0 || decimal.Round(req.Quantity, 3) != req.Quantity) throw PmsException.Validation("Miktar pozitif ve en fazla 3 ondalıklı olmalıdır.");
         Validate.Money(req.UnitPrice, "Birim fiyat");
         var amount = decimal.Round(req.Quantity * req.UnitPrice, 2, MidpointRounding.AwayFromZero);
@@ -415,7 +415,7 @@ public static class FolioService
         var reason = Validate.Required(req.Reason, "İptal gerekçesi", 300);
         if (line.LineType is "void" or "transfer_in" or "transfer_out") throw PmsException.Validation("Bu satır türü iptal edilemez; aktarım için ters aktarım yapın.");
         if (line.BusinessDate != bd) throw PmsException.Validation("Yalnız bugünkü iş gününe ait satırlar iptal edilebilir. Geçmiş gün için İndirim (düzeltme) veya İade kullanın.");
-        if (line.IsRoomCharge) throw PmsException.Validation("Gece denetiminin yazdığı oda ücreti iptal edilemez; tutarı düzeltmek için folyodaki İndirim düğmesini (düzeltme) kullanın.");
+        if (line.IsRoomCharge) throw PmsException.Validation("Gün sonunun yazdığı oda ücreti iptal edilemez; tutarı düzeltmek için folyodaki İndirim düğmesini (düzeltme) kullanın.");
         if (await tx.ScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.folio_lines WHERE related_line_id = @lineId AND line_type IN ('void','transfer_out'))", new { lineId }))
             throw PmsException.Validation("Bu satır daha önce iptal edilmiş veya aktarılmış.");
         Guid? shift = line.LineType is "payment" or "deposit" or "refund" ? await CurrentShiftAsync(tx, false) : null;

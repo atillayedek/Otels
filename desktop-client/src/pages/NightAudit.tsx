@@ -50,13 +50,13 @@ export default function NightAuditPage() {
 
   const start = async () => {
     const p = pv.data!;
-    if (!await confirm({ title: 'Gece denetimini başlat', message: <>İş günü <b>{fmtDate(p.businessDate)}</b> kapatılacak ve <b>{fmtDate(p.nextBusinessDate)}</b> açılacak. {p.roomChargesToPost} odaya toplam {fmtMoney(p.roomChargeTotal, property?.currency)} oda ücreti işlenecek. Bu işlem geri alınamaz.</>, confirmText: 'Günü kapat', requireText: 'GÜN SONU' })) return;
+    if (!await confirm({ title: 'Gün sonunu başlat', message: <>İş günü <b>{fmtDate(p.businessDate)}</b> kapatılacak ve <b>{fmtDate(p.nextBusinessDate)}</b> açılacak. {p.roomChargesToPost} odaya toplam {fmtMoney(p.roomChargeTotal, property?.currency)} oda ücreti işlenecek. Bu işlem geri alınamaz.</>, confirmText: 'Günü kapat', requireText: 'GÜN SONU' })) return;
     await run.run();
   };
 
   return (
     <div className="page" style={{ maxWidth: 1100 }}>
-      <PageHead title="Gece Denetimi" sub="Gün sonu kapanışı" />
+      <PageHead title="Gün Sonu" sub="Gün sonu kapanışı" />
       {pv.isLoading ? <Spinner /> : pv.error ? <ErrorBox error={pv.error} /> : (
         <div className="stack">
           {result && <div className="ok-box"><b>Gün sonu tamamlandı.</b> {fmtDate(result.closedDate)} kapatıldı, yeni iş günü {fmtDate(result.newBusinessDate)}. {result.roomChargesPosted} oda ücreti ({fmtMoney(result.roomChargeTotal)}) işlendi{Number(result.accommodationTaxTotal) > 0 ? `, ${fmtMoney(result.accommodationTaxTotal)} konaklama vergisi ayrıldı` : ''}, {result.noShows} no-show{result.optionsCancelled > 0 ? `, ${result.optionsCancelled} opsiyon iptal edildi` : ''}.</div>}
@@ -67,7 +67,7 @@ export default function NightAuditPage() {
               <label className="check" style={{ marginTop: 12 }}><input type="checkbox" checked={autoNoShow} onChange={e => setAutoNoShow(e.target.checked)} /> Gelmeyen bugünkü rezervasyonları no-show yap</label>
               <label className="check"><input type="checkbox" checked={cancelOptions} onChange={e => setCancelOptions(e.target.checked)} /> Opsiyon süresi dolan rezervasyonları iptal et</label>
               <div className="row" style={{ marginTop: 14 }}>
-                <button className="btn primary" disabled={!pv.data!.canRun || run.busy} onClick={() => void start()}><Moon /> {run.busy ? 'Gün kapatılıyor…' : 'Gece denetimini çalıştır'}</button>
+                <button className="btn primary" disabled={!pv.data!.canRun || run.busy} onClick={() => void start()}><Moon /> {run.busy ? 'Gün kapatılıyor…' : 'Gün sonunu çalıştır'}</button>
                 {pv.data!.alreadyClosed && <span className="muted">Bu iş günü zaten kapatılmış.</span>}
               </div>
               <ErrorBox error={run.error} />
@@ -82,7 +82,7 @@ export default function NightAuditPage() {
             </div></div>
           </div>
           <div className="card"><div className="card-head"><h3>Geçmiş</h3></div><div className="card-body tight">
-            {hist.data?.length === 0 ? <Empty title="Henüz gece denetimi yapılmadı" /> : (
+            {hist.data?.length === 0 ? <Empty title="Henüz gün sonu yapılmadı" /> : (
               <table className="dt"><thead><tr><th>İş günü</th><th>Başlangıç</th><th>Bitiş</th><th>Kullanıcı</th><th>Özet</th></tr></thead>
                 <tbody>{hist.data?.map(h => <tr key={h.id}><td>{fmtDate(h.businessDate)}</td><td>{fmtDateTime(h.startedAt)}</td><td>{fmtDateTime(h.completedAt)}</td><td>{h.username}</td>
                   <td className="muted">{summaryText(h.summary ?? {})}</td></tr>)}</tbody></table>

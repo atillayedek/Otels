@@ -96,7 +96,7 @@ export const NAV: NavGroup[] = [
       { to: '/reports/account_statement', label: 'Hesap Ekstresi', perm: 'accounting.view' },
     ],
   },
-  { label: 'Gün Sonu', icon: <Moon size={17} />, items: [{ to: '/night-audit', label: 'Gece Denetimi', perm: 'night_audit.execute' }] },
+  { label: 'Gün Sonu', icon: <Moon size={17} />, items: [{ to: '/night-audit', label: 'Gün Sonu', perm: 'night_audit.execute' }] },
   { label: 'Raporlar', icon: <BarChart3 size={17} />, items: [{ to: '/reports', label: 'Tüm Raporlar', perm: 'report.view' }] },
   {
     label: 'Yönetim', icon: <Settings size={17} />, items: [
@@ -359,7 +359,7 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Alt çubukta iş günü ve saat (dakikada bir güncellenir). İş günü gece denetimiyle değişir; takvim gününden farklı olabilir. */
+/** Alt çubukta iş günü ve saat (dakikada bir güncellenir). İş günü gün sonuyla değişir; takvim gününden farklı olabilir. */
 function StatusClock({ businessDate }: { businessDate?: string }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -367,7 +367,7 @@ function StatusClock({ businessDate }: { businessDate?: string }) {
     return () => clearInterval(t);
   }, []);
   return (
-    <span className="sb-clock" title="İş günü gece denetimiyle bir sonraki güne geçer">
+    <span className="sb-clock" title="İş günü gün sonuyla bir sonraki güne geçer">
       <CalendarRange size={12} /> İş günü <b>{fmtDate(businessDate)}</b>
       <span className="sb-time">{now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
     </span>

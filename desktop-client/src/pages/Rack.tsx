@@ -187,10 +187,10 @@ export default function RackPage() {
     if (windows) windows.open({ kind: walkIn ? 'walk-in' : 'new-reservation', params });
     else nav(walkIn ? `/walk-in?room=${r.id}` : `/reservations/new?room=${r.id}&type=${r.roomTypeId}${arrival ? `&arrival=${arrival}` : ''}`);
   };
-  // Odaya oda ücreti bas: bu gecenin oda ücreti gece denetimini beklemeden folyoya yazılır (gece denetimi aynı geceyi tekrar yazmaz).
+  // Odaya oda ücreti bas: bu gecenin oda ücreti gün sonunu beklemeden folyoya yazılır (gün sonu aynı geceyi tekrar yazmaz).
   const postRoomCharge = async (r: RoomStatus) => {
     if (!r.inHouseReservationId) return;
-    if (!await confirm({ title: `Oda ${r.number} · oda ücreti`, message: `${r.inHouseGuest ?? ''} için ${fmtDate(bd)} gecesinin oda ücreti şimdi folyoya yazılacak. Gece denetimi bu geceyi tekrar yazmaz.`, confirmText: 'Oda ücretini bas' })) return;
+    if (!await confirm({ title: `Oda ${r.number} · oda ücreti`, message: `${r.inHouseGuest ?? ''} için ${fmtDate(bd)} gecesinin oda ücreti şimdi folyoya yazılacak. Gün sonu bu geceyi tekrar yazmaz.`, confirmText: 'Oda ücretini bas' })) return;
     try {
       const x = await api<{ amount: string }>('POST', `/api/v1/reservations/${r.inHouseReservationId}/room-charge`, undefined, { key: newKey() });
       await qc.invalidateQueries({ predicate: q => ['roomStatus', 'rooms', 'rack', 'folios', 'reservations', 'dashboard'].includes(String(q.queryKey[0])) });

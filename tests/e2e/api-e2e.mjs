@@ -217,7 +217,7 @@ try {
     const [x, y] = await Promise.all([mk(), mk()]);
     const codes = [x.status, y.status].sort();
     assert.deepEqual(codes, [200, 409], 'tam olarak biri başarılı olmalı: ' + codes);
-    // Yetkisiz işlem: resepsiyon gece denetimi çalıştıramaz.
+    // Yetkisiz işlem: resepsiyon gün sonu çalıştıramaz.
     await api('GET', '/api/v1/night-audit/preview', undefined, { expect: 403 });
     await api('POST', '/api/v1/users', { username: 'hack', fullName: 'x', password: 'Parola12345', roles: ['SUPER_ADMIN'] }, { expect: 403 });
     token = adminToken;
@@ -532,7 +532,7 @@ try {
     assert.ok(pv.warnings.some(w => w.code === 'expired_option' && w.reservationId === state.opt), 'opsiyon uyarısı');
   });
 
-  await step('Gece denetimi: engel kontrolü, tek seferlik kapanış, vergi ayrıştırma, opsiyon iptali', async () => {
+  await step('Gün sonu: engel kontrolü, tek seferlik kapanış, vergi ayrıştırma, opsiyon iptali', async () => {
     const pv = await api('GET', '/api/v1/night-audit/preview');
     assert.equal(pv.businessDate, state.bd);
     assert.equal(pv.roomChargesToPost, 1);
@@ -973,7 +973,7 @@ try {
     sr = await api('GET', `/api/v1/cashier/shifts/${shift.id}`);
     assert.equal(sr.cash.find(x => x.currency === 'TRY').expected, '0.00');
 
-    // 5) Açık adisyon gece denetiminde uyarı; boş adisyonu açan kapatabilir
+    // 5) Açık adisyon gün sonunda uyarı; boş adisyonu açan kapatabilir
     const c4 = await api('POST', '/api/v1/pos/checks', { outletId: state.outlet, covers: 1 }, k());
     const pv = await api('GET', '/api/v1/night-audit/preview');
     assert.ok(pv.warnings.some(w => w.code === 'open_pos_check'));
@@ -1083,7 +1083,7 @@ try {
     } finally { srv.close(); }
   });
 
-  await step('Dövizli fiyat: EUR fiyat planı, elle EUR fiyat, kur yoksa red, gece denetiminde günün kuruyla oda ücreti', async () => {
+  await step('Dövizli fiyat: EUR fiyat planı, elle EUR fiyat, kur yoksa red, gün sonunda günün kuruyla oda ücreti', async () => {
     const k = () => ({ key: randomUUID() });
     const plan = (await api('POST', '/api/v1/rate-plans', { code: 'ACENTE-EUR', name: 'Acente EUR', mealPlan: 'BB', isActive: true, currency: 'EUR' })).id;
     const plans = await api('GET', '/api/v1/rate-plans');
@@ -1133,7 +1133,7 @@ try {
   await step('Muhasebe: gün sonu fişleri dengeli, hesaplar, mizan, elle ve ters fiş, ekstre', async () => {
     const k = () => ({ key: randomUUID() });
     const days = await api('GET', '/api/v1/accounting/entries?kind=day');
-    assert.ok(days.length >= 2, 'her gece denetiminde gün sonu fişi');
+    assert.ok(days.length >= 2, 'her gün sonunda gün sonu fişi');
     const all = [];
     for (const e of days) {
       const d = await api('GET', `/api/v1/accounting/entries/${e.id}`);
@@ -1246,7 +1246,7 @@ try {
     await api('POST', `/api/v1/folios/${folio.id}/payments`, { paymentMethodId: state.cash, amount: (await api('GET', `/api/v1/folios/${folio.id}`)).folio.balance, isDeposit: false }, k());
     r = await api('GET', `/api/v1/reservations/${r.id}`);
     await api('POST', `/api/v1/reservations/${r.id}/check-out`, { version: r.version, lateCheckOut: false }, k());
-    // 1b) Rack sağ tık "Oda ücreti bas": bu gecenin ücreti şimdi yazılır, ikinci kez ve gece denetiminde tekrar yazılmaz
+    // 1b) Rack sağ tık "Oda ücreti bas": bu gecenin ücreti şimdi yazılır, ikinci kez ve gün sonunda tekrar yazılmaz
     r = await mkStay(3);
     const rc = await api('POST', `/api/v1/reservations/${r.id}/room-charge`, undefined, k());
     assert.equal(Number(rc.amount), 1500);
@@ -1330,7 +1330,7 @@ try {
     assert.ok(todays.some(x => x.id === t1.id) && !todays.some(x => x.id === t2.id), 'bölüme göre süzme');
     assert.ok((await api('GET', '/api/v1/dashboard')).openTraces >= 2);
     const pv = await api('GET', '/api/v1/night-audit/preview?autoNoShow=true');
-    assert.ok(pv.warnings.some(w => w.code === 'open_trace'), 'gece denetiminde açık hatırlatma uyarısı');
+    assert.ok(pv.warnings.some(w => w.code === 'open_trace'), 'gün sonunda açık hatırlatma uyarısı');
     assert.equal((await api('POST', `/api/v1/traces/${t1.id}/complete`, { status: 'done' }, k())).status, 'done');
     await api('POST', `/api/v1/traces/${t2.id}/complete`, { status: 'cancelled' }, { ...k(), expect: 422 });
     await api('POST', `/api/v1/traces/${t2.id}/complete`, { status: 'cancelled', note: 'Misafir kendi gidecek' }, k());
