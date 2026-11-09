@@ -15,7 +15,7 @@ public sealed class AuthMiddleware(RequestDelegate next)
     public const string HostnameHeader = "X-PMS-Hostname";
     public const string ClientVersionHeader = "X-PMS-Client-Version";
 
-    public async Task InvokeAsync(HttpContext http, RequestContext ctx, SessionService sessions, HealthState health, LicenseService license)
+    public async Task InvokeAsync(HttpContext http, RequestContext ctx, SessionService sessions, HealthState health, LicenseService license, ServerConfig config)
     {
         var path = http.Request.Path;
         if (!path.StartsWithSegments("/api"))
@@ -25,6 +25,11 @@ public sealed class AuthMiddleware(RequestDelegate next)
         }
 
         ctx.Ip = http.Connection.RemoteIpAddress is { } ip && ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : http.Connection.RemoteIpAddress;
+        // Web portu (Cloudflare Tunnel) arkasında bağlantı hep 127.0.0.1'den gelir; ziyaretçinin gerçek adresi tünelin eklediği başlıktadır.
+        // Başlık yalnız bu yerel portta dikkate alınır; LAN'dan sahte başlık gönderilerek adres değiştirilemez.
+        if (config.PublicPort > 0 && http.Connection.LocalPort == config.PublicPort
+            && IPAddress.TryParse(http.Request.Headers["CF-Connecting-IP"].ToString(), out var visitor))
+            ctx.Ip = visitor;
         if (Guid.TryParse(http.Request.Headers[DeviceHeader], out var deviceId)) ctx.DeviceId = deviceId;
         var host = http.Request.Headers[HostnameHeader].ToString();
         ctx.Hostname = string.IsNullOrWhiteSpace(host) ? null : host.Length > 63 ? host[..63] : host;

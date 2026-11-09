@@ -22,7 +22,7 @@ public sealed class SessionService(Db db, ILogger<SessionService> log)
     public sealed record LoginResult(string Token, CurrentUser User, DateTimeOffset ExpiresAt);
 
     public async Task<LoginResult> LoginAsync(string username, string password, Guid deviceId, string deviceName, string deviceKind,
-        string? clientVersion, IPAddress? ip, string? userAgent, CancellationToken ct)
+        string? clientVersion, IPAddress? ip, string? userAgent, CancellationToken ct, Func<Guid, Task<bool>>? secondFactor = null)
     {
         username = (username ?? "").Trim().ToLowerInvariant();
         await using var c = await db.OpenAsync(ct);
@@ -70,6 +70,12 @@ public sealed class SessionService(Db db, ILogger<SessionService> log)
         {
             await Fail("inactive");
             throw new PmsException(403, "inactive", "Bu kullanıcı hesabı pasif durumda.");
+        }
+        // İnternetten (web yönetim) girişte ikinci adım: kullanıcının PMS istemcisinde gördüğü 10 saniyelik kod.
+        if (secondFactor is not null && !await secondFactor(user.Id))
+        {
+            await Fail("bad_mfa");
+            throw new PmsException(401, "invalid_mfa", "Web giriş kodu hatalı veya süresi doldu. PMS'teki güncel kodu girin.");
         }
 
         var device = await c.QuerySingleOrDefaultAsync<(string Status, Guid Id)>(

@@ -97,6 +97,7 @@ try
     s.AddSingleton<HealthState>();
     s.AddSingleton<RealtimeHub>();
     s.AddSingleton<SessionService>();
+    s.AddSingleton<MfaService>();
     s.AddSingleton<LicenseService>();
     s.AddSingleton<IntegrationRegistry>();
     s.AddSingleton<BackupService>();
@@ -177,6 +178,27 @@ try
         if (ctx.Request.Path.StartsWithSegments("/api")) h.CacheControl = "no-store";
         await next();
     });
+    // Web portunda otel web sitesi dosyaları (kurulum klasöründeki online-site veya HOTELPMS_PUBLIC_SITE). Yalnız statik dosya; PMS ekranları yok.
+    var siteDir = Environment.GetEnvironmentVariable("HOTELPMS_PUBLIC_SITE") is { Length: > 0 } envSite ? envSite : Path.Combine(paths.InstallDir, "online-site");
+    if (config.PublicPort > 0 && Directory.Exists(siteDir))
+    {
+        var siteFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(Path.GetFullPath(siteDir));
+        app.MapWhen(c => c.Connection.LocalPort == config.PublicPort && !c.Request.Path.StartsWithSegments("/api"), site =>
+        {
+            site.Use((c, next) =>
+            {
+                // Yönlendirme (routing) "/" adresini PMS'in durum ucuyla eşleştirmiş olabilir; web portunda yalnız site dosyaları geçerlidir.
+                c.SetEndpoint(null);
+                // Uzantısız adres (/yonetim) aynı adlı .html dosyasına karşılık gelir.
+                var path = c.Request.Path.Value ?? "/";
+                if (path.Length > 1 && !Path.HasExtension(path) && siteFiles.GetFileInfo(path + ".html").Exists) c.Request.Path = path + ".html";
+                return next(c);
+            });
+            site.UseDefaultFiles(new DefaultFilesOptions { FileProvider = siteFiles });
+            site.UseStaticFiles(new StaticFileOptions { FileProvider = siteFiles });
+            site.Run(c => { c.Response.StatusCode = 404; return Task.CompletedTask; });
+        });
+    }
     app.UseRateLimiter();
     app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
     app.UseMiddleware<AuthMiddleware>();

@@ -948,3 +948,12 @@ button.link:hover { text-decoration: underline; color: var(--accent); }
 .na-no { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); font-size: 12px; font-weight: 700; }
 .na-nav { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; }
 @media (max-width: 900px) { .na-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Web giriş kodu (MFA) */
+.webcode { position: relative; }
+.webcode-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; width: 260px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.webcode-title { font-size: 12px; color: var(--muted); font-weight: 600; }
+.webcode-code { font: 700 30px/1.2 ui-monospace, Consolas, monospace; letter-spacing: .08em; margin: 6px 0 8px; color: var(--text); }
+.webcode-bar { height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+.webcode-bar i { display: block; height: 100%; background: var(--accent); transition: width 1s linear; }
+.webcode-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.45; }

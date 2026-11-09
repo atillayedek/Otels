@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Yönetim · Cihan Otel</title>
+  <link rel="icon" href="/img/logo.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/config.js"></script>
+  <script src="/yonetim.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="/"><img src="/img/logo.png" alt="" width="54" height="38"><span>Cihan Otel</span></a>
+      <div class="top-act" style="margin-left:auto"><span class="muted" id="who"></span><button class="btn btn-line" id="logout" type="button" hidden>Çıkış</button></div>
+    </div>
+  </header>
+  <main class="sec">
+    <div class="wrap narrow" id="login-box" hidden>
+      <div class="sec-head"><h2>Yönetim girişi</h2>
+        <p class="muted">PMS kullanıcı adınız ve parolanızla birlikte, PMS'te üst çubuktaki anahtar simgesinden açılan <b>web giriş kodunu</b> girin. Kod 10 saniyede bir değişir.</p></div>
+      <form class="form" id="login" autocomplete="off">
+        <label><span>Kullanıcı adı</span><input name="username" required maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+        <label><span>Parola</span><input name="password" type="password" required maxlength="128" autocomplete="current-password"></label>
+        <label class="full"><span>Web giriş kodu</span><input name="code" required inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" autocomplete="one-time-code" placeholder="000 000"></label>
+        <div class="full"><button class="btn btn-o" type="submit">Giriş yap</button></div>
+        <div class="full" id="login-msg" aria-live="polite"></div>
+      </form>
+    </div>
+    <div class="wrap" id="panel" hidden>
+      <div class="sec-head"><h2>Onay bekleyen web talepleri</h2><p class="muted">Onaylanan talep PMS'te onaylı rezervasyon olur; reddedilen talep iptal edilir. Misafir durumu web sitesinde takip koduyla görür.</p></div>
+      <div id="list"></div>
+    </div>
+  </main>
+</body>
+</html>

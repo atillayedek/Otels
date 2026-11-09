@@ -38,6 +38,13 @@ public static class AuthEndpoints
 
         g.MapGet("/me", (RequestContext ctx) => ToMe(ctx.RequireUser()));
 
+        // Kullanıcının kendi web giriş kodu (yalnız LAN'daki PMS istemcisinden; web portundan /api/v1 erişilemez). Kod 10 saniyede bir değişir.
+        g.MapGet("/mfa", async (RequestContext ctx, MfaService mfa) =>
+        {
+            var (code, remaining) = await mfa.CurrentAsync(ctx.RequireUser().Id);
+            return new { code, remaining, period = MfaService.PeriodSeconds };
+        });
+
         g.MapPost("/change-password", async (ChangePasswordRequest req, RequestContext ctx, Db db, SessionService sessions) =>
         {
             var u = ctx.RequireUser();

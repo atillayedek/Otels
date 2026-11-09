@@ -68,6 +68,7 @@ public static class OnlineBookingEndpoints
         var photoDir = Path.Combine(paths.StorageDir, "online");
         MapPublic(app, photoDir);
         MapAdmin(app, photoDir);
+        MapWebAdmin(app);
     }
 
     // =====================================================================================================================
@@ -423,34 +424,112 @@ public static class OnlineBookingEndpoints
         }).RequirePermission("online.manage");
 
         // Tek tıkla onay / ret (yalnız onay bekleyen web talepleri). Onay: opsiyonlu → onaylı; ret: gerekçeli iptal (web'de "Reddedildi").
-        g.MapPost("/pending/{id:guid}/approve", (Guid id, VersionRequest req, CommandRunner cmd) => cmd.RunAsync("online.approve", new { id, req }, async tx =>
-        {
-            var r = await tx.OneOrNullAsync<(string Status, string? Code)>("SELECT status, booking_code FROM pms.reservations WHERE id = @id FOR UPDATE", new { id });
-            if (r == default || r.Code is null) throw PmsException.NotFound("Web talebi");
-            if (r.Status != "tentative") throw PmsException.Validation("Talep artık onay beklemiyor.");
-            await tx.ExecVersionedAsync("UPDATE pms.reservations SET status = 'confirmed', option_until = NULL, updated_at = now(), version = version + 1 WHERE id = @id AND version = @Version",
-                new { id, req.Version });
-            await tx.AuditAsync("online.approve", "reservation", id, new { status = "tentative" }, new { status = "confirmed" });
-            tx.Publish("reservations", id); tx.Publish("online"); tx.Publish("availability");
-            return new { ok = true };
-        })).RequirePermission("reservation.edit");
+        g.MapPost("/pending/{id:guid}/approve", (Guid id, VersionRequest req, CommandRunner cmd) =>
+            cmd.RunAsync("online.approve", new { id, req }, async tx => { await ApproveAsync(tx, id, req.Version); return new { ok = true }; })).RequirePermission("reservation.edit");
 
-        g.MapPost("/pending/{id:guid}/reject", (Guid id, CancelRequest req, CommandRunner cmd) => cmd.RunAsync("online.reject", new { id, req }, async tx =>
-        {
-            var code = await tx.ScalarAsync<string?>("SELECT booking_code FROM pms.reservations WHERE id = @id", new { id }) ?? throw PmsException.NotFound("Web talebi");
-            await ReservationService.CancelAsync(tx, id, req);
-            tx.Publish("online");
-            return new { ok = true, code };
-        })).RequirePermission("reservation.cancel");
+        g.MapPost("/pending/{id:guid}/reject", (Guid id, CancelRequest req, CommandRunner cmd) =>
+            cmd.RunAsync("online.reject", new { id, req }, async tx => { await RejectAsync(tx, id, req); return new { ok = true }; })).RequirePermission("reservation.cancel");
 
         // Onay bekleyen web talepleri (resepsiyon onaylar: rezervasyonu "onaylı" yapar; reddeder: iptal eder).
-        g.MapGet("/pending", (Db db) => db.QueryAsync<OnlinePendingDto>("""
-            SELECT r.id, r.reservation_number, r.booking_code, g.first_name || ' ' || g.last_name AS guest_name, g.email, g.phone, t.code AS room_type_code,
-                   r.arrival, r.departure, r.adults, r.children,
-                   COALESCE((SELECT sum(rate) FROM pms.reservation_rates x WHERE x.reservation_id = r.id), 0) AS total_rate, r.currency::text AS currency, r.created_at, r.special_requests, r.version
-            FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id JOIN pms.room_types t ON t.id = r.room_type_id
-            WHERE r.booking_code IS NOT NULL AND r.status = 'tentative' ORDER BY r.created_at
-            """)).RequirePermission("reservation.view");
+        g.MapGet("/pending", (Db db) => db.QueryAsync<OnlinePendingDto>(PendingSql)).RequirePermission("reservation.view");
+    }
+
+    static async Task ApproveAsync(Tx tx, Guid id, int version)
+    {
+        var r = await tx.OneOrNullAsync<(string Status, string? Code)>("SELECT status, booking_code FROM pms.reservations WHERE id = @id FOR UPDATE", new { id });
+        if (r == default || r.Code is null) throw PmsException.NotFound("Web talebi");
+        if (r.Status != "tentative") throw PmsException.Validation("Talep artık onay beklemiyor.");
+        await tx.ExecVersionedAsync("UPDATE pms.reservations SET status = 'confirmed', option_until = NULL, updated_at = now(), version = version + 1 WHERE id = @id AND version = @version",
+            new { id, version });
+        await tx.AuditAsync("online.approve", "reservation", id, new { status = "tentative" }, new { status = "confirmed" });
+        tx.Publish("reservations", id); tx.Publish("online"); tx.Publish("availability");
+    }
+
+    static async Task RejectAsync(Tx tx, Guid id, CancelRequest req)
+    {
+        var r = await tx.OneOrNullAsync<(string Status, string? Code)>("SELECT status, booking_code FROM pms.reservations WHERE id = @id", new { id });
+        if (r == default || r.Code is null) throw PmsException.NotFound("Web talebi");
+        if (r.Status != "tentative") throw PmsException.Validation("Talep artık onay beklemiyor.");
+        await ReservationService.CancelAsync(tx, id, req);
+        tx.Publish("online");
+    }
+
+    const string PendingSql = """
+        SELECT r.id, r.reservation_number, r.booking_code, g.first_name || ' ' || g.last_name AS guest_name, g.email, g.phone, t.code AS room_type_code,
+               r.arrival, r.departure, r.adults, r.children,
+               COALESCE((SELECT sum(rate) FROM pms.reservation_rates x WHERE x.reservation_id = r.id), 0) AS total_rate, r.currency::text AS currency, r.created_at,
+               r.special_requests, r.version
+        FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id JOIN pms.room_types t ON t.id = r.room_type_id
+        WHERE r.booking_code IS NOT NULL AND r.status = 'tentative' ORDER BY r.created_at
+        """;
+
+    // =====================================================================================================================
+    // Web sitesi yönetim girişi (internetten): kullanıcı adı + parola + PMS istemcisindeki 10 saniyelik web giriş kodu.
+    // Oturum çerezi yalnız HTTPS, JavaScript'ten okunamaz, başka siteden gönderilmez; yazma istekleri ayrıca X-Cihan başlığı ister (CSRF).
+    // =====================================================================================================================
+    public const string AdminCookie = "cihan_admin";
+    public sealed record WebLoginRequest(string Username, string Password, string Code);
+
+    static async Task<CurrentUser> WebUserAsync(HttpContext http, RequestContext ctx, SessionService sessions)
+    {
+        if (!HttpMethods.IsGet(http.Request.Method) && http.Request.Headers["X-Cihan"] != "1")
+            throw new PmsException(403, "csrf", "Geçersiz istek.");
+        var token = http.Request.Cookies[AdminCookie];
+        var user = string.IsNullOrEmpty(token) ? null : await sessions.ResolveAsync(token, http.RequestAborted);
+        ctx.User = user ?? throw new PmsException(401, "unauthenticated", "Oturum açmanız gerekiyor.");
+        return user;
+    }
+
+    static void MapWebAdmin(WebApplication app)
+    {
+        var g = app.MapGroup("/api/public/v1/admin").WithTags("Online").AllowAnonymousPms().RequireRateLimiting("online");
+
+        g.MapPost("/login", async (WebLoginRequest req, SessionService sessions, MfaService mfa, RequestContext ctx, HttpContext http) =>
+        {
+            if (http.Request.Headers["X-Cihan"] != "1") throw new PmsException(403, "csrf", "Geçersiz istek.");
+            var r = await sessions.LoginAsync(req.Username, req.Password, Guid.NewGuid(), "Web yönetim", "browser", null, ctx.Ip,
+                http.Request.Headers.UserAgent.ToString(), http.RequestAborted, uid => mfa.VerifyAsync(uid, req.Code));
+            http.Response.Cookies.Append(AdminCookie, r.Token, new CookieOptions
+            {
+                HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/api/public/v1/admin", Expires = r.ExpiresAt,
+            });
+            return new { fullName = r.User.FullName, canApprove = r.User.Has("reservation.edit"), canReject = r.User.Has("reservation.cancel") };
+        }).RequireRateLimiting("online-write");
+
+        g.MapGet("/me", async (HttpContext http, RequestContext ctx, SessionService sessions) =>
+        {
+            var u = await WebUserAsync(http, ctx, sessions);
+            return new { fullName = u.FullName, canApprove = u.Has("reservation.edit"), canReject = u.Has("reservation.cancel") };
+        });
+
+        g.MapPost("/logout", async (HttpContext http, RequestContext ctx, SessionService sessions) =>
+        {
+            var u = await WebUserAsync(http, ctx, sessions);
+            await sessions.RevokeAsync(u.SessionId, "logout", http.RequestAborted);
+            http.Response.Cookies.Delete(AdminCookie, new CookieOptions { Path = "/api/public/v1/admin", Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict });
+            return Results.NoContent();
+        });
+
+        g.MapGet("/pending", async (HttpContext http, RequestContext ctx, SessionService sessions, Db db) =>
+        {
+            var u = await WebUserAsync(http, ctx, sessions);
+            if (!u.Has("reservation.view")) throw PmsException.Forbidden();
+            return await db.QueryAsync<OnlinePendingDto>(PendingSql);
+        });
+
+        g.MapPost("/pending/{id:guid}/approve", async (Guid id, VersionRequest req, HttpContext http, RequestContext ctx, SessionService sessions, CommandRunner cmd) =>
+        {
+            var u = await WebUserAsync(http, ctx, sessions);
+            if (!u.Has("reservation.edit")) throw PmsException.Forbidden();
+            return await cmd.RunAsync("online.approve", new { id, req }, async tx => { await ApproveAsync(tx, id, req.Version); return new { ok = true }; }, requireKey: false);
+        });
+
+        g.MapPost("/pending/{id:guid}/reject", async (Guid id, CancelRequest req, HttpContext http, RequestContext ctx, SessionService sessions, CommandRunner cmd) =>
+        {
+            var u = await WebUserAsync(http, ctx, sessions);
+            if (!u.Has("reservation.cancel")) throw PmsException.Forbidden();
+            return await cmd.RunAsync("online.reject", new { id, req }, async tx => { await RejectAsync(tx, id, req); return new { ok = true }; }, requireKey: false);
+        });
     }
 
     static JsonElement Parse(string s)

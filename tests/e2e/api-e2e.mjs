@@ -1807,6 +1807,58 @@ try {
     assert.equal((await fetch(pubBase + room.photos[0].url)).status, 404);
   });
 
+  await step('Web yönetim girişi: kullanıcıya özel 10 saniyelik kod (PMS istemcisinde), yanlış/tekrar kod reddi, güvenli çerez, CSRF koruması, çıkış', async () => {
+    const pubBase = 'http://127.0.0.1:18090';
+    const ip = '203.0.113.200';
+    assert.equal((await api('GET', '/api/v1/auth/me')).username, 'e2eadmin', 'kod oturumdaki kullanıcınındır');
+    const m1 = await api('GET', '/api/v1/auth/mfa');
+    assert.match(m1.code, /^\d{6}$/); assert.equal(m1.period, 10); assert.ok(m1.remaining >= 1 && m1.remaining <= 10);
+    // Kod yalnız LAN'daki PMS istemcisinden görülür; web portundan erişilemez
+    assert.equal((await fetch(pubBase + '/api/v1/auth/mfa')).status, 404);
+
+    const web = async (method, path, body, { cookie, csrf = true, expect } = {}) => {
+      const headers = { 'CF-Connecting-IP': ip };
+      if (csrf) headers['X-Cihan'] = '1';
+      if (cookie) headers.Cookie = cookie;
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      const res = await fetch(pubBase + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      if (expect ? res.status !== expect : !res.ok) throw new Error(`${method} ${path} -> ${res.status} ${await res.text()}`);
+      return res;
+    };
+    await web('POST', '/api/public/v1/admin/login', { username: 'e2eadmin', password: 'TestParola123', code: '000000' }, { csrf: false, expect: 403 });
+    const wrong = String((Number((await api('GET', '/api/v1/auth/mfa')).code) + 1) % 1000000).padStart(6, '0');
+    await web('POST', '/api/public/v1/admin/login', { username: 'e2eadmin', password: 'TestParola123', code: wrong }, { expect: 401 });
+    await web('POST', '/api/public/v1/admin/login', { username: 'e2eadmin', password: 'yanlis-parola', code: (await api('GET', '/api/v1/auth/mfa')).code }, { expect: 401 });
+
+    const code = (await api('GET', '/api/v1/auth/mfa')).code;
+    const ok = await web('POST', '/api/public/v1/admin/login', { username: 'e2eadmin', password: 'TestParola123', code });
+    const setCookie = ok.headers.get('set-cookie') ?? '';
+    assert.match(setCookie, /cihan_admin=/); assert.match(setCookie, /httponly/i); assert.match(setCookie, /secure/i); assert.match(setCookie, /samesite=strict/i);
+    const cookie = setCookie.split(';')[0];
+    // Aynı kod ikinci kez kullanılamaz
+    await web('POST', '/api/public/v1/admin/login', { username: 'e2eadmin', password: 'TestParola123', code }, { expect: 401 });
+
+    const me = await (await web('GET', '/api/public/v1/admin/me', undefined, { cookie })).json();
+    assert.equal(me.fullName, 'E2E Yönetici'); assert.equal(me.canApprove, true);
+    await web('GET', '/api/public/v1/admin/me', undefined, { expect: 401 });
+
+    // Web'den gelen talep web yönetiminde onaylanır; X-Cihan başlığı olmadan (başka siteden) yazma reddedilir
+    const info = await (await fetch(pubBase + '/api/public/v1/info')).json();
+    const bres = await fetch(pubBase + '/api/public/v1/bookings', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID(), 'CF-Connecting-IP': '203.0.113.201' },
+      body: JSON.stringify({ roomTypeId: info.rooms[0].roomTypeId, arrival: addDays(state.bd, 250), departure: addDays(state.bd, 251), adults: 1, children: 0, firstName: 'Panel', lastName: 'Deneme',
+        email: 'panel@example.invalid', phone: '05320000099', acceptTerms: true, kvkkConsent: true }) });
+    const b = await bres.json();
+    const list = await (await web('GET', '/api/public/v1/admin/pending', undefined, { cookie })).json();
+    const p = list.find(x => x.bookingCode === b.code);
+    assert.ok(p, 'web yönetiminde onay bekleyen talep');
+    await web('POST', `/api/public/v1/admin/pending/${p.id}/approve`, { version: p.version }, { cookie, csrf: false, expect: 403 });
+    await web('POST', `/api/public/v1/admin/pending/${p.id}/approve`, { version: p.version }, { cookie });
+    assert.equal((await api('GET', `/api/v1/reservations/${p.id}`)).status, 'confirmed', 'web yönetiminden onay PMS kaydına yansır');
+
+    await web('POST', '/api/public/v1/admin/logout', undefined, { cookie, expect: 204 });
+    await web('GET', '/api/public/v1/admin/me', undefined, { cookie, expect: 401 });
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

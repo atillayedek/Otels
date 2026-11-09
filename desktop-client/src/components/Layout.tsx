@@ -1,3 +1,4 @@
+import { WebCodeButton } from './WebCode';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../lib/api';
@@ -309,6 +310,7 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="top-right">
           <QuickFind />
           <button className="btn ghost icon" onClick={() => setKeysHelp(true)} title="Kısayollar (F1)"><Keyboard /></button>
+          <WebCodeButton />
           <button className="btn ghost icon" onClick={() => setSupport(true)} title="Yardım ve destek"><LifeBuoy /></button>
           <button className="user-chip" onClick={() => nav('/account')} title="Hesabım"><span className="avatar">{initials(me?.fullName)}</span><span className="who"><b>{me?.fullName}</b><small><ShieldCheck size={11} /> {me?.username}</small></span></button>
           <button className="btn ghost icon" onClick={() => void logout()} title="Oturumu kapat"><LogOut /></button>
