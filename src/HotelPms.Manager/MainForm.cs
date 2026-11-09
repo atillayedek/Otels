@@ -60,6 +60,7 @@ public sealed class MainForm : Form
         tabs.TabPages.Add(BackupTab());
         tabs.TabPages.Add(LogsTab());
         tabs.TabPages.Add(MaintenanceTab());
+        tabs.TabPages.Add(WebTab());
         tabs.TabPages.Add(SupportTab());
         tabs.SelectedIndexChanged += async (_, _) =>
         {
@@ -212,6 +213,97 @@ public sealed class MainForm : Form
         page.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 });
         page.Controls.Add(db);
         return page;
+    }
+
+    /// <summary>
+    /// Otel web sitesi bağlantısı: PMS'in web portu yalnız bu bilgisayara (127.0.0.1) açılır; internete Cloudflare Tunnel üzerinden çıkar.
+    /// Port açılınca bu porttan yalnız web sitesinin herkese açık uçları sunulur, PMS API'si ve veritabanı erişilemez.
+    /// </summary>
+    TabPage WebTab()
+    {
+        var page = new TabPage("Web sitesi") { BackColor = Surface, Padding = new Padding(12) };
+        var box = new GroupBox { Text = "Otel web sitesi ve online rezervasyon bağlantısı", Dock = DockStyle.Top, Height = 300, Padding = new Padding(12) };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var state = new Label { AutoSize = true, Font = new Font("Segoe UI Semibold", 11f) };
+        var port = new NumericUpDown { Minimum = 1024, Maximum = 65535, Width = 100, Value = _client.Config.PublicPort > 0 ? _client.Config.PublicPort : 8090 };
+        var local = RoBox();
+        var toggle = Btn("", primary: true);
+        var copy = Btn("Tünel adresini kopyala");
+        var open = Btn("Bağlantıyı test et");
+
+        void Show()
+        {
+            var on = _client.Config.PublicPort > 0;
+            state.Text = on ? $"● Açık · yerel port {_client.Config.PublicPort}" : "● Kapalı";
+            state.ForeColor = on ? Ok : Muted;
+            toggle.Text = on ? "Kapat ve hizmeti yeniden başlat" : "Aç ve hizmeti yeniden başlat";
+            port.Enabled = !on;
+            local.Text = $"http://localhost:{(on ? _client.Config.PublicPort : (int)port.Value)}";
+            copy.Enabled = open.Enabled = on;
+        }
+
+        toggle.Click += (_, _) =>
+        {
+            var on = _client.Config.PublicPort > 0;
+            var msg = on
+                ? "Web sitesi bağlantısı kapatılacak; site rezervasyon alamaz. Sunucu hizmeti yeniden başlatılır (istemciler birkaç saniyede yeniden bağlanır). Devam edilsin mi?"
+                : $"PMS'in web portu ({(int)port.Value}) yalnız bu bilgisayara açılacak; internete çıkışı Cloudflare Tunnel yapar. Sunucu hizmeti yeniden başlatılır. Devam edilsin mi?";
+            if (!Ask(msg)) return;
+            if (!on && !IsLocalPortFree((int)port.Value)) { Error($"{(int)port.Value} numaralı port başka bir program tarafından kullanılıyor. Başka bir port seçin."); return; }
+            _client.Config.PublicPort = on ? 0 : (int)port.Value;
+            _client.Config.Save(_client.Paths);
+            Show();
+            ServiceAction(sc => { if (sc.Status != ServiceControllerStatus.Stopped) { sc.Stop(); sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60)); } sc.Start(); },
+                ServiceControllerStatus.Running, "Hizmet yeniden başlatılıyor…");
+        };
+        copy.Click += (_, _) => { Clipboard.SetText(local.Text); Info("Adres panoya kopyalandı. Cloudflare tünelinde hizmet (service) adresi olarak bunu girin."); };
+        open.Click += async (_, _) =>
+        {
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var doc = System.Text.Json.JsonDocument.Parse(await http.GetStringAsync(local.Text + "/api/public/v1/info"));
+                var enabled = doc.RootElement.GetProperty("enabled").GetBoolean();
+                var rooms = doc.RootElement.GetProperty("rooms").GetArrayLength();
+                Info(enabled
+                    ? $"Web portu çalışıyor. Online rezervasyon açık, sitede {rooms} oda tipi satışta. Tünel bu adrese bağlandığında web sitesi rezervasyon alır."
+                    : "Web portu çalışıyor ama online rezervasyon kapalı. PMS'te Rezervasyon → Online Rezervasyon (Web) → Ayarlar bölümünden açın.");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException)
+            {
+                Error("Web portu yanıt vermiyor. Hizmetin çalıştığını ve portun açık olduğunu kontrol edin.");
+            }
+        };
+        port.ValueChanged += (_, _) => Show();
+
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        row.Controls.Add(new Label { Text = "Port", AutoSize = true, Padding = new Padding(0, 6, 6, 0) });
+        row.Controls.Add(port);
+        row.Controls.Add(toggle);
+        var row2 = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        row2.Controls.AddRange([local, copy, open]);
+
+        flow.Controls.Add(state);
+        flow.Controls.Add(row);
+        flow.Controls.Add(new Label { AutoSize = true, Text = "Tünelin bağlanacağı yerel adres:", Padding = new Padding(0, 10, 0, 2) });
+        flow.Controls.Add(row2);
+        flow.Controls.Add(new Label
+        {
+            AutoSize = true, ForeColor = Muted, MaximumSize = new Size(900, 0), Padding = new Padding(0, 10, 0, 0),
+            Text = "Bu port güvenlik duvarında açılmaz ve ağdaki diğer bilgisayarlardan erişilemez. İnternete çıkış için Cloudflare Zero Trust → Networks → Tunnels " +
+                   "bölümünde bir tünel oluşturun, bu bilgisayara Cloudflare'in cloudflared programını kurun ve tünelin hizmet adresine yukarıdaki yerel adresi girin. " +
+                   "Bu porttan yalnız web sitesinin uçları sunulur; PMS ekranları, PMS API'si ve veritabanı internete açılmaz.",
+        });
+        box.Controls.Add(flow);
+        page.Controls.Add(box);
+        Show();
+        return page;
+    }
+
+    static bool IsLocalPortFree(int port)
+    {
+        try { var l = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port); l.Start(); l.Stop(); return true; }
+        catch (System.Net.Sockets.SocketException) { return false; }
     }
 
     TabPage SupportTab()
