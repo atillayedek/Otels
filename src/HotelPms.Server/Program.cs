@@ -3,6 +3,7 @@ using HotelPms.Server;
 using HotelPms.Server.Auth;
 using HotelPms.Server.Infrastructure;
 using HotelPms.Server.Modules.Accounting;
+using HotelPms.Server.Modules.Online;
 using HotelPms.Server.Modules.Backup;
 using HotelPms.Server.Modules.Documents;
 using HotelPms.Server.Modules.Folios;
@@ -81,6 +82,8 @@ try
             o.UseHttps(h => h.ServerCertificateSelector = (_, _) => ServerCertificateHolder.Current);
         });
         if (config.HttpPort > 0) k.ListenAnyIP(config.HttpPort);
+        // Web sitesi portu: yalnız bu bilgisayardan (tünel istemcisi) erişilir; TLS'i Cloudflare yapar.
+        if (config.PublicPort > 0) k.Listen(System.Net.IPAddress.Loopback, config.PublicPort);
     });
 
     var s = builder.Services;
@@ -122,6 +125,12 @@ try
         o.AddPolicy("login", ctx => RateLimitPartition.GetFixedWindowLimiter(
             ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+        // Web sitesi (herkese açık) uçları: istemci adresi başına sınır. Tünel arkasında gerçek adres CF-Connecting-IP başlığındadır
+        // ve yalnız yerel web portundan gelen isteklerde dikkate alınır (LAN'dan sahte başlıkla sınır aşılamaz).
+        o.AddPolicy("online", ctx => RateLimitPartition.GetFixedWindowLimiter(PublicClient.Key(ctx, config),
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+        o.AddPolicy("online-write", ctx => RateLimitPartition.GetFixedWindowLimiter(PublicClient.Key(ctx, config),
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
         o.OnRejected = async (ctx, ct) =>
         {
             ctx.HttpContext.Response.StatusCode = 429;
@@ -135,8 +144,18 @@ try
     app.UseExceptionHandler();
     app.Use(async (ctx, next) =>
     {
+        // Web sitesi portu: yalnız herkese açık uçlar ve site dosyaları; PMS API'si, gerçek zamanlı kanal ve yönetim uçları bu porttan erişilemez.
+        if (config.PublicPort > 0 && ctx.Connection.LocalPort == config.PublicPort)
+        {
+            var pp = ctx.Request.Path;
+            if (pp.StartsWithSegments("/api") && !pp.StartsWithSegments("/api/public"))
+            {
+                ctx.Response.StatusCode = 404;
+                return;
+            }
+        }
         // HTTP yalnız HTTPS'e yönlendirme ve CA sertifikası/el sıkışma için açıktır.
-        if (!devHttpOnly && !ctx.Request.IsHttps)
+        else if (!devHttpOnly && !ctx.Request.IsHttps)
         {
             var p = ctx.Request.Path;
             if (!(p.StartsWithSegments("/api/v1/system/ca.crt") || p.StartsWithSegments("/api/v1/system/info") || p.StartsWithSegments("/api/v1/system/health")))
@@ -176,6 +195,7 @@ try
     AccountEndpoints.Map(app);
     ReservationEndpoints.Map(app);
     ReservationCodeEndpoints.Map(app);
+    OnlineBookingEndpoints.Map(app, paths);
     GroupEndpoints.Map(app);
     TraceEndpoints.Map(app);
     SalesCalendarEndpoints.Map(app);
@@ -217,6 +237,20 @@ finally
 
 namespace HotelPms.Server
 {
+    /// <summary>Herkese açık uçlarda istek sınırı anahtarı: tünel portunda Cloudflare'in ilettiği istemci adresi, diğer portlarda bağlantı adresi.</summary>
+    static class PublicClient
+    {
+        public static string Key(HttpContext ctx, ServerConfig config)
+        {
+            if (config.PublicPort > 0 && ctx.Connection.LocalPort == config.PublicPort)
+            {
+                var cf = ctx.Request.Headers["CF-Connecting-IP"].ToString();
+                if (System.Net.IPAddress.TryParse(cf, out var ip)) return ip.ToString();
+            }
+            return ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        }
+    }
+
     /// <summary>Başlangıçta şemayı hazırlar. Hata olursa sunucu çalışmaya devam eder ve durumu raporlar (kör başarı yok).</summary>
     public sealed class StartupTasks(MigrationRunnerFactory migrations, BackupService backups, HealthState health,
         ILogger<StartupTasks> log) : BackgroundService

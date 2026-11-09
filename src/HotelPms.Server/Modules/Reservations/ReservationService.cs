@@ -415,9 +415,9 @@ public static class ReservationService
         var bd = await PropertyEndpoints.BusinessDateAsync(tx);
         await tx.ExecAsync("""
             UPDATE pms.reservations SET status = 'cancelled', cancelled_at = now(), cancelled_on = @bd, cancelled_by = @uid, cancel_reason = @reason,
-                updated_at = now(), version = version + 1
+                cancelled_from = @from, updated_at = now(), version = version + 1
             WHERE id = @id
-            """, new { id, uid = tx.User.Id, reason, bd });
+            """, new { id, uid = tx.User.Id, reason, bd, from = r.Status });
         await tx.AuditAsync("reservation.cancel", "reservation", id, new { r.Status }, null, reason);
         tx.Publish("reservations", id);
         tx.Publish("availability");

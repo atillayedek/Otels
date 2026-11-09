@@ -20,6 +20,8 @@ public sealed record ProvisionOptions
     public int? DbPort { get; init; }
     /// <summary>RADIUS giriş portu; oturum kaydı portu bunun bir fazlasıdır (test ortamı için).</summary>
     public int? RadiusPort { get; init; }
+    /// <summary>Web sitesi portu (yalnız 127.0.0.1; güvenlik duvarında açılmaz, tünel istemcisi bağlanır).</summary>
+    public int? PublicPort { get; init; }
     public string? ServerExePath { get; init; }
 }
 
@@ -48,6 +50,7 @@ public sealed class Provisioner
         if (o.HttpsPort is { } hp) config.HttpsPort = hp;
         else if (firstConfig && !IsTcpPortFree(config.HttpsPort)) config.HttpsPort = 8443;
         if (o.HttpPort is { } hpp) config.HttpPort = hpp;
+        if (o.PublicPort is { } pub) config.PublicPort = pub;
         if (o.RadiusPort is { } rp) { config.RadiusAuthPort = rp; config.RadiusAcctPort = rp + 1; }
         else if (firstConfig && !IsTcpPortFree(config.HttpPort)) config.HttpPort = 8080;
         config.Save(_paths);

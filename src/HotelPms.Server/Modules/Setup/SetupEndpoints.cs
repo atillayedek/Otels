@@ -51,7 +51,7 @@ public static class SetupEndpoints
 
             await using var c = await db.OpenAsync();
             await using var tx = await c.BeginTransactionAsync(global::System.Data.IsolationLevel.Serializable);
-            if (await c.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.users) OR EXISTS (SELECT 1 FROM pms.property)", transaction: tx))
+            if (await c.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.users WHERE password_hash <> '!') OR EXISTS (SELECT 1 FROM pms.property)", transaction: tx))
                 throw PmsException.Conflict("Kurulum daha önce tamamlanmış.");
             if (!await c.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = @tz)", new { tz }, tx))
                 throw PmsException.Validation("Saat dilimi tanınmıyor (ör. Europe/Istanbul).");
@@ -88,7 +88,7 @@ public static class SetupEndpoints
     {
         await using var c = await db.OpenAsync();
         var r = await c.QuerySingleAsync<(bool HasProperty, bool HasUsers)>(
-            "SELECT EXISTS (SELECT 1 FROM pms.property), EXISTS (SELECT 1 FROM pms.users)");
+            "SELECT EXISTS (SELECT 1 FROM pms.property), EXISTS (SELECT 1 FROM pms.users WHERE password_hash <> '!')");
         return new SetupStatus(!r.HasProperty || !r.HasUsers, r.HasProperty, r.HasUsers);
     }
 }

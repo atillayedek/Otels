@@ -1677,6 +1677,128 @@ try {
     if (h.database) assert.notEqual(h.status, 'unavailable');
   });
 
+  await step('Online rezervasyon: web portu yalnız herkese açık uçlar; talep → PMS (onay bekliyor), takip kodu + iletişim doğrulaması, geri çekme, onay, ret, misafir talebi, istek sınırı', async () => {
+    const pubBase = 'http://127.0.0.1:18090';
+    let ipSeq = 10;
+    // Tünel arkasındaki her ziyaretçi ayrı adres: istek sınırı adres başına (CF-Connecting-IP yalnız yerel web portunda dikkate alınır)
+    const pub = async (method, path, body, { expect, ip, key } = {}) => {
+      const headers = { 'CF-Connecting-IP': ip ?? `203.0.113.${ipSeq++}` };
+      if (key) headers['Idempotency-Key'] = key;
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      const res = await fetch(pubBase + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      const text = await res.text();
+      const ok = expect ? res.status === expect : res.ok;
+      if (!ok) throw new Error(`${method} ${path} -> ${res.status} ${text}`);
+      return text ? JSON.parse(text) : null;
+    };
+    // Web portundan PMS API'si ve gerçek zamanlı kanal erişilemez
+    assert.equal((await fetch(pubBase + '/api/v1/system/info')).status, 404);
+    assert.equal((await fetch(pubBase + '/api/v1/reservations')).status, 404);
+    assert.equal((await fetch(pubBase + '/api/v1/realtime')).status, 404);
+    // Kapalıyken talep alınmaz
+    await pub('GET', `/api/public/v1/availability?arrival=${addDays(state.bd, 200)}&departure=${addDays(state.bd, 202)}&adults=2`, undefined, { expect: 503 });
+
+    const cfg = await api('GET', '/api/v1/online/config');
+    await api('PUT', '/api/v1/online/config', { ...cfg, isEnabled: true, codePrefix: 'cihan', hotelName: 'Test Otel', whatsapp: '+90 532 000 00 00', mapUrl: 'javascript:alert(1)' }, { expect: 422 });
+    await api('PUT', '/api/v1/online/config', { ...cfg, isEnabled: true, codePrefix: 'cihan', hotelName: 'Test Otel', whatsapp: '+90 532 000 00 00', mapUrl: null,
+      about: { tr: 'Deniz manzaralı otel', en: 'Sea view hotel' }, terms: { tr: 'İptal koşulları' } });
+    const rooms = await api('GET', '/api/v1/online/rooms');
+    const dlx = rooms.find(r => r.roomTypeId === state.dlx);
+    await api('PUT', `/api/v1/online/rooms/${state.dlx}`, { isListed: true, title: { tr: 'Deluxe Oda', en: 'Deluxe Room' }, description: { tr: 'Geniş oda' }, features: ['Klima', 'Wi-Fi'], sortOrder: 1, version: dlx.version || null });
+    await api('PUT', `/api/v1/online/rooms/${state.dlx}`, { isListed: true, title: { 'tr-TR': 'x' }, description: {}, features: [], sortOrder: 1, version: 1 }, { expect: 422 });
+
+    // Fotoğraf: yalnız gerçek görsel kabul edilir (uzantı/başlık değil içerik denetlenir)
+    const fake = new FormData(); fake.append('place', 'gallery'); fake.append('file', new Blob(['<script>alert(1)</script>'], { type: 'image/jpeg' }), 'kotu.jpg');
+    await api('POST', '/api/v1/online/photos', undefined, { form: fake, expect: 422 });
+    const png = Buffer.from('89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D4944415478DA63F8FFFF3F0005FE02FEA7D605A40000000049454E44AE426082', 'hex');
+    const good = new FormData(); good.append('place', 'room'); good.append('roomTypeId', state.dlx); good.append('caption', JSON.stringify({ tr: 'Oda' })); good.append('file', new Blob([png], { type: 'image/png' }), 'oda.png');
+    const ph = await api('POST', '/api/v1/online/photos', undefined, { form: good });
+
+    const info = await pub('GET', '/api/public/v1/info');
+    assert.ok(info.enabled && info.hotelName === 'Test Otel' && info.whatsapp === '905320000000');
+    const room = info.rooms.find(r => r.roomTypeId === state.dlx);
+    assert.ok(room && room.title.en === 'Deluxe Room' && room.photos.length === 1, 'oda ve fotoğrafı sitede');
+    const photoRes = await fetch(pubBase + room.photos[0].url);
+    assert.equal(photoRes.status, 200); assert.equal(photoRes.headers.get('content-type'), 'image/png');
+    assert.equal((await fetch(pubBase + '/api/public/v1/photos/..%2F..%2Fconfig%2Fserver.json')).status, 404, 'klasör dışına çıkılamaz');
+    assert.ok(!info.rooms.some(r => r.roomTypeId === state.std), 'listelenmeyen oda sitede yok');
+
+    const a1 = addDays(state.bd, 200), d1 = addDays(state.bd, 203);
+    const offers = await pub('GET', `/api/public/v1/availability?arrival=${a1}&departure=${d1}&adults=2&children=0`);
+    const offer = offers.find(o => o.roomTypeId === state.dlx);
+    assert.ok(offer.available && offer.nights === 3 && Number(offer.total) > 0, 'gerçek fiyat ve müsaitlik');
+    await pub('GET', `/api/public/v1/availability?arrival=${addDays(state.bd, -1)}&departure=${a1}&adults=2`, undefined, { expect: 422 });
+
+    const guest = { roomTypeId: state.dlx, arrival: a1, departure: d1, adults: 2, children: 0, firstName: 'Web', lastName: 'Misafir', email: 'web.misafir@example.invalid',
+      phone: '0532 111 22 33', nationality: 'TR', specialRequests: 'Sessiz oda', acceptTerms: true, kvkkConsent: true, language: 'tr' };
+    await pub('POST', '/api/public/v1/bookings', { ...guest, kvkkConsent: false }, { key: randomUUID(), expect: 422 });
+    await pub('POST', '/api/public/v1/bookings', { ...guest, website: 'http://spam' }, { key: randomUUID(), expect: 422 });
+    await pub('POST', '/api/public/v1/bookings', { ...guest, roomTypeId: state.std }, { key: randomUUID(), expect: 422 });
+    const key = randomUUID();
+    const b1 = await pub('POST', '/api/public/v1/bookings', guest, { key });
+    assert.match(b1.code, /^CIHAN-[A-HJ-NP-Z2-9]{8}$/); assert.equal(b1.status, 'pending'); assert.equal(b1.total, offer.total);
+    const again = await pub('POST', '/api/public/v1/bookings', guest, { key });
+    assert.equal(again.code, b1.code, 'tekrarlanan istek ikinci rezervasyon açmaz');
+
+    // PMS'e düştü: onay bekleyen web talebi, kaynak web, opsiyonlu
+    const pending = await api('GET', '/api/v1/online/pending');
+    const p1 = pending.find(x => x.bookingCode === b1.code);
+    assert.ok(p1, 'PMS onay bekleyenlerde');
+    let r1 = await api('GET', `/api/v1/reservations/${p1.id}`);
+    assert.equal(r1.status, 'tentative'); assert.equal(r1.source, 'web'); assert.equal(r1.specialRequests, 'Sessiz oda'); assert.equal(r1.createdBy, 'online-rezervasyon');
+
+    // Sorgu: kod tek başına yetmez; e-posta veya telefon eşleşmeli, yanlışsa aynı yanıt
+    await pub('POST', '/api/public/v1/bookings/lookup', { code: b1.code, contact: 'baska@example.invalid' }, { expect: 404 });
+    await pub('POST', '/api/public/v1/bookings/lookup', { code: 'CIHAN-AAAAAAAA', contact: guest.email }, { expect: 404 });
+    let v = await pub('POST', '/api/public/v1/bookings/lookup', { code: b1.code.toLowerCase(), contact: 'WEB.MISAFIR@example.invalid' });
+    assert.equal(v.status, 'pending'); assert.equal(v.canWithdraw, true); assert.equal(v.roomTitle.tr, 'Deluxe Oda');
+    assert.ok(!JSON.stringify(v).includes('Misafir') && !JSON.stringify(v).includes('532'), 'yanıtta kişisel veri yok');
+    v = await pub('POST', '/api/public/v1/bookings/lookup', { code: b1.code, contact: '+90 532 111 22 33' });
+    assert.equal(v.status, 'pending');
+
+    // Misafir talebi → ilgili bölümün hatırlatma listesine düşer (otomatik onay değil)
+    await pub('POST', '/api/public/v1/bookings/requests', { code: b1.code, contact: guest.email, kind: 'hack', message: 'x' }, { expect: 422 });
+    await pub('POST', '/api/public/v1/bookings/requests', { code: b1.code, contact: guest.email, kind: 'late_checkout', message: 'Saat 14:00 çıkış' });
+    const traces = await api('GET', `/api/v1/traces?reservationId=${p1.id}`);
+    assert.ok(traces.some(t => t.message.includes('Geç çıkış talebi') && t.department === 'front_office'));
+
+    // Resepsiyon onaylar → web'de "onaylandı"; artık web'den geri çekilemez
+    r1 = await api('GET', `/api/v1/reservations/${p1.id}`);
+    await api('PUT', `/api/v1/reservations/${p1.id}`, { guestId: r1.guestId, newGuest: null, companyId: null, agencyId: null, groupId: null, roomTypeId: r1.roomTypeId, roomId: null,
+      arrival: r1.arrival, departure: r1.departure, adults: r1.adults, children: r1.children, ratePlanId: r1.ratePlanId ?? null, nightlyRate: null, mealPlan: r1.mealPlan,
+      status: 'confirmed', source: r1.source, market: null, segment: null, eta: null, etd: null, notes: r1.notes, specialRequests: r1.specialRequests, depositRequired: '0',
+      optionUntil: null, version: r1.version }, { key: randomUUID() });
+    v = await pub('POST', '/api/public/v1/bookings/lookup', { code: b1.code, contact: guest.email });
+    assert.equal(v.status, 'approved'); assert.equal(v.canWithdraw, false);
+    await pub('POST', '/api/public/v1/bookings/withdraw', { code: b1.code, contact: guest.email }, { expect: 422 });
+
+    // İkinci talep: misafir geri çeker → PMS'te iptal (geri çekildi)
+    const b2 = await pub('POST', '/api/public/v1/bookings', { ...guest, arrival: addDays(state.bd, 210), departure: addDays(state.bd, 211), email: 'iki@example.invalid' }, { key: randomUUID() });
+    v = await pub('POST', '/api/public/v1/bookings/withdraw', { code: b2.code, contact: 'iki@example.invalid' });
+    assert.equal(v.status, 'withdrawn');
+    assert.ok(!(await api('GET', '/api/v1/online/pending')).some(x => x.bookingCode === b2.code), 'geri çekilen onay bekleyenlerden çıkar');
+
+    // Üçüncü talep: resepsiyon reddeder (onaydan önce iptal) → web'de "reddedildi"
+    const b3 = await pub('POST', '/api/public/v1/bookings', { ...guest, arrival: addDays(state.bd, 220), departure: addDays(state.bd, 221), email: 'uc@example.invalid' }, { key: randomUUID() });
+    const p3 = (await api('GET', '/api/v1/online/pending')).find(x => x.bookingCode === b3.code);
+    const r3 = await api('GET', `/api/v1/reservations/${p3.id}`);
+    await api('POST', `/api/v1/reservations/${p3.id}/cancel`, { reason: 'Tarihlerde grup var', version: r3.version }, { key: randomUUID() });
+    v = await pub('POST', '/api/public/v1/bookings/lookup', { code: b3.code, contact: 'uc@example.invalid' });
+    assert.equal(v.status, 'rejected');
+
+    // İstek sınırı: aynı ziyaretçi dakikada en fazla 10 yazma/sorgu
+    let limited = false;
+    for (let i = 0; i < 12; i++) {
+      const res = await fetch(pubBase + '/api/public/v1/bookings/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '198.51.100.7' },
+        body: JSON.stringify({ code: 'CIHAN-AAAAAAAA', contact: 'x@example.invalid' }) });
+      if (res.status === 429) { limited = true; break; }
+    }
+    assert.ok(limited, 'istek sınırı devreye girer');
+
+    await api('DELETE', `/api/v1/online/photos/${ph.id}`);
+    assert.equal((await fetch(pubBase + room.photos[0].url)).status, 404);
+  });
+
   await step('Audit kaydı silinemez/değiştirilemez (uygulama yetkisiyle)', async () => {
     const logs = await api('GET', '/api/v1/audit-logs?pageSize=5');
     assert.ok(logs.length > 0);

@@ -8,7 +8,7 @@ namespace HotelPms.Server;
 
 /// <summary>
 /// Komut satırı: installer ve Server Manager tarafından kullanılır.
-///   provision [--install-services] [--firewall] [--start-postgres] [--https-port N] [--http-port N] [--db-port N] [--radius-port N]
+///   provision [--install-services] [--firewall] [--start-postgres] [--https-port N] [--http-port N] [--db-port N] [--radius-port N] [--public-port N]
 ///   backup [--kind manual|pre_update]
 ///   unregister            (servisleri kaldırır, VERİYİ SİLMEZ)
 ///   renew-cert
@@ -38,6 +38,7 @@ public static class Cli
                         HttpPort = IntArg("--http-port"),
                         DbPort = IntArg("--db-port"),
                         RadiusPort = IntArg("--radius-port"),
+                        PublicPort = IntArg("--public-port"),
                         ServerExePath = Environment.ProcessPath,
                     });
                     return 0;

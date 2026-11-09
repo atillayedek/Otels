@@ -41,7 +41,7 @@ public static class UserEndpoints
     {
         var g = app.MapGroup("/api/v1/users").WithTags("Users").RequirePermission("user.manage");
 
-        g.MapGet("/", async (Db db) => (await db.QueryAsync<UserRow>(UserSelect + " GROUP BY u.id ORDER BY u.username")).Select(r => r.ToDto()));
+        g.MapGet("/", async (Db db) => (await db.QueryAsync<UserRow>(UserSelect + " WHERE u.password_hash <> '!' GROUP BY u.id ORDER BY u.username")).Select(r => r.ToDto()));
 
         g.MapPost("/", (CreateUserRequest req, CommandRunner cmd) => cmd.RunAsync("user.create", req with { Password = "***" }, async tx =>
         {

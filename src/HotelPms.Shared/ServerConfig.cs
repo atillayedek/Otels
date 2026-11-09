@@ -9,6 +9,9 @@ public sealed class ServerConfig
     public string ServerName { get; set; } = Environment.MachineName;
     public int HttpsPort { get; set; } = 443;
     public int HttpPort { get; set; } = 80;
+    /// <summary>Otel web sitesi ve online rezervasyon için yalnız 127.0.0.1'e bağlanan dış port (Cloudflare Tunnel buna bağlanır). 0 = kapalı.
+    /// Bu porttan yalnız /api/public uçları ve web sitesi dosyaları sunulur; PMS API'si ve veritabanı internete açılmaz.</summary>
+    public int PublicPort { get; set; } = 0;
     public int DiscoveryPort { get; set; } = PmsConstants.DiscoveryPort;
     /// <summary>Misafir Wi-Fi girişi (RADIUS) portları. Yalnız Yönetim → Wi-Fi Girişi açıkken dinlenir.</summary>
     public int RadiusAuthPort { get; set; } = 1812;

@@ -43,7 +43,7 @@ public static class SystemEndpoints
                 try
                 {
                     await using var c = await db.OpenAsync();
-                    setup = !await c.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.users) AND EXISTS (SELECT 1 FROM pms.property)");
+                    setup = !await c.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM pms.users WHERE password_hash <> '!') AND EXISTS (SELECT 1 FROM pms.property)");
                     hotel = await c.ExecuteScalarAsync<string?>("SELECT name FROM pms.property LIMIT 1");
                 }
                 catch (NpgsqlException) { }
