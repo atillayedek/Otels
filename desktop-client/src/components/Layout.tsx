@@ -33,6 +33,7 @@ export const NAV: NavGroup[] = [
       { to: '/agencies', label: 'Acenteler', perm: 'reservation.view' },
       { to: '/settings/rates', label: 'Fiyat Planları', perm: 'rate.manage' },
       { to: '/settings/reservation-codes', label: 'Rezervasyon Kodları', perm: 'rate.manage' },
+      { to: '/online', label: 'Online Rezervasyon (Web)', perm: 'reservation.view' },
     ],
   },
   {

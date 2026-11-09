@@ -1782,9 +1782,17 @@ try {
     const b3 = await pub('POST', '/api/public/v1/bookings', { ...guest, arrival: addDays(state.bd, 220), departure: addDays(state.bd, 221), email: 'uc@example.invalid' }, { key: randomUUID() });
     const p3 = (await api('GET', '/api/v1/online/pending')).find(x => x.bookingCode === b3.code);
     const r3 = await api('GET', `/api/v1/reservations/${p3.id}`);
-    await api('POST', `/api/v1/reservations/${p3.id}/cancel`, { reason: 'Tarihlerde grup var', version: r3.version }, { key: randomUUID() });
+    await api('POST', `/api/v1/online/pending/${p3.id}/reject`, { reason: 'Tarihlerde grup var', version: r3.version }, { key: randomUUID() });
     v = await pub('POST', '/api/public/v1/bookings/lookup', { code: b3.code, contact: 'uc@example.invalid' });
     assert.equal(v.status, 'rejected');
+    // Tek tıkla onay ucu: opsiyonlu → onaylı; ikinci kez onaylanamaz
+    const b4 = await pub('POST', '/api/public/v1/bookings', { ...guest, arrival: addDays(state.bd, 230), departure: addDays(state.bd, 232), email: 'dort@example.invalid' }, { key: randomUUID() });
+    const p4 = (await api('GET', '/api/v1/online/pending')).find(x => x.bookingCode === b4.code);
+    await api('POST', `/api/v1/online/pending/${p4.id}/approve`, { version: p4.version }, { key: randomUUID() });
+    await api('POST', `/api/v1/online/pending/${p4.id}/approve`, { version: p4.version + 1 }, { key: randomUUID(), expect: 422 });
+    assert.equal((await pub('POST', '/api/public/v1/bookings/lookup', { code: b4.code, contact: 'dort@example.invalid' })).status, 'approved');
+    const pd = await api('GET', `/api/v1/online/photos/${ph.id}/data`);
+    assert.ok(pd.dataUrl.startsWith('data:image/png;base64,'));
 
     // İstek sınırı: aynı ziyaretçi dakikada en fazla 10 yazma/sorgu
     let limited = false;

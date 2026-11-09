@@ -52,6 +52,7 @@ const SetProperty = lazy(() => import('./pages/settings/Property'));
 const SetRooms = lazy(() => import('./pages/settings/Rooms'));
 const SetRates = lazy(() => import('./pages/settings/Rates'));
 const SetResCodes = lazy(() => import('./pages/settings/ReservationCodes'));
+const SetOnline = lazy(() => import('./pages/settings/Online'));
 const SetFinance = lazy(() => import('./pages/settings/Finance'));
 const SetUsers = lazy(() => import('./pages/settings/Users'));
 const SetDevices = lazy(() => import('./pages/settings/Devices'));
@@ -183,6 +184,7 @@ export function App() {
           <Route path="/settings/rooms" element={<SetRooms />} />
           <Route path="/settings/rates" element={<SetRates />} />
           <Route path="/settings/reservation-codes" element={<SetResCodes />} />
+          <Route path="/online" element={<SetOnline />} />
           <Route path="/settings/finance" element={<SetFinance />} />
           <Route path="/settings/users" element={<SetUsers />} />
           <Route path="/settings/devices" element={<SetDevices />} />

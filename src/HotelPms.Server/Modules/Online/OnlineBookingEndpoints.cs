@@ -35,7 +35,7 @@ public sealed record OnlineRoomContentDto(Guid RoomTypeId, string Code, string N
     int SortOrder, int Version, int PhotoCount);
 public sealed record SaveOnlineRoomRequest(bool IsListed, JsonElement Title, JsonElement Description, JsonElement Features, int SortOrder, int? Version);
 public sealed record OnlinePendingDto(Guid Id, string ReservationNumber, string BookingCode, string GuestName, string? Email, string? Phone, string RoomTypeCode,
-    DateOnly Arrival, DateOnly Departure, int Adults, int Children, decimal TotalRate, string Currency, DateTime CreatedAt);
+    DateOnly Arrival, DateOnly Departure, int Adults, int Children, decimal TotalRate, string Currency, DateTime CreatedAt, string? SpecialRequests, int Version);
 
 /// <summary>
 /// Online rezervasyon (otel web sitesi). Tek veri kaynağı pms.reservations'tır: web talebi "opsiyonlu" (tentative) rezervasyon olarak
@@ -412,11 +412,42 @@ public static class OnlineBookingEndpoints
             return new { ok = true };
         }, requireKey: false)).RequirePermission("online.manage");
 
+        // PMS ekranında önizleme: istemci sunucu sertifikasını tarayıcı olarak tanımadığı için görsel veri adresi olarak döner.
+        g.MapGet("/photos/{id:guid}/data", async (Guid id, Db db) =>
+        {
+            var p = (await db.QueryAsync<(string FileName, string ContentType)>("SELECT file_name, content_type FROM pms.online_photos WHERE id = @id", new { id })).FirstOrDefault();
+            if (p == default) throw PmsException.NotFound("Fotoğraf");
+            var path = Path.Combine(photoDir, p.FileName);
+            if (!File.Exists(path)) throw PmsException.NotFound("Fotoğraf dosyası");
+            return new { dataUrl = $"data:{p.ContentType};base64,{Convert.ToBase64String(await File.ReadAllBytesAsync(path))}" };
+        }).RequirePermission("online.manage");
+
+        // Tek tıkla onay / ret (yalnız onay bekleyen web talepleri). Onay: opsiyonlu → onaylı; ret: gerekçeli iptal (web'de "Reddedildi").
+        g.MapPost("/pending/{id:guid}/approve", (Guid id, VersionRequest req, CommandRunner cmd) => cmd.RunAsync("online.approve", new { id, req }, async tx =>
+        {
+            var r = await tx.OneOrNullAsync<(string Status, string? Code)>("SELECT status, booking_code FROM pms.reservations WHERE id = @id FOR UPDATE", new { id });
+            if (r == default || r.Code is null) throw PmsException.NotFound("Web talebi");
+            if (r.Status != "tentative") throw PmsException.Validation("Talep artık onay beklemiyor.");
+            await tx.ExecVersionedAsync("UPDATE pms.reservations SET status = 'confirmed', option_until = NULL, updated_at = now(), version = version + 1 WHERE id = @id AND version = @Version",
+                new { id, req.Version });
+            await tx.AuditAsync("online.approve", "reservation", id, new { status = "tentative" }, new { status = "confirmed" });
+            tx.Publish("reservations", id); tx.Publish("online"); tx.Publish("availability");
+            return new { ok = true };
+        })).RequirePermission("reservation.edit");
+
+        g.MapPost("/pending/{id:guid}/reject", (Guid id, CancelRequest req, CommandRunner cmd) => cmd.RunAsync("online.reject", new { id, req }, async tx =>
+        {
+            var code = await tx.ScalarAsync<string?>("SELECT booking_code FROM pms.reservations WHERE id = @id", new { id }) ?? throw PmsException.NotFound("Web talebi");
+            await ReservationService.CancelAsync(tx, id, req);
+            tx.Publish("online");
+            return new { ok = true, code };
+        })).RequirePermission("reservation.cancel");
+
         // Onay bekleyen web talepleri (resepsiyon onaylar: rezervasyonu "onaylı" yapar; reddeder: iptal eder).
         g.MapGet("/pending", (Db db) => db.QueryAsync<OnlinePendingDto>("""
             SELECT r.id, r.reservation_number, r.booking_code, g.first_name || ' ' || g.last_name AS guest_name, g.email, g.phone, t.code AS room_type_code,
                    r.arrival, r.departure, r.adults, r.children,
-                   COALESCE((SELECT sum(rate) FROM pms.reservation_rates x WHERE x.reservation_id = r.id), 0) AS total_rate, r.currency::text AS currency, r.created_at
+                   COALESCE((SELECT sum(rate) FROM pms.reservation_rates x WHERE x.reservation_id = r.id), 0) AS total_rate, r.currency::text AS currency, r.created_at, r.special_requests, r.version
             FROM pms.reservations r JOIN pms.guests g ON g.id = r.guest_id JOIN pms.room_types t ON t.id = r.room_type_id
             WHERE r.booking_code IS NOT NULL AND r.status = 'tentative' ORDER BY r.created_at
             """)).RequirePermission("reservation.view");
