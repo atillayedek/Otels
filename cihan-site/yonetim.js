@@ -18,6 +18,8 @@
     const text = await res.text();
     let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* JSON değil */ }
     if (res.ok) return data;
+    // Yanıt PMS'ten gelmiyorsa (JSON değil: site henüz otel sunucusuna bağlanmamış veya sunucu kapalı)
+    if (!data) { const e = new Error('Otel sunucusuna ulaşılamıyor. Web sitesi otel sunucusuna henüz bağlanmadı veya sunucu kapalı.'); e.status = 0; throw e; }
     const e = new Error(res.status === 429 ? 'Çok fazla deneme. Bir dakika sonra tekrar deneyin.' : data?.message || 'İşlem tamamlanamadı.');
     e.status = res.status;
     throw e;
