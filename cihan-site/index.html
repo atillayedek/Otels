@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cihan Otel</title>
+  <meta name="description" content="Cihan Otel — odanızı doğrudan otelden ayırtın, rezervasyonunuzu takip kodunuzla sorgulayın.">
+  <meta name="theme-color" content="#2f8f46">
+  <meta property="og:title" content="Cihan Otel">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/img/dis-gunduz.jpg">
+  <link rel="icon" href="/img/logo.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/config.js"></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main" data-t="skip">İçeriğe geç</a>
+
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="#top" aria-label="Cihan Otel">
+        <img src="/img/logo.png" alt="" width="54" height="38">
+        <span>Cihan Otel</span>
+      </a>
+      <nav class="nav" aria-label="Ana menü">
+        <a href="#odalar" data-t="nav.rooms">Odalar</a>
+        <a href="#galeri" data-t="nav.gallery">Galeri</a>
+        <a href="#sorgula" data-t="nav.lookup">Rezervasyonum</a>
+        <a href="#iletisim" data-t="nav.contact">İletişim</a>
+      </nav>
+      <div class="top-act">
+        <button class="lang" id="lang" type="button" aria-label="Dil / Language">EN</button>
+        <a class="btn btn-o" href="#rezervasyon" data-t="nav.book">Rezervasyon</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap hero-in">
+        <div class="hero-text">
+          <p class="kicker" data-t="hero.kicker">Doğrudan otelden rezervasyon</p>
+          <h1>Cihan Otel</h1>
+          <p class="lead" id="hero-lead" data-t="hero.lead">Tarihlerinizi seçin, müsait odaları ve gerçek fiyatları görün. Talebiniz otel tarafından onaylandığında takip kodunuzla durumunu buradan izleyebilirsiniz.</p>
+          <form class="search" id="search" autocomplete="off">
+            <label><span data-t="f.arrival">Giriş</span><input type="date" name="arrival" required></label>
+            <label><span data-t="f.departure">Çıkış</span><input type="date" name="departure" required></label>
+            <label class="sm"><span data-t="f.adults">Yetişkin</span><select name="adults"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+            <label class="sm"><span data-t="f.children">Çocuk</span><select name="children"><option selected>0</option><option>1</option><option>2</option><option>3</option></select></label>
+            <button class="btn btn-o" type="submit" data-t="f.search">Müsaitlik</button>
+          </form>
+        </div>
+        <div class="hero-pics" aria-hidden="true">
+          <img class="p2" src="/img/dis-gece-2.jpg" alt="" width="364" height="549">
+          <img class="p1" src="/img/dis-gunduz.jpg" alt="" width="577" height="346">
+          <img class="p3" src="/img/teras.jpg" alt="" width="549" height="364">
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="rezervasyon" hidden>
+      <div class="wrap">
+        <div class="sec-head"><h2 data-t="book.title">Müsait odalar</h2><p class="muted" id="book-sum"></p></div>
+        <div id="book-body"></div>
+      </div>
+    </section>
+
+    <section class="sec" id="hakkimizda" hidden>
+      <div class="wrap two">
+        <div>
+          <h2 data-t="about.title">Otelimiz</h2>
+          <div class="prose" id="about"></div>
+        </div>
+        <img class="about-pic" src="/img/giris.jpg" alt="" width="450" height="330" loading="lazy">
+      </div>
+    </section>
+
+    <section class="sec" id="odalar">
+      <div class="wrap">
+        <div class="sec-head"><h2 data-t="rooms.title">Odalar</h2></div>
+        <div class="rooms" id="rooms"></div>
+      </div>
+    </section>
+
+    <section class="sec alt" id="galeri">
+      <div class="wrap">
+        <div class="sec-head"><h2 data-t="gallery.title">Galeri</h2></div>
+        <div class="gallery" id="gallery"></div>
+      </div>
+    </section>
+
+    <section class="sec" id="sorgula">
+      <div class="wrap narrow">
+        <div class="sec-head"><h2 data-t="lookup.title">Rezervasyonumu sorgula</h2>
+          <p class="muted" data-t="lookup.sub">Takip kodunuzu ve rezervasyonda verdiğiniz e-posta adresini veya telefon numarasını girin.</p></div>
+        <form class="lookup" id="lookup" autocomplete="off">
+          <label><span data-t="f.code">Takip kodu</span><input name="code" required maxlength="21" placeholder="CIHAN-XXXXXXXX" spellcheck="false"></label>
+          <label><span data-t="f.contact">E-posta veya telefon</span><input name="contact" required maxlength="120"></label>
+          <button class="btn btn-g" type="submit" data-t="f.query">Sorgula</button>
+        </form>
+        <div id="lookup-out" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="sec alt" id="iletisim">
+      <div class="wrap two">
+        <div>
+          <h2 data-t="contact.title">İletişim</h2>
+          <dl class="contact" id="contact"></dl>
+          <p class="muted" id="contact-empty" data-t="contact.empty">İletişim bilgileri kısa süre içinde eklenecektir.</p>
+        </div>
+        <img class="about-pic" src="/img/dis-gece-1.jpg" alt="" width="275" height="183" loading="lazy">
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <div class="brand small"><img src="/img/logo.png" alt="" width="40" height="28"><span>Cihan Otel</span></div>
+      <nav aria-label="Yasal">
+        <button type="button" class="link" data-doc="terms" data-t="doc.terms">Rezervasyon ve iptal koşulları</button>
+        <button type="button" class="link" data-doc="privacy" data-t="doc.privacy">KVKK aydınlatma metni</button>
+      </nav>
+      <small>© <span id="year"></span> Cihan Otel</small>
+    </div>
+  </footer>
+
+  <a class="wa" id="wa" href="#" target="_blank" rel="noopener" hidden aria-label="WhatsApp">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.6.3a2.6 2.6 0 0 0-.8 1.9 4.5 4.5 0 0 0 1 2.4 10.3 10.3 0 0 0 3.9 3.5c1.5.6 2 .7 2.7.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>
+  </a>
+
+  <dialog class="doc" id="doc">
+    <form method="dialog"><button class="x" aria-label="Kapat">×</button></form>
+    <h2 id="doc-title"></h2>
+    <div class="prose" id="doc-body"></div>
+  </dialog>
+
+  <dialog class="doc" id="lightbox"><form method="dialog"><button class="x" aria-label="Kapat">×</button></form><img id="lb-img" alt=""></dialog>
+</body>
+</html>
